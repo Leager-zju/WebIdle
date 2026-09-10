@@ -1,0 +1,19 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@500;600;700;800&display=swap');
+
+:root { color-scheme: dark; --bg: #0d1215; --surface: #151e23; --line: #2f3c42; --text: #edf2ec; --muted: #9aa7a8; --accent: #8bf5c9; --warm: #ffb86b; }
+* { box-sizing: border-box; }
+body { min-width: 320px; margin: 0; background: radial-gradient(circle at 80% 0%, #1a3933 0, transparent 35%), var(--bg); color: var(--text); font-family: Manrope, sans-serif; }
+.game-shell { width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0 30px; }
+.game-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+.eyebrow { margin: 0 0 10px; color: var(--accent); font: 500 .7rem/1 DM Mono, monospace; letter-spacing: .14em; }
+h1 { margin: 0; font-size: clamp(3rem, 8vw, 6rem); line-height: .95; letter-spacing: -.08em; }
+.subtitle { margin: 18px 0 0; color: var(--muted); }
+.status { display: flex; align-items: center; gap: 10px; color: var(--accent); font: 500 .7rem DM Mono, monospace; letter-spacing: .1em; }
+.status i { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 6px rgba(139, 245, 201, .12); }
+.game-stage { position: relative; overflow: hidden; border: 1px solid var(--line); background: #11181d; box-shadow: 0 25px 70px rgba(0, 0, 0, .3); }
+canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.stage-hint { position: absolute; right: 16px; bottom: 13px; padding: 5px 8px; background: rgba(13, 18, 21, .78); color: var(--muted); font: .68rem DM Mono, monospace; }
+.game-footer { display: flex; justify-content: space-between; gap: 20px; padding-top: 17px; color: var(--muted); font: .68rem DM Mono, monospace; }
+button { padding: 7px 11px; border: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; font: inherit; }
+button:hover { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 600px) { .game-shell { width: min(100% - 24px, 1120px); padding-top: 36px; } .game-header { align-items: start; flex-direction: column; } .game-footer { align-items: start; flex-direction: column; } }
