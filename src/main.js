@@ -1,68 +1,43 @@
-const canvas = document.querySelector('#game-canvas');
-const context = canvas.getContext('2d');
+import pageController from './page-controller.js';
+import { getState, currentZone, subscribe, startLoop, resetGame } from './game-state.js';
+import homePage from './pages/home.js';
+import adventurePage from './pages/adventure.js';
+import inventoryPage from './pages/inventory.js';
+import systemsPage from './pages/systems.js';
+import storyPage from './pages/story.js';
+
+const app = document.querySelector('#game-app');
 const status = document.querySelector('#game-status');
-const resetButton = document.querySelector('#reset-button');
+const navToggle = document.querySelector('#nav-toggle');
 
-const keys = new Set();
-const player = { x: canvas.width / 2, y: canvas.height / 2, size: 28, speed: 4 };
+[homePage, adventurePage, inventoryPage, systemsPage, storyPage].forEach(page => pageController.register(page));
 
-function reset() {
-  player.x = canvas.width / 2;
-  player.y = canvas.height / 2;
-  status.textContent = 'READY';
+function updateSharedHeader(state) {
+  const zoneName = state.adventure.running ? `远征中 · ${currentZone(state).name}` : '营地待命';
+  status.classList.toggle('paused', !state.adventure.running);
+  status.querySelector('span').textContent = zoneName;
+  document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.page === pageController.currentId));
 }
 
-function update() {
-  const horizontal = Number(keys.has('ArrowRight') || keys.has('d')) - Number(keys.has('ArrowLeft') || keys.has('a'));
-  const vertical = Number(keys.has('ArrowDown') || keys.has('s')) - Number(keys.has('ArrowUp') || keys.has('w'));
-  player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x + horizontal * player.speed));
-  player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y + vertical * player.speed));
-  if (horizontal || vertical) status.textContent = 'PLAYING';
-}
-
-function draw() {
-  context.fillStyle = '#11181d';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-
-  context.strokeStyle = 'rgba(139, 245, 201, .1)';
-  context.lineWidth = 1;
-  for (let x = 0; x < canvas.width; x += 48) {
-    context.beginPath();
-    context.moveTo(x, 0);
-    context.lineTo(x, canvas.height);
-    context.stroke();
-  }
-  for (let y = 0; y < canvas.height; y += 48) {
-    context.beginPath();
-    context.moveTo(0, y);
-    context.lineTo(canvas.width, y);
-    context.stroke();
-  }
-
-  context.fillStyle = '#8bf5c9';
-  context.fillRect(player.x - player.size / 2, player.y - player.size / 2, player.size, player.size);
-  context.fillStyle = '#11181d';
-  context.fillRect(player.x - 5, player.y - 5, 10, 10);
-}
-
-function frame() {
-  update();
-  draw();
-  requestAnimationFrame(frame);
-}
-
-window.addEventListener('keydown', (event) => {
-  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd'].includes(key)) {
-    event.preventDefault();
-    keys.add(key);
-  }
+navToggle.addEventListener('click', () => {
+  const collapsed = app.classList.toggle('nav-collapsed');
+  navToggle.setAttribute('aria-expanded', String(!collapsed));
 });
-window.addEventListener('keyup', (event) => {
-  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-  keys.delete(key);
-});
-resetButton.addEventListener('click', reset);
 
-reset();
-frame();
+document.querySelector('#main-nav').addEventListener('click', event => {
+  const pageButton = event.target.closest('[data-page]');
+  if (!pageButton) return;
+  pageController.switchTo(pageButton.dataset.page);
+  updateSharedHeader(getState());
+});
+
+document.addEventListener('click', event => {
+  const pageButton = event.target.closest('[data-page]');
+  if (pageButton && !pageButton.closest('#main-nav')) pageController.switchTo(pageButton.dataset.page);
+  if (event.target.closest('[data-action="reset"]')) resetGame();
+});
+
+subscribe(state => { updateSharedHeader(state); pageController.renderCurrent(); });
+updateSharedHeader(getState());
+pageController.switchTo('home');
+startLoop();

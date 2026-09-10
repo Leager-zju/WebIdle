@@ -3,31 +3,45 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Leager 的网页游戏 Demo。">
-  <title>Demo / Web Game</title>
+  <meta name="description" content="余烬远征：一款主线驱动的纯文字放置冒险游戏。">
+  <title>余烬远征 / Idle Expedition</title>
   <link rel="stylesheet" href="./src/style.css">
 </head>
 <body>
-  <main class="game-shell">
+  <div class="app-shell" id="game-app">
     <header class="game-header">
-      <div>
-        <p class="eyebrow">LEAGER / WEB GAME</p>
-        <h1>Demo</h1>
-        <p class="subtitle">一个可以持续迭代的网页游戏起点。</p>
+      <div class="brand-group">
+        <button class="nav-toggle" id="nav-toggle" type="button" aria-label="展开或收缩导航栏" aria-expanded="true">☰</button>
+        <div>
+          <p class="eyebrow">TEXT IDLE RPG / CHAPTER 01</p>
+          <h1>余烬远征</h1>
+          <p class="subtitle">在世界熄灭之前，让远征队穿过荒原，重新点亮每一座营火。</p>
+        </div>
       </div>
-      <div class="status"><i></i><span id="game-status">READY</span></div>
+      <div class="status" id="game-status"><i></i><span>营地待命</span></div>
     </header>
 
-    <section class="game-stage" aria-label="游戏画布">
-      <canvas id="game-canvas" width="960" height="540"></canvas>
-      <div class="stage-hint">方向键 / WASD 移动</div>
-    </section>
+    <div class="app-body">
+      <aside class="sidebar" id="sidebar" aria-label="游戏导航">
+        <div class="sidebar-heading"><span class="panel-kicker">NAVIGATION</span><span class="sidebar-label">游戏系统</span></div>
+        <nav class="main-nav" id="main-nav">
+          <button class="nav-item active" type="button" data-page="home"><span class="nav-index">01</span><span class="sidebar-label">主界面</span></button>
+          <button class="nav-item" type="button" data-page="adventure"><span class="nav-index">02</span><span class="sidebar-label">冒险</span></button>
+          <button class="nav-item" type="button" data-page="inventory"><span class="nav-index">03</span><span class="sidebar-label">物品栏</span></button>
+          <button class="nav-item" type="button" data-page="systems"><span class="nav-index">04</span><span class="sidebar-label">远征系统</span></button>
+          <button class="nav-item" type="button" data-page="story"><span class="nav-index">05</span><span class="sidebar-label">剧情档案</span></button>
+        </nav>
+        <div class="sidebar-foot sidebar-label">每一个系统，都会回头改变远征。</div>
+      </aside>
+
+      <main class="page-content" id="page-content" aria-live="polite"></main>
+    </div>
 
     <footer class="game-footer">
-      <span>HTML · Canvas · JavaScript</span>
-      <button id="reset-button" type="button">重置 Demo</button>
+      <span>纯文字放置 · 离线收益最多计算 8 小时</span>
+      <button class="text-button danger" data-action="reset" type="button">重置存档</button>
     </footer>
-  </main>
+  </div>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
