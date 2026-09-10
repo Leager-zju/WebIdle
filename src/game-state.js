@@ -1,10 +1,10 @@
 import { zones as zoneConfig } from './config/zones.js';
-import { items, itemOrder } from './config/items.js';
+import { items, itemOrder, itemCategories, categoryOrder } from './config/items.js';
 
 export const MAX_OFFLINE_SECONDS = 8 * 60 * 60;
 const SAVE_KEY = 'ember-expedition-save-v1';
 export const zones = zoneConfig;
-export { items, itemOrder };
+export { items, itemOrder, itemCategories, categoryOrder };
 
 export const mainline = [
   { title: '点亮第一座营火', description: '让远征队完成第一次战斗，确认荒原边缘仍然可以被穿越。', condition: state => state.totalWins >= 1, reward: '获得初始远征资格' },
@@ -12,6 +12,13 @@ export const mainline = [
   { title: '分析异常电池', description: '收集旧电池，研究它们为何仍在污染区域中保持电量。', condition: state => (state.inventory.oldBattery || 0) >= 3, reward: '解锁「研究」系统' },
   { title: '组建第二支小队', description: '从重装单位身上回收装甲板，为新伙伴准备一套可靠的装备。', condition: state => (state.inventory.armorPlate || 0) >= 3, reward: '解锁「伙伴」系统' },
   { title: '追踪核心信号', description: '余烬碎片正在指向更深处的区域。第一章的下一段道路已经出现。', condition: state => (state.inventory.emberShard || 0) >= 2, reward: '完成边境调查阶段' }
+];
+
+// 字体档位：scale 直接乘到根字号上，所以界面里所有 rem 尺寸一起缩放。新增档位只改这里。
+export const fontScales = [
+  { id: 'small', label: '小', scale: 1 },
+  { id: 'medium', label: '中', scale: 1.2 },
+  { id: 'large', label: '大', scale: 1.5 }
 ];
 
 const freshAdventure = () => ({
@@ -28,6 +35,8 @@ const freshAdventure = () => ({
 const freshState = () => ({
   gold: 45, scrap: 24, essence: 0, xp: 0, level: 1, totalWins: 0, zoneClears: 0, mainlineIndex: 0,
   workshop: 0, research: 0, companions: 0,
+  equipped: { weapon: null, armor: null },
+  settings: { fontScale: 'small' },
   inventory: { ...Object.fromEntries(itemOrder.map(itemId => [itemId, 0])), scrap: 24 },
   adventure: freshAdventure(),
   log: [],
@@ -44,10 +53,21 @@ function notify() { listeners.forEach(listener => listener(state)); }
 export function formatNumber(value) { return Math.floor(value).toLocaleString('zh-CN'); }
 export function formatDuration(seconds) { const total = Math.max(0, Math.floor(seconds)); const hours = Math.floor(total / 3600); const minutes = Math.floor((total % 3600) / 60); const secs = total % 60; return hours ? `${hours}小时${minutes}分` : minutes ? `${minutes}分${secs}秒` : `${secs}秒`; }
 export function levelNeed(target = state) { return 45 + (target.level - 1) * 35; }
-export function getPlayerMaxHp(target = state) { return 100 + target.workshop * 15 + target.companions * 25; }
+export function getEquipBonus(target = state) {
+  const bonus = { attack: 0, hp: 0 };
+  Object.values(target.equipped || {}).forEach(itemId => {
+    const stats = items[itemId]?.equip;
+    if (!stats) return;
+    bonus.attack += stats.attack || 0;
+    bonus.hp += stats.hp || 0;
+  });
+  return bonus;
+}
+export function isEquipped(id, target = state) { return Object.values(target.equipped || {}).includes(id); }
+export function getPlayerMaxHp(target = state) { return 100 + target.workshop * 15 + target.companions * 25 + getEquipBonus(target).hp; }
 export function getPlayerRegen(target = state) { return 2 + target.workshop * .8 + target.companions * 1.5; }
 export function getPlayerAttack(target = state) {
-  return 12 + target.level * 4 + target.workshop * 3 + target.research * 5 + target.companions * 4;
+  return 12 + target.level * 4 + target.workshop * 3 + target.research * 5 + target.companions * 4 + getEquipBonus(target).attack;
 }
 export function getPlayerAttackInterval(target = state) { return Math.max(.9, 2.2 - target.research * .08); }
 export function getInventoryCapacity(target = state) { return 32 + target.workshop * 8 + target.companions * 4; }
@@ -155,7 +175,8 @@ function hydrate() {
   try {
     const saved = JSON.parse(localStorage.getItem(SAVE_KEY));
     if (!saved) { state = initial; return; }
-    state = { ...initial, ...saved, adventure: { ...initial.adventure, ...saved.adventure }, inventory: { ...initial.inventory, ...saved.inventory }, log: Array.isArray(saved.log) ? saved.log : [] };
+    state = { ...initial, ...saved, adventure: { ...initial.adventure, ...saved.adventure }, inventory: { ...initial.inventory, ...saved.inventory }, equipped: { ...initial.equipped, ...(saved.equipped || {}) }, settings: { ...initial.settings, ...(saved.settings || {}) }, log: Array.isArray(saved.log) ? saved.log : [] };
+    Object.keys(state.equipped).forEach(slot => { if (!items[state.equipped[slot]]) state.equipped[slot] = null; });
     delete state.equippedSet;
     delete state.setPieces;
     state.inventory = Object.fromEntries(itemOrder.map(itemId => [itemId, Math.max(0, Number(state.inventory[itemId]) || 0)]));
@@ -179,6 +200,40 @@ export function toggleAutoPush() { state.adventure.autoPush = !state.adventure.a
 export function upgradeWorkshop() { if (state.mainlineIndex < 2) return; const cost = 40 + state.workshop * 35; if (state.scrap < cost) return; state.scrap -= cost; state.inventory.scrap = Math.max(0, state.inventory.scrap - cost); state.workshop += 1; addLog(state, `工坊升级至 Lv.${state.workshop}，生命值和攻击力提高。`, 'progress'); saveState(); notify(); }
 export function upgradeResearch() { const cost = 2 + state.research * 3; if (state.mainlineIndex < 3 || state.essence < cost) return; state.essence -= cost; state.research += 1; addLog(state, `研究完成：攻击间隔缩短，当前攻击力 ${getPlayerAttack()}。`, 'progress'); saveState(); notify(); }
 export function upgradeCompanions() { const goldCost = 100 + state.companions * 90; const essenceCost = 4 + state.companions * 3; if (state.mainlineIndex < 4 || state.gold < goldCost || state.essence < essenceCost) return; state.gold -= goldCost; state.essence -= essenceCost; state.companions += 1; addLog(state, `伙伴编入队伍。生命值和攻击力提高。`, 'progress'); saveState(); notify(); }
+export function discardItem(id, amount = 1) {
+  const item = items[id];
+  const owned = state.inventory[id] || 0;
+  const count = Math.min(owned, Math.max(1, Math.floor(amount)));
+  if (!item || !count) return;
+  state.inventory[id] = owned - count;
+  if (id === 'scrap') state.scrap = Math.max(0, state.scrap - count);
+  if (id === 'emberShard') state.essence = Math.max(0, state.essence - count);
+  // 丢光了就自动卸下，避免出现"装备着不存在的物品"。
+  if (!state.inventory[id]) Object.keys(state.equipped).forEach(slot => { if (state.equipped[slot] === id) state.equipped[slot] = null; });
+  addLog(state, `丢弃了 ${item.name} ×${count}。`, 'system');
+  saveState(); notify();
+}
+export function useItem(id) {
+  const item = items[id];
+  if (!item || item.category !== 'consumable' || !(state.inventory[id] > 0)) return;
+  const effect = item.use || {};
+  state.inventory[id] -= 1;
+  const maxHp = getPlayerMaxHp(state);
+  const healed = Math.min(effect.heal || 0, Math.max(0, maxHp - state.adventure.playerHp));
+  state.adventure.playerHp = Math.min(maxHp, state.adventure.playerHp + (effect.heal || 0));
+  addLog(state, healed > 0 ? `使用了 ${item.name}，恢复 ${healed} 点生命值。` : `使用了 ${item.name}。`, 'system');
+  saveState(); notify();
+}
+export function equipItem(id) {
+  const item = items[id];
+  if (!item || item.category !== 'equipment' || !(state.inventory[id] > 0)) return;
+  const slot = item.slot || 'weapon';
+  if (state.equipped[slot] === id) { state.equipped[slot] = null; addLog(state, `卸下了 ${item.name}。`, 'system'); }
+  else { state.equipped[slot] = id; addLog(state, `装备了 ${item.name}，远征战力提升。`, 'progress'); }
+  saveState(); notify();
+}
+export function getFontScale(target = state) { return fontScales.find(option => option.id === target.settings?.fontScale) || fontScales[0]; }
+export function setFontScale(id) { if (!fontScales.some(option => option.id === id)) return; state.settings.fontScale = id; saveState(); notify(); }
 export function resetGame() { if (!window.confirm('确定要删除当前远征存档吗？')) return; state = freshState(); addLog(state, '新的远征从一簇微弱的火星开始。', 'system'); saveState(); notify(); }
 export function startLoop() { let lastTick = Date.now(); setInterval(() => { const now = Date.now(); advanceAdventure(state, (now - lastTick) / 1000); lastTick = now; if (now - lastSave > 5000) { saveState(); lastSave = now; } notify(); }, 500); window.addEventListener('beforeunload', saveState); }
 

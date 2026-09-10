@@ -15,7 +15,8 @@ export const zones = [
         exp: 18,
         dropTable: [
           { itemId: 'scrap', chance: 1, min: 2, max: 5 },
-          { itemId: 'oldBattery', chance: .34, min: 1, max: 1 }
+          { itemId: 'oldBattery', chance: .34, min: 1, max: 1 },
+          { itemId: 'fieldRation', chance: .16, min: 1, max: 1 }
         ]
       },
       {
@@ -30,7 +31,8 @@ export const zones = [
         dropTable: [
           { itemId: 'scrap', chance: 1, min: 4, max: 8 },
           { itemId: 'armorPlate', chance: .3, min: 1, max: 1 },
-          { itemId: 'emberShard', chance: .1, min: 1, max: 1 }
+          { itemId: 'emberShard', chance: .1, min: 1, max: 1 },
+          { itemId: 'scavengedBlade', chance: .12, min: 1, max: 1 }
         ]
       }
     ]
