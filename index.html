@@ -11,7 +11,6 @@
   <div class="app-shell" id="game-app">
     <header class="game-header">
       <div class="brand-group">
-        <button class="nav-toggle" id="nav-toggle" type="button" aria-label="展开或收缩导航栏" aria-expanded="true">☰</button>
         <div>
           <p class="eyebrow">TEXT IDLE RPG / CHAPTER 01</p>
           <h1>余烬远征</h1>
@@ -23,13 +22,17 @@
 
     <div class="app-body">
       <aside class="sidebar" id="sidebar" aria-label="游戏导航">
-        <div class="sidebar-heading"><span class="panel-kicker">NAVIGATION</span><span class="sidebar-label">游戏系统</span></div>
+        <div class="sidebar-heading">
+          <span class="panel-kicker">NAVIGATION</span>
+          <button class="nav-toggle" id="nav-toggle" type="button" aria-label="展开或收缩导航栏" aria-expanded="true">☰</button>
+        </div>
         <nav class="main-nav" id="main-nav">
-          <button class="nav-item active" type="button" data-page="home"><span class="nav-index">01</span><span class="sidebar-label">主界面</span></button>
-          <button class="nav-item" type="button" data-page="adventure"><span class="nav-index">02</span><span class="sidebar-label">冒险</span></button>
-          <button class="nav-item" type="button" data-page="inventory"><span class="nav-index">03</span><span class="sidebar-label">物品栏</span></button>
-          <button class="nav-item" type="button" data-page="systems"><span class="nav-index">04</span><span class="sidebar-label">远征系统</span></button>
-          <button class="nav-item" type="button" data-page="story"><span class="nav-index">05</span><span class="sidebar-label">剧情档案</span></button>
+          <button class="nav-item active" type="button" data-page="home"><span class="nav-index" aria-hidden="true">🏕️</span><span class="sidebar-label">主界面</span></button>
+          <button class="nav-item" type="button" data-page="adventure"><span class="nav-index" aria-hidden="true">⚔️</span><span class="sidebar-label">冒险</span></button>
+          <button class="nav-item" type="button" data-page="inventory"><span class="nav-index" aria-hidden="true">🎒</span><span class="sidebar-label">物品栏</span></button>
+          <button class="nav-item" type="button" data-page="systems"><span class="nav-index" aria-hidden="true">⚙️</span><span class="sidebar-label">远征系统</span></button>
+          <button class="nav-item" type="button" data-page="story"><span class="nav-index" aria-hidden="true">📜</span><span class="sidebar-label">剧情档案</span></button>
+          <button class="nav-item" type="button" data-page="settings"><span class="nav-index" aria-hidden="true">🔧</span><span class="sidebar-label">设置</span></button>
         </nav>
         <div class="sidebar-foot sidebar-label">每一个系统，都会回头改变远征。</div>
       </aside>
