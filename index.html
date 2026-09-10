@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Leager 的网页游戏 Demo。">
+  <title>Demo / Web Game</title>
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <main class="game-shell">
+    <header class="game-header">
+      <div>
+        <p class="eyebrow">LEAGER / WEB GAME</p>
+        <h1>Demo</h1>
+        <p class="subtitle">一个可以持续迭代的网页游戏起点。</p>
+      </div>
+      <div class="status"><i></i><span id="game-status">READY</span></div>
+    </header>
+
+    <section class="game-stage" aria-label="游戏画布">
+      <canvas id="game-canvas" width="960" height="540"></canvas>
+      <div class="stage-hint">方向键 / WASD 移动</div>
+    </section>
+
+    <footer class="game-footer">
+      <span>HTML · Canvas · JavaScript</span>
+      <button id="reset-button" type="button">重置 Demo</button>
+    </footer>
+  </main>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
