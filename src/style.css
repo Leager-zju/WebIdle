@@ -65,7 +65,7 @@ h3 { margin-bottom: 5px; font-size: 1rem; }
 .panel { border: 1px solid var(--line); background: rgba(21, 30, 35, .92); box-shadow: 0 18px 42px rgba(0, 0, 0, .14); }
 .panel-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .muted { color: var(--muted); font: .68rem DM Mono, monospace; }
-.resource-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; border: 1px solid var(--line); background: var(--line); }
+.resource-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; border: 1px solid var(--line); background: var(--line); }
 .page-resource-strip { margin-bottom: 18px; }
 .resource { min-height: 74px; padding: 14px 16px; background: var(--surface); }
 .resource-label { color: var(--muted); font: .66rem DM Mono, monospace; letter-spacing: .08em; }
@@ -87,12 +87,59 @@ h3 { margin-bottom: 5px; font-size: 1rem; }
 .primary-button:hover { background: #b6ffdd; transform: translateY(-1px); }
 .secondary-button { padding: 9px 13px; border: 1px solid var(--line); background: transparent; color: var(--text); }
 .secondary-button:hover, .secondary-button.active { border-color: var(--accent); color: var(--accent); background: rgba(139, 245, 201, .08); }
+.secondary-button.danger { border-color: rgba(255, 142, 123, .45); color: var(--red); }
+.secondary-button.danger:hover { border-color: var(--red); color: var(--red); background: rgba(255, 142, 123, .12); }
 .primary-button:disabled, .secondary-button:disabled { opacity: .4; cursor: not-allowed; transform: none; }
 .text-button { padding: 0; background: transparent; color: var(--muted); font: .68rem DM Mono, monospace; }
 .text-button:hover { color: var(--accent); }
 .text-button.danger:hover { color: var(--red); }
 .adventure-panel, .story-panel, .inventory-panel { padding: 22px; }
 .adventure-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 18px; padding-bottom: 19px; border-bottom: 1px solid var(--line-soft); }
+/* 工具栏左侧：区域选择与「怪物图鉴」按钮同一行。
+   toolbar-row 用 align-items: stretch，让按钮与区域选择框严格等高，字号可以单独调小而不影响高度。 */
+.toolbar-group { display: grid; gap: 7px; }
+.toolbar-row { display: flex; align-items: stretch; gap: 10px; }
+.codex-toggle { padding: 8px 14px; font-size: .76rem; }
+/* 自绘区域下拉：触发器 + 绝对定位菜单。菜单用透明度与位移过渡，展开/收起都是平滑的，
+   原生 select 的弹层由浏览器绘制，既没法定制也没法加动画。 */
+.zone-picker { display: flex; position: relative; }
+.zone-trigger { flex: 1 1 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 240px; padding: 10px 12px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font-size: .86rem; }
+.zone-trigger:hover, .zone-picker.open .zone-trigger { border-color: var(--accent); }
+.zone-caret { color: var(--muted); font-size: .7rem; transition: transform .16s ease; }
+.zone-picker.open .zone-caret { transform: rotate(180deg); }
+.zone-menu { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0; display: grid; gap: 2px; padding: 4px; border: 1px solid var(--line); background: #131d21; box-shadow: 0 18px 40px rgba(0, 0, 0, .45); opacity: 0; visibility: hidden; transform: translateY(-6px); transition: opacity .16s ease, transform .16s ease, visibility .16s; }
+.zone-picker.open .zone-menu { opacity: 1; visibility: visible; transform: translateY(0); }
+.zone-option { padding: 9px 11px; background: transparent; color: var(--muted); text-align: left; font-size: .82rem; }
+.zone-option:hover { background: rgba(139, 245, 201, .08); color: var(--text); }
+.zone-option.active { color: var(--accent); }
+/* 怪物图鉴：网格复用物品栏卡片样式，下面是详情框。 */
+.codex { display: none; }
+.codex-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 18px; }
+.codex-head .panel-kicker { margin: 0; }
+.codex-grid { margin-top: 16px; }
+.codex-card.selected { border-color: var(--accent); background: rgba(139, 245, 201, .08); }
+/* 未遭遇的怪物：占位卡片，不可点击，图标用虚线框区分。 */
+.codex-card.locked { cursor: default; opacity: .45; }
+.codex-card.locked .item-icon { border-style: dashed; color: var(--muted); }
+.codex-head .muted { margin-right: auto; }
+.codex-detail { margin-top: 18px; padding: 18px; border: 1px solid var(--line); background: rgba(11, 18, 20, .35); }
+.codex-hint { padding: 26px 0; color: var(--muted); font: .72rem DM Mono, monospace; text-align: center; }
+.codex-detail-head { display: flex; align-items: start; gap: 16px; }
+.codex-detail-head .combatant-art { flex: 0 0 auto; margin: 0; }
+.codex-detail-head h3 { margin: 0; }
+.codex-detail-head p { margin: 8px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.55; }
+.codex-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(122px, 1fr)); gap: 8px; margin-top: 16px; }
+.codex-stats > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; border: 1px solid var(--line-soft); background: var(--surface-2); }
+.codex-stats span { color: var(--muted); font: .62rem DM Mono, monospace; }
+.codex-stats b { font: 500 1rem DM Mono, monospace; }
+.codex-drops { margin-top: 16px; }
+.codex-drops ul { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.codex-drops li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 11px; border: 1px solid var(--line-soft); background: var(--surface-2); font-size: .74rem; }
+.codex-drops li span:last-child { color: var(--muted); font: .66rem DM Mono, monospace; }
+.codex-drops li { color: var(--rarity-color, inherit); }
+.codex-drops li.codex-drop-locked { color: var(--muted); }
+/* 物品名字按稀有度着色（--rarity-color 由 .rarity-* 提供，没有稀有度类时继承原色）。 */
+.item-card .item-copy b { color: var(--rarity-color, inherit); }
 .field-label { display: grid; gap: 7px; color: var(--muted); font: .67rem DM Mono, monospace; }
 select { min-width: 240px; padding: 10px 12px; border: 1px solid var(--line); outline: none; background: var(--surface-2); color: var(--text); }
 select:focus { border-color: var(--accent); }
@@ -102,15 +149,74 @@ select:focus { border-color: var(--accent); }
 .player-side { border-color: rgba(139, 245, 201, .35); }.enemy-side { border-color: rgba(255, 142, 123, .35); }
 .combatant-heading { display: flex; justify-content: space-between; gap: 10px; }.combatant-tag { color: var(--accent); font: .62rem DM Mono, monospace; }.enemy-tag { color: var(--red); }
 .combatant-art { display: grid; place-items: center; width: 74px; height: 74px; margin: 16px auto; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1.7rem; font-weight: 800; }.enemy-art { border-color: rgba(255, 142, 123, .35); color: var(--red); }.enemy-description { min-height: 38px; margin: 0 0 14px; color: var(--muted); font-size: .72rem; line-height: 1.5; }
-.combatant-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; }.combatant-stats div { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 9px 11px; border: 1px solid var(--line-soft); }.combatant-stats span { color: var(--muted); font: 500 .62rem DM Mono, monospace; white-space: nowrap; }.combatant-stats b { color: var(--text); font: 500 1.12rem/1 DM Mono, monospace; letter-spacing: -.04em; white-space: nowrap; }.combatant-stats em { padding: 0 2px; color: var(--muted); font: normal .75rem DM Mono, monospace; }.combatant-stats small { color: var(--muted); font: 500 .72rem DM Mono, monospace; }
-.health-track, .interval-track { height: 8px; margin-top: 14px; overflow: hidden; background: #0b1214; }.health-bar, .interval-bar { height: 100%; transition: width .3s linear; }.player-health { background: var(--accent); }.enemy-health { background: var(--red); }.interval-track { height: 4px; margin-top: 7px; }.interval-bar { background: var(--accent-dim); }.enemy-interval { background: rgba(255, 142, 123, .65); }.interval-row { min-height: 17px; margin-top: 9px; color: var(--muted); font: 500 .62rem DM Mono, monospace; }.versus { display: grid; place-items: center; gap: 7px; color: var(--warm); font: 800 1.2rem DM Mono, monospace; text-align: center; }.versus span { color: var(--muted); font-size: .58rem; font-weight: 400; }.adventure-controls { display: flex; gap: 10px; margin-top: 18px; }
+.combatant-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; }.combatant-stats div { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 9px 11px; border: 1px solid var(--line-soft); }/* 标签只作用于格子的直接子元素：b 里还嵌套着数值 span（当前生命 x / y），不能被标签样式命中。 */
+.combatant-stats > div > span { color: var(--muted); font: 500 .62rem DM Mono, monospace; white-space: nowrap; }.combatant-stats b { color: var(--text); font: 500 1.12rem/1 DM Mono, monospace; letter-spacing: -.04em; white-space: nowrap; }.combatant-stats em { padding: 0 2px; color: var(--muted); font: 500 1em DM Mono, monospace; }.combatant-stats small { color: var(--muted); font: 500 .72rem DM Mono, monospace; }
+/* 战斗卡中段：立绘在左，右侧 2×2 属性格（攻击力 / 防御力 / 当前生命 / 生命恢复）。
+   格子里标签在上、数值在下，这样窄屏下也不会被「当前生命 14 / 100」这类长值撑破。 */
+.combatant-body { display: flex; align-items: center; gap: 14px; margin-top: auto; }
+.combatant-body .combatant-art { flex: 0 0 auto; margin: 0; }
+.combatant-body .combatant-stats { flex: 1 1 auto; min-width: 0; gap: 7px; margin-top: 0; }
+.combatant-body .combatant-stats div { flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px 10px; }
+.combatant-body .combatant-stats > div > span { font-size: .58rem; }
+.combatant-body .combatant-stats b { font-size: 1rem; }
+.health-track, .interval-track { height: 8px; margin-top: 14px; overflow: hidden; background: #0b1214; }.health-bar, .interval-bar { height: 100%; transition: width .3s linear; }.player-health { background: var(--accent); }.enemy-health { background: var(--red); }.interval-track { height: 4px; margin-top: 7px; }.interval-bar { background: var(--accent-dim); }.enemy-interval { background: rgba(255, 142, 123, .65); }.interval-row { min-height: 17px; margin-top: 9px; color: var(--muted); font: 500 .62rem DM Mono, monospace; }.versus { display: grid; place-items: center; color: var(--warm); font: 800 1.2rem DM Mono, monospace; text-align: center; }.enemy-art.camp-art { border-color: rgba(255, 184, 107, .45); color: var(--warm); }
+/* 刷怪冷却：怪物卡片里只画一个环形进度条。
+   内容用 visibility: hidden 隐藏而不是 display: none —— 元素仍然占位，
+   卡片高度与「有怪时」完全一致，冷却开始/结束都不会跳高度。 */
+.combatant.enemy-side { position: relative; }
+.spawn-ring { position: absolute; inset: 0; display: none; place-items: center; }
+.spawn-ring svg { width: 132px; height: 132px; transform: rotate(-90deg); }
+.spawn-ring-track { fill: none; stroke: rgba(255, 142, 123, .16); stroke-width: 6; }
+.spawn-ring-bar { fill: none; stroke: var(--warm); stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset .2s linear; }
+.combatant.enemy-side.spawning > *:not(.spawn-ring) { visibility: hidden; }
+.combatant.enemy-side.spawning .spawn-ring { display: grid; }
 .log-panel { margin-top: 18px; padding: 22px; }.log-toolbar { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 17px; }.filter-button { padding: 7px 11px; border: 1px solid var(--line); background: transparent; color: var(--muted); font: .65rem DM Mono, monospace; }.filter-button:hover, .filter-button.active { border-color: var(--accent); background: rgba(139, 245, 201, .08); color: var(--accent); }.event-log { display: grid; gap: 1px; max-height: 310px; overflow: auto; margin-top: 12px; border: 1px solid var(--line-soft); background: var(--line-soft); }.event-log.compact { max-height: 210px; }.log-entry { display: grid; grid-template-columns: 66px 46px 1fr; gap: 10px; padding: 10px 12px; background: var(--surface); color: #c9d2cd; font-size: .75rem; line-height: 1.5; }.home-log .log-entry { grid-template-columns: 66px minmax(0, 1fr); }.log-kind { color: var(--muted); font: .58rem DM Mono, monospace; text-transform: uppercase; }.log-battle .log-kind { color: var(--blue); }.log-drop .log-kind { color: var(--warm); }.log-progress .log-kind { color: var(--accent); }.log-defeat .log-kind { color: var(--red); }.log-time { color: var(--muted); font: .64rem DM Mono, monospace; }.log-empty { padding: 24px; color: var(--muted); font: .7rem DM Mono, monospace; text-align: center; }
 .quest { padding: 13px; border-left: 2px solid var(--accent); background: var(--surface-2); }.quest-title { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }.quest-desc { margin: 6px 0 0; color: var(--muted); font-size: .77rem; line-height: 1.5; }.quest-reward { margin-top: 8px; color: var(--accent); font: .65rem DM Mono, monospace; }
 .system-list, .story-list { display: grid; gap: 10px; margin-top: 17px; }.system-card { padding: 14px; border: 1px solid var(--line-soft); background: var(--surface-2); }.system-card.locked { opacity: .45; }.system-card p { margin: 6px 0 12px; color: var(--muted); font-size: .75rem; line-height: 1.5; }.system-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.cost { color: var(--warm); font: .66rem DM Mono, monospace; }.systems-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }.systems-summary { display: flex; align-items: baseline; gap: 12px; padding: 21px; border: 1px solid var(--line); background: var(--surface); }.systems-summary .panel-kicker { margin: 0; }.systems-summary strong { color: var(--accent); font-size: 2rem; }.systems-summary span:last-child { color: var(--muted); font-size: .75rem; }
-.inventory-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }.inventory-heading p { margin: 9px 0 0; color: var(--muted); font-size: .75rem; }.capacity-track { width: min(420px, 100%); height: 6px; margin-top: 12px; overflow: hidden; background: #0b1214; }.capacity-bar { height: 100%; background: var(--accent); transition: width .25s ease; }.inventory-empty { margin-top: 22px; padding: 40px 20px; border: 1px dashed var(--line); color: var(--muted); font: .72rem DM Mono, monospace; text-align: center; }.item-grid { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }.item-card { position: relative; min-width: 0; padding: 16px; border: 1px solid var(--line-soft); background: var(--surface-2); }.item-grid .item-card { min-height: 170px; }.item-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 13px; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1.2rem; }.item-copy b { display: block; font-size: .85rem; }.item-type { display: block; margin-top: 4px; color: var(--muted); font: .62rem DM Mono, monospace; }.item-copy p { margin: 10px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }.item-quantity { position: absolute; right: 14px; top: 14px; color: var(--accent); font: .72rem DM Mono, monospace; }.rarity-uncommon { border-color: rgba(154, 200, 255, .3); }.rarity-rare { border-color: rgba(255, 184, 107, .35); }.rarity-epic { border-color: rgba(214, 157, 255, .45); }.story-quote { margin: 17px 0 0; padding: 14px; border-left: 2px solid var(--warm); color: #d8dfd8; font-size: .81rem; line-height: 1.7; }.story-quote.large { padding: 22px; font-size: 1rem; }.story-progress { margin-top: 13px; color: var(--muted); font: .65rem DM Mono, monospace; }.story-entry { display: grid; grid-template-columns: 34px 1fr auto; gap: 13px; align-items: start; padding: 14px; border: 1px solid var(--line-soft); opacity: .42; }.story-entry.unlocked { opacity: 1; background: var(--surface-2); }.story-entry b { font-size: .84rem; }.story-entry p { margin: 5px 0 0; color: var(--muted); font-size: .74rem; line-height: 1.5; }.story-index { color: var(--accent); font: .7rem DM Mono, monospace; }
+.inventory-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }.inventory-heading p { margin: 9px 0 0; color: var(--muted); font-size: .75rem; }.capacity-track { width: min(420px, 100%); height: 6px; margin-top: 12px; overflow: hidden; background: #0b1214; }.capacity-bar { height: 100%; background: var(--accent); transition: width .25s ease; }.inventory-empty { margin: 0; padding: 46px 20px; color: var(--muted); font: .72rem DM Mono, monospace; text-align: center; }.item-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }.item-card { position: relative; min-width: 0; padding: 16px; border: 1px solid var(--line-soft); background: var(--surface-2); }.item-grid .item-card { min-height: 170px; }.item-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 13px; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1.2rem; }.item-copy b { display: block; font-size: .85rem; }.item-type { display: block; margin-top: 4px; color: var(--muted); font: .62rem DM Mono, monospace; }.item-copy p { margin: 10px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }.item-quantity { position: absolute; right: 14px; top: 14px; color: var(--accent); font: .72rem DM Mono, monospace; }/* 稀有度配色：--rarity-color 供物品名字使用，边框只加在物品卡片上。 */
+.rarity-common { --rarity-color: var(--text); }
+.rarity-uncommon { --rarity-color: var(--blue); }
+.rarity-rare { --rarity-color: var(--warm); }
+.rarity-epic { --rarity-color: #d69dff; }
+.item-card.rarity-uncommon { border-color: rgba(154, 200, 255, .3); }
+.item-card.rarity-rare { border-color: rgba(255, 184, 107, .35); }
+.item-card.rarity-epic { border-color: rgba(214, 157, 255, .45); }.story-quote { margin: 17px 0 0; padding: 14px; border-left: 2px solid var(--warm); color: #d8dfd8; font-size: .81rem; line-height: 1.7; }.story-quote.large { padding: 22px; font-size: 1rem; }.story-progress { margin-top: 13px; color: var(--muted); font: .65rem DM Mono, monospace; }.story-entry { display: grid; grid-template-columns: 34px 1fr auto; gap: 13px; align-items: start; padding: 14px; border: 1px solid var(--line-soft); opacity: .42; }.story-entry.unlocked { opacity: 1; background: var(--surface-2); }.story-entry b { font-size: .84rem; }.story-entry p { margin: 5px 0 0; color: var(--muted); font-size: .74rem; line-height: 1.5; }.story-index { color: var(--accent); font: .7rem DM Mono, monospace; }
 .item-section { margin-top: 26px; }
 .settings-panel { padding: 22px; }
 .setting-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; }
+.setting-row + .setting-row { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
+/* 开发者面板（只在构建时开启 DEV_TOOLS 的情况下存在） */
+.dev-panel { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
+.dev-head p { margin: 8px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.55; }
+.dev-group { margin-top: 18px; }
+.dev-group h4 { margin: 0 0 9px; color: var(--muted); font: .64rem DM Mono, monospace; letter-spacing: .08em; }
+.dev-list { display: grid; gap: 6px; }
+.dev-row { display: flex; align-items: center; gap: 10px; padding: 7px 11px; border: 1px solid var(--line-soft); background: var(--surface-2); }
+.dev-row-name { font-size: .78rem; color: var(--rarity-color, inherit); }
+.dev-row-value { margin-left: auto; color: var(--muted); font: .68rem DM Mono, monospace; }
+.dev-row-actions { display: flex; gap: 6px; }
+.dev-row .dev-input { margin-left: auto; }
+.dev-button { padding: 5px 10px; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: .7rem; }
+.dev-button:hover { border-color: var(--accent); color: var(--accent); }
+.dev-input { width: 96px; padding: 5px 8px; border: 1px solid var(--line); background: #0b1214; color: var(--text); font: .72rem DM Mono, monospace; text-align: right; }
+.dev-input:focus { outline: none; border-color: var(--accent); }
+/* 「增加物品」悬浮窗：遮罩铺满视口，点击遮罩或关闭按钮退出。 */
+.dev-modal-layer { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; background: rgba(4, 9, 11, .74); }
+.dev-modal-layer[hidden] { display: none; }
+.dev-modal { width: min(560px, 100%); max-height: 82vh; overflow: auto; border: 1px solid var(--line); background: #131d21; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.dev-modal-head { display: flex; align-items: start; justify-content: space-between; gap: 14px; padding: 16px 18px 14px; border-bottom: 1px solid var(--line-soft); }
+.dev-modal-head h3 { margin: 0; }
+.dev-modal-close { flex: 0 0 auto; width: 28px; height: 28px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 1rem; line-height: 1; }
+.dev-modal-close:hover { border-color: var(--accent); color: var(--accent); }
+.dev-item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 8px; padding: 16px 18px; }
+.dev-item-button { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 10px 11px; border: 1px solid var(--line-soft); background: var(--surface-2); color: var(--text); text-align: left; }
+.dev-item-button:hover { border-color: var(--accent); background: rgba(139, 245, 201, .08); }
+.dev-item-icon { flex: 0 0 auto; color: var(--rarity-color, var(--accent)); font-size: 1rem; }
+.dev-item-name { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--rarity-color, inherit); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
+.dev-item-owned { flex: 0 0 auto; color: var(--muted); font: .64rem DM Mono, monospace; }
+.dev-modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 18px; border-top: 1px solid var(--line-soft); }
+.dev-multiplier-label { color: var(--muted); font: .66rem DM Mono, monospace; letter-spacing: .06em; }
+.dev-modal-foot .segment { padding: 8px 16px; font-size: .76rem; }
 .setting-copy p { margin: 8px 0 0; color: var(--muted); font-size: .78rem; }
 .setting-copy b { color: var(--accent); }
 .segmented { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--line); background: var(--surface-2); }
@@ -123,7 +229,6 @@ select:focus { border-color: var(--accent); }
 .item-section-bar { flex: 0 0 auto; width: 3px; height: 15px; border-radius: 2px; background: var(--cat-color, var(--accent)); }
 .item-section-title { margin: 0; font-size: .95rem; font-weight: 700; letter-spacing: .06em; }
 .item-section-rule { flex: 1 1 auto; height: 1px; background: linear-gradient(to right, var(--line), rgba(47, 60, 66, 0)); }
-.item-section-count { flex: 0 0 auto; padding: 3px 9px; border: 1px solid var(--line-soft); background: var(--surface); color: var(--muted); font: .62rem DM Mono, monospace; white-space: nowrap; }
 .cat-resource { --cat-color: var(--blue); }
 .cat-equipment { --cat-color: var(--accent); }
 .cat-consumable { --cat-color: var(--warm); }
@@ -132,18 +237,95 @@ select:focus { border-color: var(--accent); }
 .inventory-heading .capacity-row { display: flex; align-items: center; gap: 12px; margin-top: 9px; }
 .inventory-heading .capacity-row p { flex: 0 1 auto; min-width: 0; margin: 0; color: var(--muted); font-size: .75rem; }
 .inventory-heading .capacity-row .capacity-track { flex: 0 0 auto; width: clamp(88px, 28%, 220px); margin-top: 0; }
-/* 每行 10 个：卡片压成图标磁贴。详情浮层比卡片宽，末列改为向左展开以免顶出视口。 */
+/* 物品栏左右分栏：左侧装备栏，右侧物品储藏。 */
+.inventory-layout { display: grid; grid-template-columns: 212px minmax(0, 1fr); gap: 18px; align-items: start; }
+/* 物品储藏容器：不管有没有东西都显示实线边框，让玩家知道这里是收纳区。空的时候用提示文字占位。 */
+.storage-box { margin-top: 18px; padding: 16px; border: 1px solid var(--line); background: rgba(11, 18, 20, .35); }
+.storage-box > .item-section:first-child { margin-top: 0; }
+.equip-panel { padding: 18px 16px; }
+.equip-groups { display: grid; gap: 15px; margin-top: 16px; }
+.equip-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.equip-group-name { font-size: .78rem; font-weight: 700; letter-spacing: .04em; }
+.equip-group-count { color: var(--muted); font: .62rem DM Mono, monospace; }
+.equip-slots { display: grid; gap: 6px; }
+/* 空槽位是虚线框，装上东西后变实线；拖拽经过匹配类型时高亮。 */
+.equip-slot { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border: 1px dashed var(--line); background: rgba(11, 18, 20, .5); color: var(--muted); text-align: left; font-size: .72rem; }
+.equip-slot.filled { border-style: solid; border-color: var(--accent-dim); background: var(--surface-2); color: var(--text); }
+.equip-slot.drop-target { border-style: solid; border-color: var(--accent); background: rgba(139, 245, 201, .12); color: var(--accent); }
+.equip-slot-icon { flex: 0 0 auto; display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--line); color: var(--accent); font-size: .8rem; }
+/* 槽位里的装备名按稀有度着色（--rarity-color 由 .rarity-* 提供）。 */
+.equip-slot-name { min-width: 0; overflow: hidden; color: var(--rarity-color, inherit); text-overflow: ellipsis; white-space: nowrap; }
+/* 装备加成窗口：heading 上的按钮弹出，只列装备贡献的那几项，逐件来源直接列在下面。 */
+.equip-stats-toggle { flex: 0 0 auto; padding: 6px 9px; font-size: .64rem; }
+.stats-layer { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; background: rgba(4, 9, 11, .74); }
+.stats-layer[hidden] { display: none; }
+.stats-window { width: min(460px, 100%); max-height: 84vh; overflow: auto; border: 1px solid var(--line); background: #131d21; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.stats-window-head { display: flex; align-items: start; justify-content: space-between; gap: 14px; padding: 16px 18px 12px; border-bottom: 1px solid var(--line-soft); }
+.stats-window-head h3 { margin: 0; }
+.stats-window-close { flex: 0 0 auto; width: 28px; height: 28px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 1rem; line-height: 1; }
+.stats-window-close:hover { border-color: var(--accent); color: var(--accent); }
+.stats-window-copy { margin: 0; padding: 12px 18px 0; color: var(--muted); font-size: .72rem; line-height: 1.6; }
+.stats-window-list { display: grid; gap: 8px; padding: 12px 18px 18px; }
+.equip-stat { border: 1px solid var(--line-soft); background: var(--surface-2); }
+.equip-stat.empty { opacity: .55; }
+.equip-stat-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
+.equip-stat-label { color: var(--muted); font: .68rem DM Mono, monospace; }
+.equip-stat-value { color: var(--accent); font: 500 .95rem DM Mono, monospace; }
+.equip-stat.empty .equip-stat-value { color: var(--muted); }
+.equip-stat-source { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 12px 7px 20px; color: var(--rarity-color, inherit); font-size: .72rem; }
+.equip-stat-source + .equip-stat-source { border-top: 1px solid rgba(167, 214, 194, .08); }
+.equip-stat-source.empty { color: var(--muted); }
+.equip-stat-source b { font: 500 .72rem DM Mono, monospace; }
+/* 每行 6 个：卡片压成图标磁贴。详情浮层比卡片宽，末列改为向左展开以免顶出视口。 */
 .item-grid .item-card { min-height: 108px; padding: 12px 6px 10px; text-align: center; }
 .item-grid .item-icon { width: 34px; height: 34px; margin: 0 auto 9px; font-size: 1rem; }
 .item-grid .item-copy b { font-size: .7rem; line-height: 1.3; overflow-wrap: anywhere; }
 .item-grid .item-equipped-tag { display: block; margin: 3px 0 0; }
-.item-grid .item-quantity { position: static; display: block; margin-top: 6px; font-size: .68rem; line-height: 1.3; }
+/* 卡片底部一行：只放数量（类别已经在分区标题里，卡面不重复）。装备按件出卡片、没有数量，不生成这一行。 */
+.item-grid .item-foot { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; font: .64rem DM Mono, monospace; line-height: 1.3; }
+.item-grid .item-category { color: var(--muted); }
+.item-grid .item-quantity { position: static; display: block; margin-top: 0; color: var(--accent); font: inherit; }
 .item-grid .item-detail { text-align: left; min-width: 168px; }
-.item-grid .item-card:nth-child(10n) .item-detail { left: auto; right: 0; }
+.item-grid .item-card:nth-child(6n) .item-detail { left: auto; right: 0; }
 .item-card { cursor: context-menu; }
+/* 装备类卡片可以左键拖到左侧槽位，用抓取光标提示。 */
+.item-card[draggable="true"] { cursor: grab; }
+.item-card.dragging { opacity: .4; cursor: grabbing; }
 .item-card:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 .item-card.equipped { border-color: var(--accent); }
 .item-equipped-tag { margin-left: 8px; color: var(--accent); font: .58rem DM Mono, monospace; }
+/* 词条名：列在装备名下方，用 · 分隔，颜色跟随词条品阶；装备槽上只标条数。 */
+.item-affix-names { margin-top: 4px; font-size: .6rem; line-height: 1.5; }
+.item-affix-name { color: var(--rarity-color, inherit); }
+.item-affix-sep { margin: 0 4px; color: var(--muted); }
+/* 词条数值：当前值加粗，上限用灰字跟在斜杠后面。 */
+.affix-value { color: inherit; font-weight: 700; }
+.affix-cap { color: var(--muted); font-weight: 400; }
+.equip-slot-affix { flex: 0 0 auto; margin-left: auto; padding: 0 5px; border: 1px solid var(--line); color: var(--warm); font: 700 .6rem DM Mono, monospace; }
+/* 强化模式：光标换成瞄准样式（自定义 SVG，浏览器取不到时退回 crosshair），可强化的装备卡片高亮。
+   卡片和按钮自己带 cursor 规则，且 .item-card[draggable] 的优先级更高，所以要单独列出来压住。 */
+:root { --enhance-cursor: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Ccircle cx='13' cy='13' r='8' fill='none' stroke='%238bf5c9' stroke-width='2'/%3E%3Cpath d='M13 1v6M13 19v6M1 13h6M19 13h6' fill='none' stroke='%238bf5c9' stroke-width='2'/%3E%3C/svg%3E") 13 13, crosshair; }
+body.enhancing, body.enhancing *, body.enhancing .item-card[draggable="true"], body.enhancing .item-card.dragging { cursor: var(--enhance-cursor); }
+body.enhancing .item-card[data-instance]:not([data-instance="-1"]) { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(139, 245, 201, .45); }
+.enhance-hint { position: fixed; left: 50%; bottom: 22px; z-index: 65; display: flex; align-items: center; gap: 9px; padding: 10px 15px; border: 1px solid var(--accent); background: #101a1d; box-shadow: 0 18px 40px rgba(0, 0, 0, .5); font-size: .74rem; transform: translateX(-50%); }
+.enhance-hint[hidden] { display: none; }
+.enhance-hint-icon { color: var(--accent); font-size: .95rem; }
+.enhance-hint b { color: var(--accent); }
+.enhance-hint .muted { color: var(--muted); font-size: .68rem; }
+/* 词条选择窗口：一件装备上有同品阶的多条词条时，用对应品阶的清洗道具必须选一条。 */
+.affix-picker-layer { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; background: rgba(4, 9, 11, .74); }
+.affix-picker-layer[hidden] { display: none; }
+.affix-picker { width: min(420px, 100%); border: 1px solid var(--line); background: #131d21; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.affix-picker-head { display: flex; align-items: start; justify-content: space-between; gap: 14px; padding: 16px 18px 12px; border-bottom: 1px solid var(--line-soft); }
+.affix-picker-head h3 { margin: 0; }
+.affix-picker-close { flex: 0 0 auto; width: 28px; height: 28px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 1rem; line-height: 1; }
+.affix-picker-close:hover { border-color: var(--accent); color: var(--accent); }
+.affix-picker-copy { margin: 0; padding: 12px 18px; color: var(--muted); font-size: .74rem; line-height: 1.6; }
+.affix-picker-list { display: grid; gap: 7px; padding: 0 18px 18px; }
+.affix-picker-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid var(--line-soft); background: var(--surface-2); text-align: left; }
+.affix-picker-option:hover { border-color: var(--accent); background: rgba(139, 245, 201, .08); }
+.affix-picker-name { color: var(--rarity-color, inherit); font-size: .82rem; font-weight: 700; }
+.affix-picker-text { color: var(--muted); font: .7rem DM Mono, monospace; }
 .item-detail { position: absolute; left: 0; right: 0; top: calc(100% - 4px); z-index: 6; padding: 12px 13px; border: 1px solid var(--accent-dim); background: #101a1d; box-shadow: 0 16px 34px rgba(0, 0, 0, .4); opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .14s ease, transform .14s ease, visibility .14s; pointer-events: none; }
 .item-card:hover .item-detail, .item-card:focus-visible .item-detail { opacity: 1; visibility: visible; transform: translateY(0); }
 .item-detail p { margin: 8px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.55; }
@@ -155,6 +337,6 @@ select:focus { border-color: var(--accent); }
 .context-menu-item { display: block; width: 100%; padding: 8px 9px; background: transparent; color: var(--text); text-align: left; font-size: .78rem; }
 .context-menu-item:hover { background: rgba(139, 245, 201, .1); color: var(--accent); }
 .context-menu-item.danger { color: var(--red); }
-.context-menu-item.danger:hover { background: rgba(255, 142, 123, .12); color: var(--red); }.game-footer { display: flex; justify-content: space-between; gap: 20px; padding-top: 18px; color: var(--muted); font: .66rem DM Mono, monospace; }
-@media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.sidebar, .nav-collapsed .sidebar { min-height: auto; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(6, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.home-grid { grid-template-columns: 1fr; }.home-hero, .home-log { grid-column: auto; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
-@media (max-width: 600px) { .app-shell { width: min(100% - 24px, 1240px); padding-top: 30px; }.game-header { align-items: start; flex-direction: column; gap: 17px; }.brand-group { gap: 10px; }.nav-toggle { width: 28px; height: 28px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(3, 1fr); }.resource-strip { grid-template-columns: repeat(2, 1fr); }.resource:last-child { grid-column: 1 / -1; }.hero-stats { grid-template-columns: 1fr 1fr; }.hero-stats .mini-stat:last-child { grid-column: 1 / -1; }.page-heading, .inventory-heading { flex-direction: column; gap: 10px; }.adventure-toolbar { align-items: stretch; flex-direction: column; }.battle-arena { grid-template-columns: 1fr; }.versus { padding: 2px 0; }.combatant { padding: 14px; }.adventure-controls { align-items: stretch; flex-direction: column; }.log-entry { grid-template-columns: 58px 40px 1fr; gap: 7px; }.home-log .log-entry { grid-template-columns: 58px minmax(0, 1fr); }.item-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }.item-grid .item-card:nth-child(5n) .item-detail { left: auto; right: 0; }.game-footer { align-items: start; flex-direction: column; } }
+.context-menu-item.danger:hover { background: rgba(255, 142, 123, .12); color: var(--red); }
+@media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.inventory-layout { grid-template-columns: 1fr; }.sidebar, .nav-collapsed .sidebar { min-height: auto; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(6, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.home-grid { grid-template-columns: 1fr; }.home-hero, .home-log { grid-column: auto; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
+@media (max-width: 600px) { .app-shell { width: min(100% - 24px, 1240px); padding-top: 30px; }.game-header { align-items: start; flex-direction: column; gap: 17px; }.brand-group { gap: 10px; }.nav-toggle { width: 28px; height: 28px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(3, 1fr); }.resource-strip { grid-template-columns: repeat(2, 1fr); }.resource:last-child { grid-column: 1 / -1; }.hero-stats { grid-template-columns: 1fr 1fr; }.hero-stats .mini-stat:last-child { grid-column: 1 / -1; }.page-heading, .inventory-heading { flex-direction: column; gap: 10px; }.adventure-toolbar, .toolbar-row { align-items: stretch; flex-direction: column; }.battle-arena { grid-template-columns: 1fr; }.versus { padding: 2px 0; }.combatant { padding: 14px; }.log-entry { grid-template-columns: 58px 40px 1fr; gap: 7px; }.home-log .log-entry { grid-template-columns: 58px minmax(0, 1fr); }.item-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }.item-grid .item-card:nth-child(5n) .item-detail { left: auto; right: 0; } }
