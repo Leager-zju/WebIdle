@@ -8,5 +8,8 @@ import { defineConfig } from 'vite';
 const devTools = process.env.DEV_TOOLS !== 'false';
 
 export default defineConfig({
+  /* GitHub Pages 是项目站点（https://<user>.github.io/WebIdle/），资源若用绝对路径 /assets/... 会 404。
+     使用相对路径 ./ 后，dist 既能在子目录下部署，也能被 python server.py 直接托管。 */
+  base: './',
   define: { __DEV_TOOLS__: String(devTools) }
 });
