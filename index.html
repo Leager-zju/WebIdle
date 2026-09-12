@@ -5,6 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="余烬远征：一款主线驱动的纯文字放置冒险游戏。">
   <title>余烬远征 / Idle Expedition</title>
+  <script>
+    /* 错误日志引导：在样式与主模块之前安装，只向控制台输出错误（F12 -> Console，过滤 [WebIdle]）。 */
+    (function () {
+      function log(message, detail) {
+        console.error('[WebIdle] ' + message + (detail === undefined || detail === null || detail === '' ? '' : ' :: ' + detail));
+      }
+      window.addEventListener('error', function (event) {
+        var target = event.target;
+        if (target && target !== window && target.tagName) {
+          log('[resource] ' + target.tagName + ' 加载失败', target.src || target.href || '');
+        } else {
+          log('[error] ' + (event.message || '未知脚本错误'), (event.filename || '') + ':' + (event.lineno || 0) + ':' + (event.colno || 0));
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event.reason;
+        log('[promise] 未处理的 Promise 异常', (reason && (reason.stack || reason.message)) || String(reason));
+      });
+      window.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () {
+          if (window.__idleBooted) return;
+          log('[boot] 主模块未执行（1.5 秒内未收到启动信号）。常见原因：用 http 服务打开了项目根目录的 index.html，浏览器无法直接运行 ./src/main.ts；请改用 dist/ 产物（npm run build 后 python server.py）或运行 npm run dev。');
+        }, 1500);
+      });
+    })();
+  </script>
   <link rel="stylesheet" href="./src/style.css">
 </head>
 <body>
@@ -39,12 +65,7 @@
 
       <main class="page-content" id="page-content" aria-live="polite"></main>
     </div>
-
-    <footer class="game-footer">
-      <span>纯文字放置 · 离线收益最多计算 8 小时</span>
-      <button class="text-button danger" data-action="reset" type="button">重置存档</button>
-    </footer>
   </div>
-  <script type="module" src="./src/main.js"></script>
+  <script type="module" src="./src/main.ts"></script>
 </body>
 </html>
