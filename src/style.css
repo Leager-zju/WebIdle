@@ -93,7 +93,7 @@ h3 { margin-bottom: 5px; font-size: 1rem; }
 .text-button { padding: 0; background: transparent; color: var(--muted); font: .68rem DM Mono, monospace; }
 .text-button:hover { color: var(--accent); }
 .text-button.danger:hover { color: var(--red); }
-.adventure-panel, .story-panel, .inventory-panel { padding: 22px; }
+.adventure-panel, .archive-panel, .inventory-panel { padding: 22px; }
 .adventure-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 18px; padding-bottom: 19px; border-bottom: 1px solid var(--line-soft); }
 /* 工具栏左侧：区域选择与「怪物图鉴」按钮同一行。
    toolbar-row 用 align-items: stretch，让按钮与区域选择框严格等高，字号可以单独调小而不影响高度。 */
@@ -172,7 +172,54 @@ select:focus { border-color: var(--accent); }
 .combatant.enemy-side.spawning .spawn-ring { display: grid; }
 .log-panel { margin-top: 18px; padding: 22px; }.log-toolbar { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 17px; }.filter-button { padding: 7px 11px; border: 1px solid var(--line); background: transparent; color: var(--muted); font: .65rem DM Mono, monospace; }.filter-button:hover, .filter-button.active { border-color: var(--accent); background: rgba(139, 245, 201, .08); color: var(--accent); }.event-log { display: grid; gap: 1px; max-height: 310px; overflow: auto; margin-top: 12px; border: 1px solid var(--line-soft); background: var(--line-soft); }.event-log.compact { max-height: 210px; }.log-entry { display: grid; grid-template-columns: 66px 46px 1fr; gap: 10px; padding: 10px 12px; background: var(--surface); color: #c9d2cd; font-size: .75rem; line-height: 1.5; }.home-log .log-entry { grid-template-columns: 66px minmax(0, 1fr); }.log-kind { color: var(--muted); font: .58rem DM Mono, monospace; text-transform: uppercase; }.log-battle .log-kind { color: var(--blue); }.log-drop .log-kind { color: var(--warm); }.log-progress .log-kind { color: var(--accent); }.log-defeat .log-kind { color: var(--red); }.log-time { color: var(--muted); font: .64rem DM Mono, monospace; }.log-empty { padding: 24px; color: var(--muted); font: .7rem DM Mono, monospace; text-align: center; }
 .quest { padding: 13px; border-left: 2px solid var(--accent); background: var(--surface-2); }.quest-title { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }.quest-desc { margin: 6px 0 0; color: var(--muted); font-size: .77rem; line-height: 1.5; }.quest-reward { margin-top: 8px; color: var(--accent); font: .65rem DM Mono, monospace; }
-.system-list, .story-list { display: grid; gap: 10px; margin-top: 17px; }.system-card { padding: 14px; border: 1px solid var(--line-soft); background: var(--surface-2); }.system-card.locked { opacity: .45; }.system-card p { margin: 6px 0 12px; color: var(--muted); font-size: .75rem; line-height: 1.5; }.system-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.cost { color: var(--warm); font: .66rem DM Mono, monospace; }.systems-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }.systems-summary { display: flex; align-items: baseline; gap: 12px; padding: 21px; border: 1px solid var(--line); background: var(--surface); }.systems-summary .panel-kicker { margin: 0; }.systems-summary strong { color: var(--accent); font-size: 2rem; }.systems-summary span:last-child { color: var(--muted); font-size: .75rem; }
+.quest { padding: 13px; border-left: 2px solid var(--accent); background: var(--surface-2); }.quest-title { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }.quest-desc { margin: 6px 0 0; color: var(--muted); font-size: .77rem; line-height: 1.5; }.quest-reward { margin-top: 8px; color: var(--accent); font: .65rem DM Mono, monospace; }
+.cost { color: var(--warm); font: .66rem DM Mono, monospace; }
+/* ——— 远征档案：左栏章节树 + 右栏机制网格 ——— */
+.archive-layout { display: grid; grid-template-columns: minmax(260px, 350px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.archive-column { min-width: 0; }
+/* 树：一章一个分支，节点是它的子节点；连接线用伪元素画在叶子左侧。 */
+.tree { display: grid; gap: 10px; margin: 17px 0 0; padding: 0; list-style: none; }
+.tree-branch { border: 1px solid var(--line-soft); background: var(--surface-2); }
+.tree-branch.locked { opacity: .5; }
+.tree-node { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 13px; background: transparent; color: var(--text); text-align: left; }
+.tree-node:hover { background: rgba(139, 245, 201, .06); }
+.tree-caret { flex: 0 0 auto; color: var(--muted); font-size: .7rem; transition: transform .16s ease; }
+.tree-branch.collapsed .tree-caret { transform: rotate(-90deg); }
+.tree-copy { flex: 1 1 auto; min-width: 0; display: grid; gap: 3px; }
+.tree-kicker { color: var(--muted); font: .6rem DM Mono, monospace; letter-spacing: .1em; }
+.tree-title { font-size: .88rem; }
+.tree-badge { flex: 0 0 auto; color: var(--accent); font: .66rem DM Mono, monospace; }
+.tree-children { display: grid; gap: 8px; margin: 0; padding: 4px 13px 13px 34px; list-style: none; }
+.tree-branch.collapsed .tree-children { display: none; }
+.tree-leaf { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 9px 11px; border: 1px solid var(--line-soft); background: rgba(11, 18, 20, .35); opacity: .45; }
+.tree-leaf.done, .tree-leaf.current { opacity: 1; }
+.tree-leaf.current { border-color: var(--accent-dim); background: rgba(139, 245, 201, .07); }
+.tree-leaf.selected { border-color: var(--accent); }
+.tree-leaf::before { content: ''; position: absolute; left: -14px; top: -11px; bottom: 50%; width: 1px; background: var(--line); }
+.tree-leaf::after { content: ''; position: absolute; left: -14px; top: 50%; width: 12px; height: 1px; background: var(--line); }
+.tree-leaf:first-child::before { top: -4px; }
+.tree-dot { width: 9px; height: 9px; margin-top: 5px; border: 1px solid var(--line); border-radius: 50%; background: #0b1214; }
+.tree-leaf.done .tree-dot { border-color: var(--accent); background: var(--accent); }
+.tree-leaf.current .tree-dot { border-color: var(--warm); background: var(--warm); box-shadow: 0 0 0 4px rgba(255, 184, 107, .14); }
+.tree-leaf-copy { min-width: 0; display: grid; gap: 3px; }
+.tree-leaf-title { font-size: .8rem; }
+.tree-reward { color: var(--accent); font: .62rem DM Mono, monospace; }
+.tree-status { flex: 0 0 auto; color: var(--muted); font: .64rem DM Mono, monospace; }
+.tree-leaf.done .tree-status { color: var(--accent); }
+.tree-leaf.current .tree-status { color: var(--warm); }
+/* 机制卡片：网格自适应，卡片底部一行放消耗与升级按钮。 */
+.mechanic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(212px, 1fr)); gap: 12px; margin-top: 17px; }
+.mechanic-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--line-soft); background: var(--surface-2); }
+.mechanic-card.locked { opacity: .45; }
+.mechanic-card.highlight { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(139, 245, 201, .35); }
+.mechanic-icon { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1rem; }
+.mechanic-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.mechanic-head b { font-size: .86rem; }
+.mechanic-level { color: var(--accent); font: .66rem DM Mono, monospace; }
+.mechanic-desc { margin: 0; color: var(--muted); font-size: .72rem; line-height: 1.55; }
+.mechanic-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; }
+.mechanic-foot .secondary-button { padding: 7px 11px; font-size: .72rem; }
+.mechanic-lock { color: var(--muted); font: .64rem DM Mono, monospace; }
 .inventory-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }.inventory-heading p { margin: 9px 0 0; color: var(--muted); font-size: .75rem; }.capacity-track { width: min(420px, 100%); height: 6px; margin-top: 12px; overflow: hidden; background: #0b1214; }.capacity-bar { height: 100%; background: var(--accent); transition: width .25s ease; }.inventory-empty { margin: 0; padding: 46px 20px; color: var(--muted); font: .72rem DM Mono, monospace; text-align: center; }.item-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }.item-card { position: relative; min-width: 0; padding: 16px; border: 1px solid var(--line-soft); background: var(--surface-2); }.item-grid .item-card { min-height: 170px; }.item-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 13px; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1.2rem; }.item-copy b { display: block; font-size: .85rem; }.item-type { display: block; margin-top: 4px; color: var(--muted); font: .62rem DM Mono, monospace; }.item-copy p { margin: 10px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }.item-quantity { position: absolute; right: 14px; top: 14px; color: var(--accent); font: .72rem DM Mono, monospace; }/* 稀有度配色：--rarity-color 供物品名字使用，边框只加在物品卡片上。 */
 .rarity-common { --rarity-color: var(--text); }
 .rarity-uncommon { --rarity-color: var(--blue); }
@@ -180,7 +227,7 @@ select:focus { border-color: var(--accent); }
 .rarity-epic { --rarity-color: #d69dff; }
 .item-card.rarity-uncommon { border-color: rgba(154, 200, 255, .3); }
 .item-card.rarity-rare { border-color: rgba(255, 184, 107, .35); }
-.item-card.rarity-epic { border-color: rgba(214, 157, 255, .45); }.story-quote { margin: 17px 0 0; padding: 14px; border-left: 2px solid var(--warm); color: #d8dfd8; font-size: .81rem; line-height: 1.7; }.story-quote.large { padding: 22px; font-size: 1rem; }.story-progress { margin-top: 13px; color: var(--muted); font: .65rem DM Mono, monospace; }.story-entry { display: grid; grid-template-columns: 34px 1fr auto; gap: 13px; align-items: start; padding: 14px; border: 1px solid var(--line-soft); opacity: .42; }.story-entry.unlocked { opacity: 1; background: var(--surface-2); }.story-entry b { font-size: .84rem; }.story-entry p { margin: 5px 0 0; color: var(--muted); font-size: .74rem; line-height: 1.5; }.story-index { color: var(--accent); font: .7rem DM Mono, monospace; }
+.item-card.rarity-epic { border-color: rgba(214, 157, 255, .45); }.story-quote { margin: 17px 0 0; padding: 14px; border-left: 2px solid var(--warm); color: #d8dfd8; font-size: .81rem; line-height: 1.7; }.story-quote.large { padding: 22px; font-size: 1rem; }
 .item-section { margin-top: 26px; }
 .settings-panel { padding: 22px; }
 .setting-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; }
@@ -338,5 +385,5 @@ body.enhancing .item-card[data-instance]:not([data-instance="-1"]) { border-colo
 .context-menu-item:hover { background: rgba(139, 245, 201, .1); color: var(--accent); }
 .context-menu-item.danger { color: var(--red); }
 .context-menu-item.danger:hover { background: rgba(255, 142, 123, .12); color: var(--red); }
-@media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.inventory-layout { grid-template-columns: 1fr; }.sidebar, .nav-collapsed .sidebar { min-height: auto; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(6, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.home-grid { grid-template-columns: 1fr; }.home-hero, .home-log { grid-column: auto; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
+@media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.inventory-layout { grid-template-columns: 1fr; }.archive-layout { grid-template-columns: 1fr; }.sidebar, .nav-collapsed .sidebar { min-height: auto; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(5, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.home-grid { grid-template-columns: 1fr; }.home-hero, .home-log { grid-column: auto; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
 @media (max-width: 600px) { .app-shell { width: min(100% - 24px, 1240px); padding-top: 30px; }.game-header { align-items: start; flex-direction: column; gap: 17px; }.brand-group { gap: 10px; }.nav-toggle { width: 28px; height: 28px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(3, 1fr); }.resource-strip { grid-template-columns: repeat(2, 1fr); }.resource:last-child { grid-column: 1 / -1; }.hero-stats { grid-template-columns: 1fr 1fr; }.hero-stats .mini-stat:last-child { grid-column: 1 / -1; }.page-heading, .inventory-heading { flex-direction: column; gap: 10px; }.adventure-toolbar, .toolbar-row { align-items: stretch; flex-direction: column; }.battle-arena { grid-template-columns: 1fr; }.versus { padding: 2px 0; }.combatant { padding: 14px; }.log-entry { grid-template-columns: 58px 40px 1fr; gap: 7px; }.home-log .log-entry { grid-template-columns: 58px minmax(0, 1fr); }.item-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }.item-grid .item-card:nth-child(5n) .item-detail { left: auto; right: 0; } }
