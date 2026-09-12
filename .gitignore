@@ -7,6 +7,3 @@ __pycache__/
 *.log
 .vite/
 
-# 本地预览脚本（只在本机使用，不进仓库）
-server.py
-
