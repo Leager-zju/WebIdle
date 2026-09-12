@@ -3,7 +3,6 @@ import { getState, currentZone, getFontScale, subscribe, startLoop, resetGame } 
 import homePage from './pages/home';
 import adventurePage from './pages/adventure';
 import inventoryPage from './pages/inventory';
-import systemsPage from './pages/systems';
 import storyPage from './pages/story';
 import settingsPage from './pages/settings';
 
@@ -13,7 +12,7 @@ const status = document.querySelector<HTMLElement>('#game-status')!;
 const navToggle = document.querySelector<HTMLButtonElement>('#nav-toggle')!;
 const navItems = [...document.querySelectorAll<HTMLElement>('.nav-item')];
 const statusText = status.querySelector('span')!;
-[homePage, adventurePage, inventoryPage, systemsPage, storyPage, settingsPage].forEach(page => pageController.register(page));
+[homePage, adventurePage, inventoryPage, storyPage, settingsPage].forEach(page => pageController.register(page));
 let appliedFontScale = '';
 function applyFontScale(state: ReturnType<typeof getState>): void { const next = `${getFontScale(state).scale * 100}%`; if (next === appliedFontScale) return; appliedFontScale = next; document.documentElement.style.fontSize = next; requestAnimationFrame(() => pageController.remeasure()); }
 function updateSharedHeader(state: ReturnType<typeof getState>): void { status.classList.toggle('paused', !state.adventure.running); statusText.textContent = state.adventure.running ? `远征中 · ${currentZone(state).name}` : '营地待命'; navItems.forEach(item => item.classList.toggle('active', item.dataset.page === pageController.currentId)); }
