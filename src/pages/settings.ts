@@ -3,9 +3,11 @@ import { setText, setClass, pick } from '../dom';
 import type { GameState, PageDefinition } from '../types';
 
 /* ——— 开发者面板 ———
-   下面这些只被 `if (__DEV_TOOLS__)` 引用。构建时把开关关掉（DEV_TOOLS=false），
-   __DEV_TOOLS__ 会被替换成字面量 false，条件分支被移除，这些函数连同它们依赖的
-   devGrantItem / devSetStat / devUnlockSystems / devStats 都会作为死代码从产物里消失。 */
+   下面这些只被 `if (__DEV_TOOLS__)` 引用。该常量在构建期就定死了：
+   npm run dev / npm run build:devtools 为 true，npm run build 为 false。
+   为 false 时条件分支被移除，这些函数连同它们依赖的
+   devGrantItem / devSetStat / devUnlockSystems / devStats 都会作为死代码从产物里消失，
+   也就是说线上产物里既看不到面板，也找不到这些作弊入口的实现代码。 */
 
 /** 「增加物品」悬浮窗里的发放档位，值即按钮上的 data-dev-multiplier。 */
 const DEV_AMOUNTS = [1, 5, 10, 100];
