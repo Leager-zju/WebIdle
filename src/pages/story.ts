@@ -1,10 +1,10 @@
-import { mainline, equipTypes, getEquipSlotCounts, enemyTable, isEncountered, getInventoryCapacity, getInventoryUsed, MAX_OFFLINE_SECONDS, upgradeWorkshop, upgradeResearch, upgradeCompanions } from '../game-state';
-import { setText, setClass, setHidden, setDisabled, pick } from '../dom';
+import { mainline, achievements, isAchievementUnlocked, getUnlockedAchievementCount } from '../game-state';
+import { setText, setHtml, setClass, setHidden, pick } from '../dom';
 import pageController from '../page-controller';
 import type { GameState, PageDefinition } from '../types';
 
-/* 章节节点的旁白：下标与 mainline 对应，取最近一条已完成节点的记录。 */
-const storyLines = ['你从一簇微弱的火星旁醒来。远处的荒原没有灯光，只有一条旧路通往黑暗。', '营火重新燃起，旧哨站边缘出现了第一条可通行的路。', '废弃边境的机械单位并非自然失控，它们都在寻找同一个旧电池信号。', '重装单位身上的装甲板来自营地旧仓库。有人曾经在这里建立过第二支队伍。', '余烬碎片指向更深处的道路。边境调查阶段完成，但真正的远征才刚刚开始。'];
+/* 章节节点的旁白：下标与 mainline 对应，既是节点的「剧情」，也是详情页里那段正文。 */
+const storyLines = ['你从一簇微弱的火星旁醒来。远处的荒原没有灯光，只有一条旧路通往黑暗。', '营火重新燃起，旧哨站边缘出现了第一条可通行的路。', '废弃边境的机械单位并非自然失控，它们都在寻找同一个旧电池信号。', '重装单位身上的装甲板来自营地旧仓库。有人曾经在这里建立过第二支队伍。', '余烬碎片指向更深处的道路。边境调查阶段完成，但真正的远征才刚刚开始。', '第一场天灾被挡在挡墙之外。营地开始相信这堆火能烧很久。', '兽潮退去。荒野深处还有更大的信号，而这次远征已经不再孤单。'];
 
 /* ——— 左栏：章节树 ———
    一章下面挂若干个主线节点（下标即 mainline 的下标）。
@@ -15,72 +15,63 @@ const chapters = [
 ];
 const chapterMarkup = (chapter: typeof chapters[number], chapterIndex: number): string => `<li class="tree-branch" data-chapter="${chapterIndex}"><button class="tree-node" type="button" data-chapter="${chapterIndex}"><span class="tree-caret" aria-hidden="true">▾</span><span class="tree-copy"><span class="tree-kicker">${chapter.kicker}</span><b class="tree-title">${chapter.title}</b></span><span class="tree-badge" data-ref="badge"></span></button><ul class="tree-children">${chapter.nodes.map(index => `<li class="tree-leaf" data-node="${index}"><span class="tree-dot" aria-hidden="true"></span><span class="tree-leaf-copy"><b class="tree-leaf-title" data-ref="title"></b><span class="tree-reward" data-ref="reward"></span></span><span class="tree-status" data-ref="status"></span></li>`).join('')}</ul></li>`;
 
-/* ——— 右栏：机制卡片 ———
-   source 表示这项机制由第几个主线节点解锁：在左栏选中该节点时，对应卡片会高亮。
-   locked 里的文案是未解锁时显示的提示。可升级的机制额外带 cost / cta / run。 */
-const workshopCost = (state: GameState) => 40 + state.workshop * 35;
-const researchCost = (state: GameState) => 2 + state.research * 3;
-const companionGold = (state: GameState) => 100 + state.companions * 90;
-const companionEssence = (state: GameState) => 4 + state.companions * 3;
-/** 已装备件数（跨全部槽位）。 */
-const equippedCount = (state: GameState) => state.equipped.reduce((total, slots) => total + slots.filter(id => id >= 0).length, 0);
-/** 所有装备实例上已刻上的词条总数。 */
-const affixCount = (state: GameState) => state.equipment.reduce((total, instance) => total + (instance.affixes?.length || 0), 0);
-/** 各装备类型的槽位概览，例如「武器 1 · 头部 1 · 饰品 2」。 */
-const slotSummary = (): string => { const counts = getEquipSlotCounts(); return equipTypes.map((type, index) => `${type.name} ${counts[index]}`).join(' · '); };
-const codexCount = (state: GameState) => enemyTable.reduce((total, _, id) => total + (isEncountered(id, state) ? 1 : 0), 0);
+/* ——— 右栏（主线剧情页签）：选中节点的剧情与解锁条件 ——— */
+const detailMarkup = `<div class="panel-heading"><div><span class="panel-kicker" data-ref="detailKicker"></span><h3 data-ref="detailTitle"></h3></div><span class="muted" data-ref="detailStatus"></span></div>
+  <p class="story-quote" data-ref="detailStory"></p>
+  <div class="chapter-facts"><div class="chapter-fact"><span>解锁条件</span><b data-ref="detailGoal"></b></div><div class="chapter-requirements" data-ref="detailRequirements"></div><div class="chapter-fact"><span>解锁后</span><b data-ref="detailReward"></b></div></div>`;
 
-const MECHANICS = [
-  { id: 'auto', icon: '⚡', name: '自动冒险', source: 0, unlocked: () => true, level: () => '常驻', desc: () => `进入战斗区域即自动交战，回到营地自动休整；离线最多推进 ${MAX_OFFLINE_SECONDS / 3600} 小时。`, locked: '' },
-  { id: 'workshop', icon: '🔨', name: '工坊', source: 1, unlocked: (state: GameState) => state.mainlineIndex >= 2, level: (state: GameState) => `Lv.${state.workshop}`, desc: () => '每级提高生命上限 15、攻击 3、生命恢复 0.8，物品栏 +2 种。', cost: (state: GameState) => `${workshopCost(state)} 废料`, affordable: (state: GameState) => state.scrap >= workshopCost(state), cta: '升级', run: upgradeWorkshop, locked: '完成「清理废弃边境」后开放。' },
-  { id: 'research', icon: '🔬', name: '研究', source: 2, unlocked: (state: GameState) => state.mainlineIndex >= 3, level: (state: GameState) => `Lv.${state.research}`, desc: () => '每级提高攻击 5，并把攻击间隔缩短 0.08 秒。', cost: (state: GameState) => `${researchCost(state)} 精华`, affordable: (state: GameState) => state.essence >= researchCost(state), cta: '研究', run: upgradeResearch, locked: '完成「分析异常电池」后开放。' },
-  { id: 'companions', icon: '🤝', name: '伙伴', source: 3, unlocked: (state: GameState) => state.mainlineIndex >= 4, level: (state: GameState) => `Lv.${state.companions}`, desc: () => '每级提高生命上限 25、攻击 4、生命恢复 1.5，物品栏 +1 种。', cost: (state: GameState) => `${companionGold(state)} 金币 · ${companionEssence(state)} 精华`, affordable: (state: GameState) => state.gold >= companionGold(state) && state.essence >= companionEssence(state), cta: '招募', run: upgradeCompanions, locked: '完成「组建第二支小队」后开放。' },
-  { id: 'equipment', icon: '🧰', name: '装备槽', unlocked: (state: GameState) => state.equipment.length > 0, level: (state: GameState) => `${equippedCount(state)} 件已装备`, desc: () => `${slotSummary()}。同类装备是各自独立的实例，属性只算已装上的那些。`, locked: '获得第一件装备后开放。' },
-  { id: 'affixes', icon: '✳️', name: '词条强化', unlocked: (state: GameState) => affixCount(state) > 0, level: (state: GameState) => `${affixCount(state)} 条`, desc: () => '锐化油、生命之种这类强化物可以给装备刻上词条；同名词条会继续提升数值，直到上限。', locked: '还没有装备带上词条。' },
-  { id: 'codex', icon: '📖', name: '怪物图鉴', unlocked: (state: GameState) => state.totalWins > 0, level: (state: GameState) => `${codexCount(state)} / ${enemyTable.length}`, desc: () => '在冒险页打开图鉴：击败过的怪物会被收录，并逐条揭示它们的掉落表。', locked: '击败第一只怪物后开放。' },
-  { id: 'storage', icon: '🎒', name: '物品栏扩容', unlocked: (state: GameState) => state.workshop > 0 || state.companions > 0, level: (state: GameState) => `上限 ${getInventoryCapacity(state)} 种`, desc: (state: GameState) => `基础 8 种，工坊每级 +2、伙伴每级 +1。当前已占用 ${getInventoryUsed(state)} 种。`, locked: '升级工坊或招募伙伴后开放。' }
-];
-const mechanicMarkup = (mechanic: typeof MECHANICS[number]): string => `<article class="mechanic-card" data-mechanic="${mechanic.id}"><span class="mechanic-icon" aria-hidden="true">${mechanic.icon}</span><div class="mechanic-head"><b>${mechanic.name}</b><span class="mechanic-level" data-ref="level"></span></div><p class="mechanic-desc" data-ref="desc"></p><div class="mechanic-foot"><span class="cost" data-ref="cost"></span><button class="secondary-button" type="button" data-action="upgrade" data-target="${mechanic.id}" data-ref="cta"></button><span class="mechanic-lock" data-ref="lock"></span></div></article>`;
+/* ——— 成就页签：卡面只有图标，名称 / 状态 / 解锁条件 / 解锁后 在悬停浮层里 ——— */
+const achievementMarkup = (entry: typeof achievements[number], index: number): string => `<article class="achievement-card" data-achievement="${index}" tabindex="0"><span class="achievement-icon" data-ref="icon" aria-hidden="true">${entry.icon}</span><div class="achievement-detail"><div class="achievement-head"><b>${entry.name}</b><span class="achievement-status" data-ref="status"></span></div><p class="achievement-line" data-ref="condition"></p><p class="achievement-line achievement-reward" data-ref="reward"></p></div></article>`;
 
 const page: PageDefinition<any> = {
   id: 'story', template: './pages/story.html',
   mount(root) {
     const view = root.querySelector<HTMLElement>('#story-view')!;
-    view.innerHTML = `<div class="archive-layout">
-      <section class="archive-column">
-        <div class="panel-heading"><div><span class="panel-kicker">CHAPTERS</span><h3>章节进度</h3></div><span class="muted" data-ref="chapterProgress"></span></div>
-        <ul class="tree">${chapters.map(chapterMarkup).join('')}</ul>
-        <p class="story-quote" data-ref="quote"></p>
-      </section>
-      <section class="archive-column">
-        <div class="panel-heading"><div><span class="panel-kicker">UNLOCKED MECHANICS</span><h3>已解锁机制</h3></div><span class="muted" data-ref="mechanicProgress"></span></div>
-        <div class="mechanic-grid">${MECHANICS.map(mechanicMarkup).join('')}</div>
-      </section>
-    </div>`;
+    view.innerHTML = `
+      <div class="tab-bar" role="tablist">${[['main', '主线剧情'], ['achievements', '成就']].map(([id, label]) => `<button class="tab" type="button" role="tab" data-tab="${id}">${label}</button>`).join('')}</div>
+      <div class="tab-pane" data-pane="main"><div class="archive-layout">
+        <section class="panel archive-panel">
+          <div class="panel-heading"><div><span class="panel-kicker">CHAPTERS</span><h3>章节进度</h3></div><span class="muted" data-ref="chapterProgress"></span></div>
+          <ul class="tree">${chapters.map(chapterMarkup).join('')}</ul>
+        </section>
+        <section class="panel archive-panel">${detailMarkup}</section>
+      </div></div>
+      <div class="tab-pane" data-pane="achievements"><div class="archive-layout">
+        <section class="panel archive-panel">
+          <div class="panel-heading"><div><span class="panel-kicker">ACHIEVEMENTS</span><h3>成就</h3></div><span class="muted" data-ref="achievementProgress"></span></div>
+          <p class="archive-hint">悬停（或键盘聚焦）图标查看解锁条件与奖励。</p>
+          <div class="achievement-grid">${achievements.map(achievementMarkup).join('')}</div>
+        </section>
+      </div></div>`;
     const ctx: any = {
-      ...pick(view, 'chapterProgress', 'mechanicProgress', 'quote'),
+      ...pick(view, 'chapterProgress', 'achievementProgress', 'detailKicker', 'detailTitle', 'detailStatus', 'detailStory', 'detailGoal', 'detailReward', 'detailRequirements'),
+      tabs: [...view.querySelectorAll<HTMLElement>('[data-tab]')],
+      panes: [...view.querySelectorAll<HTMLElement>('[data-pane]')],
       branches: [...view.querySelectorAll<HTMLElement>('.tree-branch')].map(branch => ({ branch, badge: branch.querySelector<HTMLElement>('.tree-badge'), leaves: [...branch.querySelectorAll<HTMLElement>('.tree-leaf')].map(leaf => ({ leaf, ...pick(leaf, 'title', 'reward', 'status') })) })),
-      cards: [...view.querySelectorAll<HTMLElement>('.mechanic-card')].map(card => ({ card, ...pick(card, 'level', 'desc', 'cost', 'cta', 'lock') })),
-      collapsed: new Set<number>(), selected: -1
+      cards: [...view.querySelectorAll<HTMLElement>('.achievement-card')].map(card => ({ card, ...pick(card, 'icon', 'status', 'condition', 'reward') })),
+      collapsed: new Set<number>(), selected: -1, tab: 'main'
     };
     root.onclick = event => {
       const target = event.target as Element;
+      const tab = target.closest<HTMLElement>('[data-tab]');
+      if (tab) { ctx.tab = tab.dataset.tab; pageController.renderCurrent(); return; }
       const chapterButton = target.closest<HTMLElement>('button[data-chapter]');
       if (chapterButton) { const index = Number(chapterButton.dataset.chapter); if (ctx.collapsed.has(index)) ctx.collapsed.delete(index); else ctx.collapsed.add(index); pageController.renderCurrent(); return; }
       const leaf = target.closest<HTMLElement>('.tree-leaf');
-      if (leaf) { const index = Number(leaf.dataset.node); ctx.selected = ctx.selected === index ? -1 : index; pageController.renderCurrent(); return; }
-      const upgrade = target.closest<HTMLButtonElement>('[data-action="upgrade"]');
-      if (upgrade && !upgrade.disabled) MECHANICS.find(mechanic => mechanic.id === upgrade.dataset.target)?.run?.();
+      if (leaf) { ctx.selected = Number(leaf.dataset.node); pageController.renderCurrent(); }
     };
     return ctx;
   },
   update(state: GameState, ctx: any) {
+    ctx.tabs.forEach((tab: HTMLElement) => setClass(tab, 'active', tab.dataset.tab === ctx.tab));
+    ctx.panes.forEach((pane: HTMLElement) => setHidden(pane, pane.dataset.pane !== ctx.tab));
+
     setText(ctx.chapterProgress, `${Math.min(state.mainlineIndex, mainline.length)} / ${mainline.length}`);
-    setText(ctx.quote, storyLines[Math.min(state.mainlineIndex, storyLines.length - 1)]);
+    /* 没有点选过任何节点时，默认展示当前正在推进的那一节（全部完成后停在最后一节）。 */
+    const activeIndex = ctx.selected >= 0 ? ctx.selected : Math.min(state.mainlineIndex, mainline.length - 1);
     chapters.forEach((chapter, chapterIndex) => {
       const refs = ctx.branches[chapterIndex];
       if (!refs) return;
-      /* 章节本身在第一章全部完成后才开放；未开放时整条分支置灰。 */
       const locked = !!chapter.locked && state.mainlineIndex < mainline.length;
       setClass(refs.branch, 'locked', locked);
       setClass(refs.branch, 'collapsed', ctx.collapsed.has(chapterIndex));
@@ -94,31 +85,40 @@ const page: PageDefinition<any> = {
         const known = completed || current;
         setClass(leaf.leaf, 'done', completed);
         setClass(leaf.leaf, 'current', current);
-        setClass(leaf.leaf, 'selected', ctx.selected === index);
+        setClass(leaf.leaf, 'selected', index === activeIndex);
         setText(leaf.title, known ? mainline[index].title : '未解锁记录');
         setText(leaf.reward, known ? mainline[index].reward : '??? 待恢复');
         setText(leaf.status, completed ? '已完成' : current ? '进行中' : '未解锁');
       });
     });
-    let unlockedCount = 0;
-    MECHANICS.forEach((mechanic, index) => {
+    /* 右侧详情：跟着选中的节点走。 */
+    const quest = mainline[activeIndex];
+    const known = activeIndex <= state.mainlineIndex;
+    const completed = activeIndex < state.mainlineIndex;
+    setText(ctx.detailKicker, activeIndex === state.mainlineIndex ? 'CURRENT OBJECTIVE' : `CHAPTER 01 / NODE ${String(activeIndex + 1).padStart(2, '0')}`);
+    setText(ctx.detailTitle, known ? quest.title : '未解锁记录');
+    setText(ctx.detailStatus, completed ? '已完成' : activeIndex === state.mainlineIndex ? '进行中' : '未解锁');
+    setText(ctx.detailStory, known ? storyLines[Math.min(activeIndex, storyLines.length - 1)] : '完成前一节之后，这段记录会被恢复。');
+    setText(ctx.detailGoal, known ? quest.description : '???');
+    /* 具体条件逐条列出，达成的用 status-dot 点亮（与冒险页的状态点同一个类）。 */
+    setHtml(ctx.detailRequirements, known
+      ? quest.requirements.map(entry => { const done = entry.done(state); return `<div class="requirement ${done ? 'done' : ''}"><span class="status-dot ${done ? '' : 'pending'}"></span><span>${entry.text(state)}</span></div>`; }).join('')
+      : '<div class="requirement"><span class="status-dot pending"></span><span>???</span></div>');
+    setText(ctx.detailReward, known ? quest.reward : '???');
+
+    achievements.forEach((entry, index) => {
       const refs = ctx.cards[index];
       if (!refs) return;
-      const unlocked = mechanic.unlocked(state);
-      if (unlocked) unlockedCount += 1;
-      /* 左栏选中某个节点时，它解锁的那张卡片跟着高亮。 */
+      const unlocked = isAchievementUnlocked(index, state);
+      setClass(refs.card, 'unlocked', unlocked);
       setClass(refs.card, 'locked', !unlocked);
-      setClass(refs.card, 'highlight', ctx.selected >= 0 && ctx.selected === mechanic.source);
-      setText(refs.level, unlocked ? mechanic.level(state) : '未解锁');
-      setText(refs.desc, unlocked ? mechanic.desc(state) : mechanic.locked);
-      const showCta = unlocked && !!mechanic.cta;
-      setHidden(refs.cost, !showCta);
-      setHidden(refs.cta, !showCta);
-      setHidden(refs.lock, showCta);
-      if (!showCta) setText(refs.lock, unlocked ? '已启用' : '未解锁');
-      else { setText(refs.cost, mechanic.cost!(state)); setDisabled(refs.cta as HTMLButtonElement, !mechanic.affordable!(state)); }
+      /* 未解锁的成就连图标都不露，只给一个问号（秘密成就在浮层里也不提条件）。 */
+      setText(refs.icon, unlocked ? entry.icon : '❓');
+      setText(refs.status, unlocked ? '已解锁' : '未解锁');
+      setText(refs.condition, unlocked || !entry.secret ? `解锁条件：${entry.hint}` : '秘密成就，继续探索吧！');
+      setText(refs.reward, unlocked || !entry.secret ? `解锁后：${entry.reward}` : '解锁后：???');
     });
-    setText(ctx.mechanicProgress, `${unlockedCount} / ${MECHANICS.length}`);
+    setText(ctx.achievementProgress, `已解锁 ${getUnlockedAchievementCount(state)} / ${achievements.length}`);
   }
 };
 export default page;

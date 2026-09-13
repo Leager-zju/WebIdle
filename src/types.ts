@@ -11,6 +11,8 @@ export type LogType = 'battle' | 'drop' | 'progress' | 'system' | 'defeat';
 export type EquipType = number;
 /** 字体档位下标：0 = 小，1 = 中，2 = 大（顺序见 game-state.ts 的 fontScales）。 */
 export type FontScaleId = number;
+/** 数字显示方式下标：0 = 自动，1 = 工程计数法，2 = 科学计数法（顺序见 format.ts 的 numberFormats）。 */
+export type NumberFormatId = number;
 
 export interface Item {
   name: string;
@@ -38,7 +40,7 @@ export interface DropEntry { itemId: number; chance: number; min: number; max: n
 /** art 是战斗卡片与图鉴里用的单字图标。defense 减免玩家造成的伤害，缺省按 0 处理。 */
 export interface Enemy { art: string; name: string; description: string; maxHp: number; attack: number; defense?: number; attackInterval: number; gold: number; dropTable: DropEntry[]; }
 /** enemyIds 是敌人表下标。 */
-export interface Zone { name: string; description: string; enemyIds: number[]; }
+export interface Zone { name: string; description: string; enemyIds: number[]; /** 进入所需的主线进度：mainlineIndex 达到这个值才算解锁。 */ unlockIndex: number; }
 export interface LogEntry { time: string; message: string; type: LogType; }
 /** zoneId / enemyId 都是各自表的下标。spawnTimer 是距离下一个敌人出现的剩余秒数，0 表示场上已有敌人。
     attackCount 是累计出手次数，词条赋予的技能按它决定第几次触发。 */
@@ -53,13 +55,28 @@ export interface Affix { id: number; value: number; }
 export interface EquipmentInstance { id: number; itemId: number; affixes?: Affix[]; }
 /** equipped[装备类型][槽位下标] = 装备实例 id，-1 表示该槽位为空。 */
 export type EquipmentState = number[][];
-export interface SettingsState { fontScale: FontScaleId; }
+/** notify：随机事件触发时是否弹窗提醒（超时未响应一律跳过，见 game-state 的 PENDING_EVENT_TIMEOUT）。 */
+export interface SettingsState { fontScale: FontScaleId; notify: boolean; numberFormat: NumberFormatId; }
+/** 后勤小队：assigned[i] 是分配给第 i 个后勤系统的人数（下标见 game-state 的 logisticsTargets）。
+    总人数不存档，由主线进度与胜场换算（getLogisticsTotal），避免两处数据不同步。 */
+export interface LogisticsState { assigned: number[]; }
+/** 工坊制造项：level 当前等级；target 正在建造的目标等级（-1 表示空闲）；work 已累计工时（人数 × 秒）。 */
+export interface WorkshopItemState { level: number; target: number; work: number; }
+/** 营地：hp 当前生命（脱战时按恢复速度回满）；worksiteProgress 是营垒修筑累计工时（每 100 换 1 级）；
+    disasterWins / tideWins 是已通过的天灾、兽潮次数，决定下一场挑战与强度；
+    randomTimer 是距离下一次随机事件的剩余秒数；pending* 是已触发、等待响应的事件（kind < 0 表示没有）。 */
+export interface CampState { hp: number; worksiteProgress: number; disasterWins: number; tideWins: number; randomTimer: number; pendingKind: number; pendingId: number; pendingExpires: number; }
+/** 正在进行的营地战斗。只存在于内存：刷新页面即视为放弃当前这场。 */
+export interface CampBattleState { kind: number; id: number; name: string; icon: string; campHp: number; campMaxHp: number; eventHp: number; eventMaxHp: number; eventAttack: number; eventDefense: number; eventInterval: number; rewards: { gold: number; scrap: number; essence: number }; campTimer: number; eventTimer: number; }
 /** inventory 只存可堆叠物品（资源、消耗品）的数量，下标是物品表下标；装备不放这里。
     equipment 存所有装备实例，含已经装在槽位上的那些（装备不会离开物品栏）。
     nextInstanceId 单调递增，删掉实例后不复用 id。
     encountered 的下标是敌人表下标，1 表示击杀过（图鉴收录条件）。
     discoveredDrops[enemyId] 是这只怪物已经实际掉落过（玩家拿到手）的物品下标列表，图鉴据此逐条揭示掉落表。 */
-export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; research: number; companions: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; log: LogEntry[]; lastTick: number; }
+export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; research: number; companions: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
+  devOverrides: number[];
+  /** 研究基地：研究点数、当前委托（itemId 为 -1 表示尚未发布）、各研究项等级。 */
+  researchPoints: number; researchTask: ResearchTaskState; researchLevels: number[]; }
 /* ——— 道具的使用行为 ———
    use 是函数而不是数据：不同道具要做的事差别太大（回血、加词条、按品阶移除词条…），
    而且以后还要加更多「点击使用后选目标」的道具。配置表里的 use 只通过 UseContext 操作状态，
@@ -91,5 +108,21 @@ export type UseOutcome =
   | { kind: 'pick-equipment' }                                                // 需要玩家点选一件装备
   | { kind: 'pick-affix'; instanceId: number; affixIndices: number[] };       // 有多条可移除的词条，需要玩家选一条
 export type UseHandler = (context: UseContext) => UseOutcome;
-export interface MainlineQuest { title: string; description: string; condition: (state: GameState) => boolean; reward: string; }
-export interface PageDefinition<Context = any> { id: string; template: string; mount(root: HTMLElement): Context; update(state: GameState, context: Context): void; }
+/** 主线节点的具体达成条件：text 是给玩家看的进度文案（如「收集旧电池 2/3 个」），done 决定状态点是否点亮。 */
+export interface MainlineRequirement { text: (state: GameState) => string; done: (state: GameState) => boolean; }
+/** 研究基地发布的资源收集委托：要交 itemId 这种掉落物 need 个。 */
+export interface ResearchTaskState { itemId: number; /** 目标区域：委托要的物品在这里掉落。 */ zoneId: number; need: number; }
+/** condition 由 requirements 推导（全部 done），两处条件不会写歪。 */
+export interface MainlineQuest { title: string; description: string; condition: (state: GameState) => boolean; reward: string; requirements: MainlineRequirement[]; }
+/** 成就：约定俗成的三段式——解锁条件（hint）+ 解锁后（reward）。
+    secret 为 true 的成就，未解锁时条件一栏只显示「秘密成就，继续探索吧！」，奖励也留白。
+    condition 一旦为真就自动解锁并记一条日志（见 game-state 的 checkAchievements）。 */
+export interface Achievement {
+  id: string; name: string; icon: string; hint: string; reward: string; secret?: boolean; condition: (state: GameState) => boolean;
+  /** 奖励若解锁了别的系统（例如「初次冒险」解锁怪物图鉴），在这里声明：解锁成就会额外弹一条该系统的提示。
+      category 是它所在的页面 / 板块，用于提示文案里的「解锁：冒险「怪物图鉴」」。 */
+  rewardUnlock?: { icon: string; category: string; name: string };
+}
+/** locked 返回 true 时，导航栏里的入口会置灰、显示为「❓未解锁」且不可点击（见 main.ts 的 updateNavLocks）。
+    没有声明 locked 的页面视为始终可用。 */
+export interface PageDefinition<Context = any> { id: string; template: string; mount(root: HTMLElement): Context; update(state: GameState, context: Context): void; locked?(state: GameState): boolean; }

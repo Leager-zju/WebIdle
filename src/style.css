@@ -45,6 +45,10 @@ h3 { margin-bottom: 5px; font-size: 1rem; }
 .nav-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 13px 10px; border-left: 2px solid transparent; background: transparent; color: var(--muted); text-align: left; }
 .nav-item:hover { color: var(--text); background: rgba(139, 245, 201, .06); }
 .nav-item.active { border-left-color: var(--accent); background: rgba(139, 245, 201, .1); color: var(--accent); }
+/* 未解锁的系统入口：置灰不可点（按钮已被 disabled，浏览器不会再派发 click）。 */
+.nav-item:disabled, .nav-item.locked { color: var(--muted); opacity: .5; cursor: not-allowed; }
+.nav-item:disabled:hover, .nav-item.locked:hover { background: transparent; color: var(--muted); }
+.nav-item.locked .nav-index { filter: grayscale(1); }
 .nav-index { flex: 0 0 auto; min-width: 22px; font-size: 1.05rem; line-height: 1; text-align: center; }
 .sidebar-foot { margin-top: auto; padding: 16px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: .72rem; line-height: 1.6; }
 .nav-collapsed .app-body { grid-template-columns: 64px minmax(0, 1fr); }
@@ -65,17 +69,20 @@ h3 { margin-bottom: 5px; font-size: 1rem; }
 .panel { border: 1px solid var(--line); background: rgba(21, 30, 35, .92); box-shadow: 0 18px 42px rgba(0, 0, 0, .14); }
 .panel-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .muted { color: var(--muted); font: .68rem DM Mono, monospace; }
-.resource-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; border: 1px solid var(--line); background: var(--line); }
+/* 资源条：按实际子项数量等分（列数写死会让最后一项少一格，所以改成自动列 + 等宽）。 */
+.resource-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 1px; border: 1px solid var(--line); background: var(--line); }
 .page-resource-strip { margin-bottom: 18px; }
 .resource { min-height: 74px; padding: 14px 16px; background: var(--surface); }
 .resource-label { color: var(--muted); font: .66rem DM Mono, monospace; letter-spacing: .08em; }
-.resource-value { display: block; margin-top: 5px; font-size: 1.24rem; font-weight: 700; }
-.resource-rate { color: var(--accent); font: .65rem DM Mono, monospace; }
-.home-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; }
+.resource-value { display: block; margin-top: 5px; font-size: 1.24rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 数值统一用等宽数字：位数变化（包括切换成缩写）时不会左右抖动。 */
+.resource-value, .mini-stat b, .combatant-stats b, .codex-stats b, .camp-stat-grid b, .item-stats b, .equip-stat-value, .dev-stat-value { font-variant-numeric: tabular-nums; }
+/* hero 与主线左右并排、等宽；日志仍占整行。 */
+.home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .home-grid > .panel { padding: 22px; }
-.home-hero { grid-column: 1 / -1; }
 .hero-copy { max-width: 650px; margin: 19px 0; color: var(--muted); line-height: 1.65; }
-.hero-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+/* 与资源条同理：按实际子项数量等分，避免删掉一项后右侧空一格。 */
+.hero-stats { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; margin: 18px 0; }
 .mini-stat { padding: 12px; border: 1px solid var(--line-soft); background: var(--surface-2); }
 .mini-stat span { display: block; color: var(--muted); font: .65rem DM Mono, monospace; }
 .mini-stat b { display: block; margin-top: 4px; font-size: 1.08rem; }
@@ -172,11 +179,11 @@ select:focus { border-color: var(--accent); }
 .combatant.enemy-side.spawning .spawn-ring { display: grid; }
 .log-panel { margin-top: 18px; padding: 22px; }.log-toolbar { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 17px; }.filter-button { padding: 7px 11px; border: 1px solid var(--line); background: transparent; color: var(--muted); font: .65rem DM Mono, monospace; }.filter-button:hover, .filter-button.active { border-color: var(--accent); background: rgba(139, 245, 201, .08); color: var(--accent); }.event-log { display: grid; gap: 1px; max-height: 310px; overflow: auto; margin-top: 12px; border: 1px solid var(--line-soft); background: var(--line-soft); }.event-log.compact { max-height: 210px; }.log-entry { display: grid; grid-template-columns: 66px 46px 1fr; gap: 10px; padding: 10px 12px; background: var(--surface); color: #c9d2cd; font-size: .75rem; line-height: 1.5; }.home-log .log-entry { grid-template-columns: 66px minmax(0, 1fr); }.log-kind { color: var(--muted); font: .58rem DM Mono, monospace; text-transform: uppercase; }.log-battle .log-kind { color: var(--blue); }.log-drop .log-kind { color: var(--warm); }.log-progress .log-kind { color: var(--accent); }.log-defeat .log-kind { color: var(--red); }.log-time { color: var(--muted); font: .64rem DM Mono, monospace; }.log-empty { padding: 24px; color: var(--muted); font: .7rem DM Mono, monospace; text-align: center; }
 .quest { padding: 13px; border-left: 2px solid var(--accent); background: var(--surface-2); }.quest-title { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }.quest-desc { margin: 6px 0 0; color: var(--muted); font-size: .77rem; line-height: 1.5; }.quest-reward { margin-top: 8px; color: var(--accent); font: .65rem DM Mono, monospace; }
-.quest { padding: 13px; border-left: 2px solid var(--accent); background: var(--surface-2); }.quest-title { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }.quest-desc { margin: 6px 0 0; color: var(--muted); font-size: .77rem; line-height: 1.5; }.quest-reward { margin-top: 8px; color: var(--accent); font: .65rem DM Mono, monospace; }
+.quest-requirements { display: grid; gap: 6px; margin-top: 8px; }
 .cost { color: var(--warm); font: .66rem DM Mono, monospace; }
 /* ——— 远征档案：左栏章节树 + 右栏机制网格 ——— */
-.archive-layout { display: grid; grid-template-columns: minmax(260px, 350px) minmax(0, 1fr); gap: 18px; align-items: start; }
-.archive-column { min-width: 0; }
+/* 章节进度与成就两块等宽。 */
+.archive-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
 /* 树：一章一个分支，节点是它的子节点；连接线用伪元素画在叶子左侧。 */
 .tree { display: grid; gap: 10px; margin: 17px 0 0; padding: 0; list-style: none; }
 .tree-branch { border: 1px solid var(--line-soft); background: var(--surface-2); }
@@ -207,19 +214,171 @@ select:focus { border-color: var(--accent); }
 .tree-status { flex: 0 0 auto; color: var(--muted); font: .64rem DM Mono, monospace; }
 .tree-leaf.done .tree-status { color: var(--accent); }
 .tree-leaf.current .tree-status { color: var(--warm); }
-/* 机制卡片：网格自适应，卡片底部一行放消耗与升级按钮。 */
-.mechanic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(212px, 1fr)); gap: 12px; margin-top: 17px; }
-.mechanic-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--line-soft); background: var(--surface-2); }
-.mechanic-card.locked { opacity: .45; }
-.mechanic-card.highlight { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(139, 245, 201, .35); }
-.mechanic-icon { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1rem; }
-.mechanic-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.mechanic-head b { font-size: .86rem; }
-.mechanic-level { color: var(--accent); font: .66rem DM Mono, monospace; }
-.mechanic-desc { margin: 0; color: var(--muted); font-size: .72rem; line-height: 1.55; }
-.mechanic-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; }
-.mechanic-foot .secondary-button { padding: 7px 11px; font-size: .72rem; }
-.mechanic-lock { color: var(--muted); font: .64rem DM Mono, monospace; }
+/* 档案页页签：主线剧情 / 成就。 */
+.tab-bar { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+.tab { margin-bottom: -1px; padding: 10px 18px; border: 1px solid transparent; background: transparent; color: var(--muted); font-size: .82rem; }
+.tab:hover { color: var(--text); }
+.tab.active { border-color: var(--line); background: var(--surface); color: var(--accent); }
+.tab-count { margin-left: 7px; color: var(--muted); font: .64rem DM Mono, monospace; }
+.tab.active .tab-count { color: var(--accent); }
+.archive-hint { margin: 8px 0 0; color: var(--muted); font: .64rem DM Mono, monospace; }
+/* 主线剧情右栏：选中节点的剧情正文 + 解锁条件 / 解锁后。 */
+.chapter-facts { display: grid; gap: 8px; margin-top: 16px; }
+.chapter-fact { display: grid; gap: 4px; padding: 11px 13px; border: 1px solid var(--line-soft); background: var(--surface-2); }
+.chapter-fact span { color: var(--muted); font: .62rem DM Mono, monospace; letter-spacing: .06em; }
+.chapter-fact b { font-size: .8rem; font-weight: 600; line-height: 1.55; }
+/* 解锁条件：逐条列出，达成的用 status-dot 点亮（未达成的点是灰的、不放光晕）。 */
+.chapter-requirements { display: grid; gap: 6px; }
+.requirement { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line-soft); background: var(--surface-2); color: var(--muted); font-size: .74rem; }
+.requirement.done { border-color: var(--accent-dim); color: var(--accent); }
+.requirement .status-dot { flex: 0 0 auto; width: 8px; height: 8px; box-shadow: none; }
+.requirement .status-dot.pending { background: var(--line); }
+.achievement-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 10px; margin-top: 17px; }
+/* ——— 研究基地：左栏委托 / 右栏研究项（研究项卡片直接复用物品储藏的卡片）——— */
+.research-panel { padding: 22px; }
+.research-grid { margin-top: 17px; }
+.task-desc { margin: 10px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.6; }
+.task-requirement { display: grid; gap: 6px; }
+/* desc 里点名的物品与区域加粗：段落本身是 muted，加粗处要亮出来。 */
+.task-desc b { color: var(--text); font-weight: 700; }
+.research-card { cursor: pointer; }
+.research-card:hover, .research-card:focus-visible { z-index: 7; }
+/* 0 级置灰、满级高亮都不用 opacity：opacity < 1 会给卡片建层叠上下文，悬停浮层会被后面的卡片盖住。 */
+.research-card.level-0 { border-style: dashed; }
+.research-card.level-0 .item-icon { border-style: dashed; color: var(--muted); }
+.research-card.maxed { border-color: var(--accent); }
+.research-card.maxed .item-icon { color: var(--accent); border-color: var(--accent); }
+/* 未解锁的研究项：虚线 + 锁图标，点了也不会升（canUpgradeResearch 里挡掉）。 */
+.research-card.locked { border-style: dashed; cursor: not-allowed; }
+.research-card.locked .item-icon { border-style: dashed; color: var(--muted); }
+.item-detail .research-level { margin-top: 6px; color: var(--text); font: .68rem DM Mono, monospace; }
+.item-detail .research-cost { color: var(--accent); font: .65rem DM Mono, monospace; }
+.achievement-card { position: relative; display: grid; place-items: center; aspect-ratio: 1 / 1; padding: 0; border: 1px solid var(--line-soft); background: var(--surface-2); cursor: help; }
+.achievement-card.locked { border-style: dashed; }
+.achievement-card.unlocked { border-color: var(--accent-dim); }
+.achievement-card:hover, .achievement-card:focus-visible { z-index: 7; }
+.achievement-card:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+/* 图标自己不再画框（框由卡片担任），只是相框里的一个字形。 */
+.achievement-icon { display: grid; place-items: center; color: var(--accent); font-size: 1.15rem; line-height: 1; }
+.achievement-card.locked .achievement-icon { color: var(--muted); }
+/* 浮层里没有可点内容，所以始终不接收指针事件，避免它自己"抓住"悬停。 */
+.achievement-detail { z-index: 6; display: grid; gap: 5px; padding: 13px 14px; border: 1px solid var(--accent-dim); background: #101a1d; box-shadow: 0 16px 34px rgba(0, 0, 0, .4); opacity: 0; visibility: hidden; pointer-events: none; }
+.achievement-card:hover .achievement-detail, .achievement-card:focus-visible .achievement-detail { opacity: 1; visibility: visible; }
+.achievement-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.achievement-head b { font-size: .82rem; }
+.achievement-status { flex: 0 0 auto; color: var(--muted); font: .62rem DM Mono, monospace; }
+.achievement-card.unlocked .achievement-status { color: var(--accent); }
+.achievement-line { margin: 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }
+.achievement-card.unlocked .achievement-reward { color: var(--accent); }
+/* 悬停详情统一跟随鼠标：坐标由 hover-tip.ts 写进 --tip-x / --tip-y（相对卡片左上角）。
+   不再用 top: calc(100% - …) 贴在卡片正下方，也不再需要按列号左右翻转 —— JS 会把它夹在视口内。
+   宽度改成按内容自适应（原来 left/right: 0 会被卡片宽度限制）。 */
+.item-detail, .shop-detail, .achievement-detail { position: absolute; left: 0; top: 0; right: auto; width: max-content; max-width: min(320px, 78vw); transform: translate(var(--tip-x, 0px), var(--tip-y, 0px)); transition: opacity .14s ease, visibility .14s; }
+/* ——— 营地页：营地数值 / 后勤小队 / 当前威胁 ——— */
+.camp-panel, .shop-panel { padding: 22px; }
+/* 两列默认 stretch：营地状态与威胁块高度一致（不写 align-items: start）。
+   块内用纵向 flex，把血条压到底部，两块的血条自然对齐。 */
+.camp-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 18px; }
+.camp-block { display: flex; flex-direction: column; padding: 18px; border: 1px solid var(--line-soft); background: rgba(11, 18, 20, .35); }
+.camp-block .health-track { margin-top: auto; }
+.camp-threat.in-battle { border-color: var(--warm); }
+/* 2×2 排列：营地状态与事件卡片各四项，四列会把「250 / 250」这类数值挤到换行。 */
+.camp-stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+.camp-hint { margin: 10px 0 0; color: var(--muted); font-size: .74rem; line-height: 1.55; }
+.camp-health { background: var(--accent); }
+/* 行动按钮单独占一整行：只有「迎接挑战」时它铺满，出现「应对 / 跳过」时两者平分。 */
+.camp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; }
+.camp-challenge, .camp-accept { flex: 1 1 auto; }
+.camp-countdown { color: var(--warm); font: .68rem DM Mono, monospace; }
+/* 下一次随机事件的倒计时：等宽数字，逐秒变化时不会左右抖动。 */
+.camp-timer { margin: 10px 0 0; color: var(--muted); font: .68rem DM Mono, monospace; font-variant-numeric: tabular-nums; }
+/* 下一次随机事件的倒计时：整条压在营地状态与威胁两栏上方。 */
+/* 下一次随机事件的倒计时：整条压在营地状态与威胁两栏上方。
+   做成一排刻度格子而不是实心条 —— 实心条和营地血条太像，一眼分不清是血还是时间。 */
+.camp-event-timer { display: grid; gap: 8px; margin-bottom: 16px; }
+.camp-event-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.camp-event-timer .camp-timer { margin: 0; font-variant-numeric: tabular-nums; }
+.camp-event-track { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; }
+.camp-event-cell { height: 9px; border: 1px solid var(--line-soft); background: transparent; transition: background .2s ease, border-color .2s ease; }
+.camp-event-cell.on { border-color: var(--warm); background: rgba(255, 184, 107, .55); }
+.camp-log { margin-top: 18px; }
+/* 营地日志只有「时间 + 内容」两列，沿用 .log-entry 的三列网格会把内容挤成一条竖线。 */
+.camp-log .log-entry { grid-template-columns: 66px minmax(0, 1fr); }
+/* 后勤小队分配：一行一个去向，左右是加减按钮。 */
+.logistics-list { display: grid; gap: 10px; margin-top: 14px; }
+.logistics-row { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line-soft); background: var(--surface-2); }
+.logistics-icon { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--accent-dim); color: var(--accent); }
+.logistics-copy { flex: 1 1 auto; min-width: 0; display: grid; gap: 4px; }
+.logistics-copy b { font-size: .84rem; }
+.logistics-desc { color: var(--muted); font-size: .7rem; line-height: 1.5; }
+.logistics-progress { color: var(--accent); font: .64rem DM Mono, monospace; }
+.logistics-control { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.logistics-count { min-width: 26px; color: var(--accent); font: 500 .9rem DM Mono, monospace; text-align: center; }
+.step-button { width: 26px; height: 26px; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: .9rem; line-height: 1; }
+.step-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.step-button:disabled { opacity: .35; cursor: not-allowed; }
+/* ——— 工坊页：制造项卡片 ——— */
+/* 顶部的后勤小队人数行：冒号后的数值用 b 强调。 */
+.shop-hint { margin: 0; }
+.shop-hint b { color: var(--accent); font: inherit; }
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; margin-top: 18px; }
+/* 卡片：左侧图标 / 名称 / 等级，右侧当前加成与材料（需要 / 现有）；下面是进度条与人数分配。
+   说明与工时留在悬停浮层里（做法同机制卡片）。数字统一用等宽小字，避免视觉噪音。 */
+.shop-item { position: relative; display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line-soft); background: var(--surface-2); cursor: help; }
+.shop-item.busy { border-color: var(--accent-dim); }
+.shop-item:hover, .shop-item:focus-visible { z-index: 7; }
+.shop-item:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.shop-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+/* 左列：图标 / 名称 / 等级，下面挂进度条（不占整行，宽度跟着左列走）。 */
+.shop-left { flex: 1 1 auto; min-width: 0; display: grid; gap: 10px; }
+.shop-left .capacity-track { width: min(220px, 100%); margin-top: 0; }
+.shop-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.shop-id-text { display: grid; gap: 3px; min-width: 0; }
+.shop-icon { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1rem; }
+.shop-name { font-size: .82rem; }
+.shop-level { color: var(--accent); font: .64rem DM Mono, monospace; }
+/* 右列：当前加成在上，材料逐行靠右竖排。 */
+.shop-facts { flex: 0 0 auto; display: grid; gap: 5px; justify-items: end; text-align: right; }
+.shop-bonus { color: var(--accent); font: .64rem DM Mono, monospace; }
+.shop-note { color: var(--muted); font: .62rem DM Mono, monospace; }
+.shop-mats { display: grid; gap: 4px; justify-items: end; }
+/* 材料不足标红、足够标绿（--red / --accent）。 */
+.shop-mat { display: inline-flex; gap: 4px; color: var(--red); font: .64rem DM Mono, monospace; }
+.shop-mat.ok { color: var(--accent); }
+/* 标签给固定宽度，右侧的「需要/现有」才能逐行对齐。 */
+.shop-mat i { min-width: 3.4em; color: var(--muted); font-style: normal; text-align: right; }
+/* 人数分配：« − N + » 一行，批量按钮贴在步进器两侧（用「»/«」这类单向书签式的符号，灰色弱化）。 */
+.shop-assign { display: flex; align-items: center; gap: 8px; }
+.step-button.batch { color: var(--muted); }
+.step-button.batch:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.shop-detail { z-index: 6; display: grid; gap: 9px; padding: 14px; border: 1px solid var(--accent-dim); background: #101a1d; box-shadow: 0 16px 34px rgba(0, 0, 0, .4); opacity: 0; visibility: hidden; pointer-events: none; }
+/* 浮层里没有可点的东西，所以始终不接收指针事件：否则指针停在浮层上会继续满足 .shop-item:hover，
+   表现成「鼠标离开卡片了，浮层还挂着」。机制卡片的浮层里有按钮，所以那个保持可交互。 */
+.shop-item:hover .shop-detail, .shop-item:focus-visible .shop-detail { opacity: 1; visibility: visible; }
+.shop-detail .camp-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
+.shop-desc { margin: 0; color: var(--muted); font-size: .74rem; line-height: 1.55; }
+.shop-cost { margin: 0; color: var(--warm); font: .66rem DM Mono, monospace; line-height: 1.6; }
+.shop-work { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font: .64rem DM Mono, monospace; }
+/* ——— 解锁提示：页面上方居中的 tips（机制 / 成就解锁时弹出，多条向下堆叠） ——— */
+.unlock-toast-layer { position: fixed; left: 50%; top: 18px; z-index: 80; display: grid; gap: 8px; justify-items: center; transform: translateX(-50%); pointer-events: none; }
+.unlock-toast { display: grid; gap: 3px; min-width: 240px; max-width: min(420px, 84vw); padding: 11px 16px; border: 1px solid var(--accent); background: #101a1d; box-shadow: 0 14px 34px rgba(0, 0, 0, .5); animation: unlock-toast-in .22s ease-out both; }
+.unlock-toast.leaving { animation: unlock-toast-out .3s ease-in both; }
+.unlock-toast-title { color: var(--accent); font-size: .8rem; font-weight: 700; }
+.unlock-toast-detail { color: var(--muted); font: .66rem DM Mono, monospace; }
+@keyframes unlock-toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes unlock-toast-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-8px); } }
+/* ——— 随机事件弹窗（设置-通知开启时才出现） ——— */
+.event-prompt-layer { position: fixed; inset: 0; z-index: 75; display: grid; place-items: center; padding: 24px; background: rgba(4, 9, 11, .74); }
+.event-prompt-layer[hidden] { display: none; }
+.event-prompt { width: min(480px, 100%); border: 1px solid var(--warm); background: #131d21; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.event-prompt-head { display: flex; align-items: center; gap: 14px; padding: 16px 18px 12px; border-bottom: 1px solid var(--line-soft); }
+.event-prompt-head h3 { margin: 0; }
+.event-prompt-icon { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid rgba(255, 184, 107, .45); color: var(--warm); font-size: 1.1rem; }
+.event-prompt-desc { margin: 0; padding: 12px 18px 0; color: var(--muted); font-size: .78rem; line-height: 1.6; }
+.event-prompt-stats { margin: 0; padding: 10px 18px 0; color: var(--warm); font: .68rem DM Mono, monospace; }
+.event-prompt-count { margin: 0; padding: 8px 18px 0; color: var(--accent); font: .68rem DM Mono, monospace; }
+.event-prompt-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 18px 18px; }
+
 .inventory-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }.inventory-heading p { margin: 9px 0 0; color: var(--muted); font-size: .75rem; }.capacity-track { width: min(420px, 100%); height: 6px; margin-top: 12px; overflow: hidden; background: #0b1214; }.capacity-bar { height: 100%; background: var(--accent); transition: width .25s ease; }.inventory-empty { margin: 0; padding: 46px 20px; color: var(--muted); font: .72rem DM Mono, monospace; text-align: center; }.item-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }.item-card { position: relative; min-width: 0; padding: 16px; border: 1px solid var(--line-soft); background: var(--surface-2); }.item-grid .item-card { min-height: 170px; }.item-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 13px; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1.2rem; }.item-copy b { display: block; font-size: .85rem; }.item-type { display: block; margin-top: 4px; color: var(--muted); font: .62rem DM Mono, monospace; }.item-copy p { margin: 10px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }.item-quantity { position: absolute; right: 14px; top: 14px; color: var(--accent); font: .72rem DM Mono, monospace; }/* 稀有度配色：--rarity-color 供物品名字使用，边框只加在物品卡片上。 */
 .rarity-common { --rarity-color: var(--text); }
 .rarity-uncommon { --rarity-color: var(--blue); }
@@ -261,6 +420,16 @@ select:focus { border-color: var(--accent); }
 .dev-item-icon { flex: 0 0 auto; color: var(--rarity-color, var(--accent)); font-size: 1rem; }
 .dev-item-name { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--rarity-color, inherit); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
 .dev-item-owned { flex: 0 0 auto; color: var(--muted); font: .64rem DM Mono, monospace; }
+/* 「修改属性」浮层：上面是所有可改数值的网格，下面是输入框 + 修改按钮。 */
+.dev-stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; padding: 16px 18px; }
+.dev-stat-button { display: grid; gap: 4px; padding: 10px 11px; border: 1px solid var(--line-soft); background: var(--surface-2); color: var(--text); text-align: left; }
+.dev-stat-button:hover { border-color: var(--accent); background: rgba(139, 245, 201, .08); }
+.dev-stat-button.selected { border-color: var(--accent); background: rgba(139, 245, 201, .12); }
+.dev-stat-name { color: var(--muted); font-size: .68rem; }
+.dev-stat-value { color: var(--accent); font: 500 .86rem DM Mono, monospace; }
+.dev-stat-button.selected .dev-stat-name { color: var(--accent); }
+.dev-stat-input { flex: 1 1 auto; width: auto; }
+.dev-modal-foot .dev-button { padding: 8px 16px; }
 .dev-modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 18px; border-top: 1px solid var(--line-soft); }
 .dev-multiplier-label { color: var(--muted); font: .66rem DM Mono, monospace; letter-spacing: .06em; }
 .dev-modal-foot .segment { padding: 8px 16px; font-size: .76rem; }
@@ -281,9 +450,16 @@ select:focus { border-color: var(--accent); }
 .cat-consumable { --cat-color: var(--warm); }
 /* 统计文案与容量条强制同行：文案在左可换行，容量条紧贴其右，宽度随容器收缩但永不掉行。 */
 .inventory-heading > div:first-child { flex: 1 1 auto; min-width: 0; }
-.inventory-heading .capacity-row { display: flex; align-items: center; gap: 12px; margin-top: 9px; }
-.inventory-heading .capacity-row p { flex: 0 1 auto; min-width: 0; margin: 0; color: var(--muted); font-size: .75rem; }
-.inventory-heading .capacity-row .capacity-track { flex: 0 0 auto; width: clamp(88px, 28%, 220px); margin-top: 0; }
+/* 物品栏负载：标题行右侧写「负载 x / y」，下面独占一整行的容量计。
+   条上叠了等距刻度（不是纯实心条，和血条一眼能分开），填充色随压力变：绿 → 黄 → 红。 */
+.capacity-summary { flex: 0 0 auto; color: var(--muted); font: .68rem DM Mono, monospace; font-variant-numeric: tabular-nums; }
+.load-track { position: relative; width: 100%; height: 10px; margin-top: 12px; border: 1px solid var(--line-soft); }
+/* 颜色随压力档切换，加个过渡免得突兀。 */
+.load-bar { background: var(--accent); transition: width .25s ease, background .25s ease; }
+.load-bar.load-mid { background: var(--warm); }
+.load-bar.load-high { background: var(--red); }
+/* 刻度用「条上的重复渐变」画：条本身不透明，格子感来自这些竖线。 */
+.load-track::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(10% - 1px), rgba(11, 18, 20, .85) calc(10% - 1px), rgba(11, 18, 20, .85) 10%); }
 /* 物品栏左右分栏：左侧装备栏，右侧物品储藏。 */
 .inventory-layout { display: grid; grid-template-columns: 212px minmax(0, 1fr); gap: 18px; align-items: start; }
 /* 物品储藏容器：不管有没有东西都显示实线边框，让玩家知道这里是收纳区。空的时候用提示文字占位。 */
@@ -333,7 +509,11 @@ select:focus { border-color: var(--accent); }
 .item-grid .item-category { color: var(--muted); }
 .item-grid .item-quantity { position: static; display: block; margin-top: 0; color: var(--accent); font: inherit; }
 .item-grid .item-detail { text-align: left; min-width: 168px; }
-.item-grid .item-card:nth-child(6n) .item-detail { left: auto; right: 0; }
+/* 物品储藏改成图标磁贴：正方形，卡面只有图标与数量（名称、稀有度、属性、词条都在悬停浮层里）。 */
+.storage-grid .item-card { aspect-ratio: 1 / 1; min-height: 0; display: grid; place-content: center; gap: 5px; padding: 8px; }
+.storage-grid .item-icon { width: 30px; height: 30px; margin: 0 auto; font-size: .95rem; }
+.storage-grid .item-quantity { position: static; margin: 0; color: var(--accent); font: 500 .64rem DM Mono, monospace; text-align: center; }
+.item-detail-name { display: block; color: var(--rarity-color, var(--text)); font-size: .8rem; font-weight: 700; }
 .item-card { cursor: context-menu; }
 /* 装备类卡片可以左键拖到左侧槽位，用抓取光标提示。 */
 .item-card[draggable="true"] { cursor: grab; }
@@ -373,8 +553,8 @@ body.enhancing .item-card[data-instance]:not([data-instance="-1"]) { border-colo
 .affix-picker-option:hover { border-color: var(--accent); background: rgba(139, 245, 201, .08); }
 .affix-picker-name { color: var(--rarity-color, inherit); font-size: .82rem; font-weight: 700; }
 .affix-picker-text { color: var(--muted); font: .7rem DM Mono, monospace; }
-.item-detail { position: absolute; left: 0; right: 0; top: calc(100% - 4px); z-index: 6; padding: 12px 13px; border: 1px solid var(--accent-dim); background: #101a1d; box-shadow: 0 16px 34px rgba(0, 0, 0, .4); opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .14s ease, transform .14s ease, visibility .14s; pointer-events: none; }
-.item-card:hover .item-detail, .item-card:focus-visible .item-detail { opacity: 1; visibility: visible; transform: translateY(0); }
+.item-detail { z-index: 6; padding: 12px 13px; border: 1px solid var(--accent-dim); background: #101a1d; box-shadow: 0 16px 34px rgba(0, 0, 0, .4); opacity: 0; visibility: hidden; pointer-events: none; }
+.item-card:hover .item-detail, .item-card:focus-visible .item-detail { opacity: 1; visibility: visible; }
 .item-detail p { margin: 8px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.55; }
 .item-stats { margin-top: 9px; color: var(--accent); font: .65rem DM Mono, monospace; }
 .item-context-menu { position: fixed; z-index: 60; min-width: 152px; padding: 6px; border: 1px solid var(--line); background: #131d21; box-shadow: 0 18px 40px rgba(0, 0, 0, .5); }
@@ -385,5 +565,6 @@ body.enhancing .item-card[data-instance]:not([data-instance="-1"]) { border-colo
 .context-menu-item:hover { background: rgba(139, 245, 201, .1); color: var(--accent); }
 .context-menu-item.danger { color: var(--red); }
 .context-menu-item.danger:hover { background: rgba(255, 142, 123, .12); color: var(--red); }
-@media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.inventory-layout { grid-template-columns: 1fr; }.archive-layout { grid-template-columns: 1fr; }.sidebar, .nav-collapsed .sidebar { min-height: auto; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(5, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.home-grid { grid-template-columns: 1fr; }.home-hero, .home-log { grid-column: auto; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
-@media (max-width: 600px) { .app-shell { width: min(100% - 24px, 1240px); padding-top: 30px; }.game-header { align-items: start; flex-direction: column; gap: 17px; }.brand-group { gap: 10px; }.nav-toggle { width: 28px; height: 28px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(3, 1fr); }.resource-strip { grid-template-columns: repeat(2, 1fr); }.resource:last-child { grid-column: 1 / -1; }.hero-stats { grid-template-columns: 1fr 1fr; }.hero-stats .mini-stat:last-child { grid-column: 1 / -1; }.page-heading, .inventory-heading { flex-direction: column; gap: 10px; }.adventure-toolbar, .toolbar-row { align-items: stretch; flex-direction: column; }.battle-arena { grid-template-columns: 1fr; }.versus { padding: 2px 0; }.combatant { padding: 14px; }.log-entry { grid-template-columns: 58px 40px 1fr; gap: 7px; }.home-log .log-entry { grid-template-columns: 58px minmax(0, 1fr); }.item-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }.item-grid .item-card:nth-child(5n) .item-detail { left: auto; right: 0; } }
+@media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.inventory-layout { grid-template-columns: 1fr; }.archive-layout { grid-template-columns: 1fr; }.camp-layout { grid-template-columns: 1fr; }.sidebar, .nav-collapsed .sidebar { min-height: auto; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(8, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.home-grid { grid-template-columns: 1fr; }.home-hero, .home-log { grid-column: auto; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
+@media (max-width: 600px) { .app-shell { width: min(100% - 24px, 1240px); padding-top: 30px; }.game-header { align-items: start; flex-direction: column; gap: 17px; }.brand-group { gap: 10px; }.nav-toggle { width: 28px; height: 28px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(4, 1fr); }.resource-strip { grid-auto-flow: row; grid-template-columns: repeat(2, 1fr); }.resource:last-child { grid-column: 1 / -1; }.hero-stats { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }.page-heading, .inventory-heading { flex-direction: column; gap: 10px; }.adventure-toolbar, .toolbar-row { align-items: stretch; flex-direction: column; }.battle-arena { grid-template-columns: 1fr; }.versus { padding: 2px 0; }.combatant { padding: 14px; }.log-entry { grid-template-columns: 58px 40px 1fr; gap: 7px; }.home-log .log-entry { grid-template-columns: 58px minmax(0, 1fr); }.item-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+ }
