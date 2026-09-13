@@ -64,6 +64,10 @@ export const mainline: MainlineQuest[] = [
    主线也因此延伸出两个节点：抵御第一场天灾、击退第一次兽潮。 */
 /** 随机事件触发间隔（秒），默认 1 小时。营地页的倒计时进度条要用它算比例。 */
 export const RANDOM_EVENT_INTERVAL = 60 * 60;
+/** 随机事件从第几步主线开始计时：在此之前营地在荒野里还没引起注意，开局不该被事件打断。 */
+const RANDOM_EVENT_START_INDEX = 1;
+/** 随机事件计时是否已经在走。 */
+export function isCampEventTimerRunning(target: GameState = state): boolean { return target.mainlineIndex >= RANDOM_EVENT_START_INDEX; }
 const PENDING_EVENT_TIMEOUT = 30;        // 事件等待玩家响应的秒数，超时直接跳过
 const CAMP_ATTACK_INTERVAL = 1.2;        // 营地出手间隔（秒）
 /** 营地裸值：等级 0、没有任何强化时的基础数值。 */
@@ -540,6 +544,8 @@ function advanceCamp(target: GameState, seconds: number): void {
     if (Date.now() >= target.camp.pendingExpires) { clearPending(target); addLog(target, `${PENDING_EVENT_TIMEOUT} 秒内没有响应，这次突发状况已经过去。`, 'system'); }
     return;
   }
+  /* 开局先不计时：随机事件要等远征真正开始（打完第一场战斗）之后才会找上门。 */
+  if (!isCampEventTimerRunning(target)) return;
   target.camp.randomTimer -= seconds;
   if (target.camp.randomTimer > 0) return;
   target.camp.randomTimer = RANDOM_EVENT_INTERVAL;

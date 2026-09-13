@@ -1,6 +1,6 @@
 import {
   startCampChallenge, answerPendingEvent, getCampMaxHp, getCampAttack, getCampDefense, getCampRegen, getCampHp,
-  getCampBattle, getNextCampChallenge, getPendingEvent, formatNumber, formatDuration, RANDOM_EVENT_INTERVAL
+  getCampBattle, getNextCampChallenge, getPendingEvent, isCampEventTimerRunning, formatNumber, formatDuration, RANDOM_EVENT_INTERVAL
 } from '../game-state';
 import { setText, setNumber, setHtml, setWidth, setClass, setHidden, setDisabled, pick } from '../dom';
 import type { GameState, PageDefinition } from '../types';
@@ -119,9 +119,11 @@ const page: PageDefinition<any> = {
     /* 下一次随机事件的倒计时：交战、等待响应时计时暂停（见 game-state 的 advanceCamp）。 */
     /* 下一次随机事件的倒计时：条长按剩余时间占比，交战与等待响应时计时暂停（见 advanceCamp）。 */
     const timerLeft = Math.max(0, Math.min(RANDOM_EVENT_INTERVAL, state.camp.randomTimer));
-    setText(ctx.randomTimer, battle ? '交战中，计时暂停' : pending ? '突发状况等待响应中' : `下一次随机事件 ${formatDuration(Math.ceil(timerLeft))}`);
+    const timerRunning = isCampEventTimerRunning(state);
+    setText(ctx.randomTimer, battle ? '交战中，计时暂停' : pending ? '突发状况等待响应中'
+      : timerRunning ? `下一次随机事件 ${formatDuration(Math.ceil(timerLeft))}` : '随机事件尚未开始计时');
     /* 点亮剩下的格子：靠右对齐，时间流逝时从左往右熄灭。 */
-    const lit = Math.ceil(timerLeft / RANDOM_EVENT_INTERVAL * ctx.cells.length);
+    const lit = timerRunning ? Math.ceil(timerLeft / RANDOM_EVENT_INTERVAL * ctx.cells.length) : 0;
     ctx.cells.forEach((cell: HTMLElement, index: number) => setClass(cell, 'on', index >= ctx.cells.length - lit));
     setText(ctx.countdown, pending ? `剩余响应时间 ${Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000))} 秒` : '');
     setHtml(ctx.log, logMarkup(state));
