@@ -51,7 +51,7 @@ export const mainline: MainlineQuest[] = [
   quest('追踪核心信号', '余烬碎片正在指向更深处的区域。第一章的下一段道路已经出现。', '解锁研究项「信号放大 I」', [
     { text: (state: GameState) => `收集余烬碎片 ${progressText(state.inventory[ITEM.emberShard], 2)} 个`, done: (state: GameState) => state.inventory[ITEM.emberShard] >= 2 }
   ]),
-  quest('抵御第一场天灾', '把工坊造出来的城防和后勤小队都压上去，让营地在沙暴里站住。', '营地进入长期战备', [
+  quest('抵御第一场天灾', '把工坊造出来的城防和后勤小队都压上去，让营地在沙暴里站住。', '营地进入长期战备，荒野开始注意到这里（解锁随机事件）', [
     { text: (state: GameState) => `成功应对天灾 ${progressText(state.camp.disasterWins, 1)} 次`, done: (state: GameState) => state.camp.disasterWins >= 1 }
   ]),
   quest('击退第一次兽潮', '兽潮不打算绕路。营地攻防与营垒等级决定了这堵墙能不能撑到最后。', '完成营地战备阶段', [
@@ -64,8 +64,9 @@ export const mainline: MainlineQuest[] = [
    主线也因此延伸出两个节点：抵御第一场天灾、击退第一次兽潮。 */
 /** 随机事件触发间隔（秒），默认 1 小时。营地页的倒计时进度条要用它算比例。 */
 export const RANDOM_EVENT_INTERVAL = 60 * 60;
-/** 随机事件从第几步主线开始计时：在此之前营地在荒野里还没引起注意，开局不该被事件打断。 */
-const RANDOM_EVENT_START_INDEX = 1;
+/** 随机事件从第几步主线开始计时：它是「抵御第一场天灾」（mainline 下标 5）的奖励，
+   完成那条主线后 mainlineIndex 才是 6，在此之前营地完全不会被荒野上的随机事件打扰。 */
+const RANDOM_EVENT_START_INDEX = 6;
 /** 随机事件计时是否已经在走。 */
 export function isCampEventTimerRunning(target: GameState = state): boolean { return target.mainlineIndex >= RANDOM_EVENT_START_INDEX; }
 const PENDING_EVENT_TIMEOUT = 30;        // 事件等待玩家响应的秒数，超时直接跳过
@@ -252,7 +253,8 @@ export const achievements: Achievement[] = [
    最坏只是重复弹一条提示，读档时按新表长度重建即可，不做迁移）。 */
 export const unlockNotices = [
   { id: 'workshop', icon: '🔨', category: '工坊', name: '工坊', hint: '完成「清理废弃边境」解锁', unlocked: (target: GameState) => target.mainlineIndex >= 2 },
-  { id: 'researchBase', icon: '🧪', category: '研究基地', name: '研究基地', hint: '完成「分析异常电池」解锁', unlocked: (target: GameState) => target.mainlineIndex >= 3 }
+  { id: 'researchBase', icon: '🧪', category: '研究基地', name: '研究基地', hint: '完成「分析异常电池」解锁', unlocked: (target: GameState) => target.mainlineIndex >= 3 },
+  { id: 'randomEvent', icon: '🌪️', category: '营地', name: '随机事件', hint: '完成「抵御第一场天灾」解锁', unlocked: (target: GameState) => target.mainlineIndex >= 6 }
 ];
 /** 解锁事件：界面（unlock-toast.ts）订阅它来弹 tips。
     category 是这项东西所在的页面 / 板块，提示会写成「icon 解锁：category「name」」。 */

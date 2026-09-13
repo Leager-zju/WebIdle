@@ -43,6 +43,7 @@ const page: PageDefinition<any> = {
     const ctx: any = {
       ...pick(view, 'copy', 'hp', 'attack', 'defense', 'regen', 'health', 'threatTitle', 'threatState', 'threatDesc',
         'eventHp', 'eventAttack', 'eventDefense', 'eventInterval', 'eventHealth', 'randomTimer', 'randomTimerBar', 'countdown', 'challenge', 'accept', 'decline', 'log'),
+      timerBlock: view.querySelector<HTMLElement>('.camp-event-timer')!,
       cells: [...view.querySelectorAll<HTMLElement>('.camp-event-cell')],
       threat: view.querySelector<HTMLElement>('.camp-threat')
     };
@@ -120,6 +121,8 @@ const page: PageDefinition<any> = {
     /* 下一次随机事件的倒计时：条长按剩余时间占比，交战与等待响应时计时暂停（见 advanceCamp）。 */
     const timerLeft = Math.max(0, Math.min(RANDOM_EVENT_INTERVAL, state.camp.randomTimer));
     const timerRunning = isCampEventTimerRunning(state);
+    /* 随机事件还没解锁：整块藏起来（kicker、倒计时、格子都不该出现）。 */
+    setHidden(ctx.timerBlock, !timerRunning);
     setText(ctx.randomTimer, battle ? '交战中，计时暂停' : pending ? '突发状况等待响应中'
       : timerRunning ? `下一次随机事件 ${formatDuration(Math.ceil(timerLeft))}` : '随机事件尚未开始计时');
     /* 点亮剩下的格子：靠右对齐，时间流逝时从左往右熄灭。 */
