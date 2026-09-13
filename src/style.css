@@ -241,6 +241,13 @@ select:focus { border-color: var(--accent); }
 .task-requirement { display: grid; gap: 6px; }
 /* desc 里点名的物品与区域加粗：段落本身是 muted，加粗处要亮出来。 */
 .task-desc b { color: var(--text); font-weight: 700; }
+/* 物品名统一按稀有度着色：--rarity-color 由同元素（或祖先）上的 .rarity-* 提供。 */
+.item-name { color: var(--rarity-color, var(--text)); }
+/* 研究点数用主色：和四种稀有度色都不撞，且是这份委托「能换到什么」的落点。 */
+.research-points { color: var(--accent); font-weight: 700; }
+.research-difficulty { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.difficulty-stepper { display: flex; align-items: center; gap: 6px; }
+.difficulty-value { min-width: 46px; color: var(--text); font: .72rem DM Mono, monospace; text-align: center; }
 .research-card { cursor: pointer; }
 .research-card:hover, .research-card:focus-visible { z-index: 7; }
 /* 0 级置灰、满级高亮都不用 opacity：opacity < 1 会给卡片建层叠上下文，悬停浮层会被后面的卡片盖住。 */

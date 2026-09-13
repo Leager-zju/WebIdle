@@ -76,7 +76,7 @@ export interface CampBattleState { kind: number; id: number; name: string; icon:
 export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; research: number; companions: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
   devOverrides: number[];
   /** 研究基地：研究点数、当前委托（itemId 为 -1 表示尚未发布）、各研究项等级。 */
-  researchPoints: number; researchTask: ResearchTaskState; researchLevels: number[]; }
+  researchPoints: number; /** 当前选择的委托难度（1 ~ 已解锁战斗区域数），只影响下一份委托。 */ researchDifficulty: number; researchTask: ResearchTaskState; researchLevels: number[]; }
 /* ——— 道具的使用行为 ———
    use 是函数而不是数据：不同道具要做的事差别太大（回血、加词条、按品阶移除词条…），
    而且以后还要加更多「点击使用后选目标」的道具。配置表里的 use 只通过 UseContext 操作状态，
@@ -111,7 +111,7 @@ export type UseHandler = (context: UseContext) => UseOutcome;
 /** 主线节点的具体达成条件：text 是给玩家看的进度文案（如「收集旧电池 2/3 个」），done 决定状态点是否点亮。 */
 export interface MainlineRequirement { text: (state: GameState) => string; done: (state: GameState) => boolean; }
 /** 研究基地发布的资源收集委托：要交 itemId 这种掉落物 need 个。 */
-export interface ResearchTaskState { itemId: number; /** 目标区域：委托要的物品在这里掉落。 */ zoneId: number; need: number; }
+export interface ResearchTaskState { itemId: number; /** 目标区域：委托要的物品在这里掉落。 */ zoneId: number; /** 发布时的难度：奖励倍率按它算，事后改难度不影响已接的委托。 */ difficulty: number; need: number; }
 /** condition 由 requirements 推导（全部 done），两处条件不会写歪。 */
 export interface MainlineQuest { title: string; description: string; condition: (state: GameState) => boolean; reward: string; requirements: MainlineRequirement[]; }
 /** 成就：约定俗成的三段式——解锁条件（hint）+ 解锁后（reward）。

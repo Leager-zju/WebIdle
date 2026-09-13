@@ -100,8 +100,31 @@ export const RESEARCH = {
   /** 每份委托的研究点数奖励。 */
   reward: 10,
   /** 研究项升级消耗：costBase + costStep × 当前等级。 */
-  costBase: 10, costStep: 5
+  costBase: 10, costStep: 5,
+  /** 难度 → 奖励倍率（下标 = 难度 - 1）。高稀有度的掉落更难凑齐，所以越往上加得越快。 */
+  difficultyMultiplier: [1, 1.6, 2.4, 3.4]
 };
+/** 难度对应的物品稀有度：1 → 普通、2 → 精良、3 → 稀有、4 → 史诗（下标即难度 - 1）。 */
+export const researchDifficultyRarity = (difficulty: number): number => Math.max(0, Math.min(rarities.length - 1, difficulty - 1));
+/** 某档难度的奖励倍率。 */
+export function getResearchDifficultyMultiplier(difficulty: number): number {
+  const table = RESEARCH.difficultyMultiplier;
+  return table[Math.max(0, Math.min(table.length - 1, Math.floor(difficulty) - 1))];
+}
+/** 难度上限 = 已解锁的战斗区域数量：开局只有废弃边境，所以一开始只能选 1 级。 */
+export function getResearchMaxDifficulty(target: GameState = state): number {
+  return Math.max(1, zones.reduce((total, zone, id) => total + (zone.enemyIds.length && isZoneUnlocked(id, target) ? 1 : 0), 0));
+}
+export function getResearchDifficulty(target: GameState = state): number {
+  return Math.max(1, Math.min(getResearchMaxDifficulty(target), Math.floor(Number(target.researchDifficulty) || 1)));
+}
+export function setResearchDifficulty(value: number): void {
+  const next = Math.max(1, Math.min(getResearchMaxDifficulty(state), Math.floor(Number(value) || 1)));
+  if (next === state.researchDifficulty) return;
+  state.researchDifficulty = next;
+  addLog(state, `委托难度调整为 ${next} 级：下一份委托会索取${rarities[researchDifficultyRarity(next)].name}物品。`, 'system');
+  saveState(); notify();
+}
 /** 研究项：下标即 state.researchLevels 的下标，追加新项要放在末尾。 */
 export const RESEARCH_ITEM = { taskNeed: 0, reward: 1 };
 export const researchItems = [
@@ -119,8 +142,15 @@ export const researchItems = [
 ];
 /** 研究项是否已解锁：主线进度不够时卡片锁着、点了也没反应。 */
 export function isResearchItemUnlocked(id: number, target: GameState = state): boolean { return !!researchItems[id] && target.mainlineIndex >= researchItems[id].unlockIndex; }
-/** 每份委托的研究点数奖励：基础值 + 「信号放大」的等级。 */
-export function getResearchReward(target: GameState = state): number { return RESEARCH.reward + getResearchLevel(RESEARCH_ITEM.reward, target); }
+/** 某份委托的研究点数：基础值 + 「信号放大」等级，再乘这份委托自己的难度倍率
+   （倍率按委托发布时的难度算，所以事后改难度不会改变已经接下的委托的报酬）。 */
+export function getTaskReward(task: ResearchTaskState, target: GameState = state): number {
+  return Math.round((RESEARCH.reward + getResearchLevel(RESEARCH_ITEM.reward, target)) * getResearchDifficultyMultiplier(task.difficulty || 1));
+}
+/** 以当前难度接下一份委托能拿多少点（界面预览用）。 */
+export function getResearchReward(target: GameState = state): number {
+  return getTaskReward({ itemId: -1, zoneId: -1, difficulty: getResearchDifficulty(target), need: 0 }, target);
+}
 
 /** 等级加成曲线：前 10 级按 perLevel 线性增长，之后每级只给一半收益（避免后期数值失控）。 */
 export function levelBonus(level: number, perLevel: number): number { return Math.round(perLevel * (Math.min(level, 10) + Math.max(0, level - 10) * .5)); }
@@ -314,7 +344,7 @@ const freshAdventure = (): AdventureState => ({
 });
 const freshState = (): GameState => ({
   gold: 45, scrap: 24, essence: 0, totalWins: 0, mainlineIndex: 0,
-  workshop: 0, research: 0, companions: 0, researchPoints: 0, researchTask: { itemId: -1, zoneId: -1, need: 0 }, researchLevels: researchItems.map(() => 0), equipped: equipTypes.map(type => new Array(type.baseSlots).fill(-1)), settings: { fontScale: 0, notify: true, numberFormat: 0 },
+  workshop: 0, research: 0, companions: 0, researchPoints: 0, researchDifficulty: 1, researchTask: { itemId: -1, zoneId: -1, difficulty: 1, need: 0 }, researchLevels: researchItems.map(() => 0), equipped: equipTypes.map(type => new Array(type.baseSlots).fill(-1)), settings: { fontScale: 0, notify: true, numberFormat: 0 },
   inventory: new Array(items.length).fill(0), equipment: [], nextInstanceId: 1, encountered: new Array(enemyTable.length).fill(0), discoveredDrops: enemyTable.map(() => []), adventure: freshAdventure(),
   /* 后勤小队开局 1 人（全部待命）；工坊只有一个制造项，0 级且空闲；营地满血、随机事件从满间隔开始倒数。 */
   logistics: { assigned: logisticsTargets.map(() => 0) },
@@ -574,33 +604,46 @@ export function toggleAutoPush(): void { state.adventure.autoPush = !state.adven
 /** 由「分析异常电池」解锁（mainline 下标 2 完成后 mainlineIndex 变成 3）。 */
 export function isResearchUnlocked(target: GameState = state): boolean { return target.mainlineIndex >= 3; }
 /** 读档时把研究基地的字段规整成合法值：旧存档没有这些字段，越界的等级也要压回上限。 */
-function readResearchState(saved: any): { researchPoints: number; researchTask: ResearchTaskState; researchLevels: number[] } {
+function readResearchState(saved: any): { researchPoints: number; researchDifficulty: number; researchTask: ResearchTaskState; researchLevels: number[] } {
   const task = saved?.researchTask;
   return {
     researchPoints: Math.max(0, Math.floor(Number(saved?.researchPoints) || 0)),
-    researchTask: { itemId: Number.isFinite(task?.itemId) ? Math.floor(task.itemId) : -1, zoneId: Number.isFinite(task?.zoneId) ? Math.floor(task.zoneId) : -1, need: Math.max(0, Math.floor(Number(task?.need) || 0)) },
+    researchTask: { itemId: Number.isFinite(task?.itemId) ? Math.floor(task.itemId) : -1, zoneId: Number.isFinite(task?.zoneId) ? Math.floor(task.zoneId) : -1, difficulty: Math.max(1, Math.floor(Number(task?.difficulty) || 1)), need: Math.max(0, Math.floor(Number(task?.need) || 0)) },
+    researchDifficulty: Math.max(1, Math.floor(Number(saved?.researchDifficulty) || 1)),
     researchLevels: researchItems.map((entry, id) => Math.min(entry.maxLevel, Math.max(0, Math.floor(Number(saved?.researchLevels?.[id]) || 0))))
   };
 }
 /** 委托物品池：已解锁区域里的怪物会掉的、可堆叠的物品（装备一件一格，不适合当收集目标）。 */
-/** 委托候选：物品 + 它所在的区域（同一掉落物可能多个区域都掉，取最先出现的那个区域）。 */
-function researchDropPool(target: GameState): { itemId: number; zoneId: number }[] {
+/** 委托候选：物品 + 它所在的区域（同一掉落物可能多个区域都掉，取最先出现的那个区域）。
+   只取「难度对应稀有度」的物品；那一档没有候选（例如还没解锁会掉它的区域）时，
+   退到稀有度最接近的一档，保证任何难度都发得出委托。 */
+function researchDropPool(target: GameState, difficulty: number): { itemId: number; zoneId: number }[] {
   const pool = new Map<number, number>();
   zones.forEach((zone, zoneId) => {
     if (!zone.enemyIds.length || !isZoneUnlocked(zoneId, target)) return;
     zone.enemyIds.forEach(enemyId => enemyTable[enemyId]?.dropTable?.forEach(drop => { if (items[drop.itemId]?.stackable && !pool.has(drop.itemId)) pool.set(drop.itemId, zoneId); }));
   });
-  return [...pool].map(([itemId, zoneId]) => ({ itemId, zoneId }));
+  const all = [...pool].map(([itemId, zoneId]) => ({ itemId, zoneId }));
+  const wanted = researchDifficultyRarity(difficulty);
+  const ofRarity = (rarity: number): { itemId: number; zoneId: number }[] => all.filter(entry => items[entry.itemId].rarity === rarity);
+  for (let step = 0; step < rarities.length; step++) {
+    const lower = ofRarity(wanted - step);
+    if (lower.length) return lower;
+    const higher = ofRarity(wanted + step);
+    if (higher.length) return higher;
+  }
+  return all;
 }
 /** 需求数量的上限：被「任务难度降低」逐级压低，但不低于下限。 */
 export function getResearchNeedMax(target: GameState = state): number { return Math.max(RESEARCH.needMin, RESEARCH.needMax - getResearchLevel(RESEARCH_ITEM.taskNeed, target)); }
 function rollResearchTask(target: GameState): ResearchTaskState {
-  const pool = researchDropPool(target);
-  if (!pool.length) return { itemId: -1, zoneId: -1, need: 0 };
+  const difficulty = getResearchDifficulty(target);
+  const pool = researchDropPool(target, difficulty);
+  if (!pool.length) return { itemId: -1, zoneId: -1, difficulty, need: 0 };
   const min = RESEARCH.needMin;
   const max = getResearchNeedMax(target);
   const pick = pool[Math.floor(Math.random() * pool.length)];
-  return { itemId: pick.itemId, zoneId: pick.zoneId, need: min + Math.floor(Math.random() * (max - min + 1)) };
+  return { itemId: pick.itemId, zoneId: pick.zoneId, difficulty, need: min + Math.floor(Math.random() * (max - min + 1)) };
 }
 /** 当前委托：没有（或存档里的数据失效）就立刻发布一份。 */
 export function getResearchTask(target: GameState = state): ResearchTaskState {
@@ -622,7 +665,7 @@ export function submitResearchTask(): void {
   /* 金币 / 精华是与物品栏同步的镜像资源，扣物品时一起扣（见 discardItem）。 */
   if (task.itemId === ITEM.scrap) state.scrap = Math.max(0, state.scrap - task.need);
   if (task.itemId === ITEM.emberShard) state.essence = Math.max(0, state.essence - task.need);
-  const reward = getResearchReward(state);
+  const reward = getTaskReward(task, state);
   state.researchPoints += reward;
   addLog(state, `研究基地完成委托：交付 ${items[task.itemId].name} ×${task.need}，获得研究点数 ${reward}。`, 'progress');
   state.researchTask = rollResearchTask(state);
