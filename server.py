@@ -1,12 +1,16 @@
 import os
+import re
+import signal
 import subprocess
 import sys
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DIST_ROOT = PROJECT_ROOT / 'dist'
 PORT = 8000
+SCRIPT_NAME = Path(__file__).name
 
 # 开发者模式：启动时用它指定的脚本重新构建 dist。
 #   build:devtools 会打进开发者面板（等价于 vite build --mode devtools），
@@ -15,9 +19,15 @@ PORT = 8000
 #   加 --no-build 参数可以跳过构建，直接托管现有 dist。
 DEV_TOOLS = os.environ.get('WEBIDLE_DEV_TOOLS', '1').strip().lower() not in ('0', 'false', 'no', 'off')
 SKIP_BUILD = '--no-build' in sys.argv
+# 启动前先结束上一次占用该端口的旧实例，省得每回都手动去关那个窗口。
+# 只结束「确认是本脚本的旧实例」的进程，见 kill_stale_servers。
+# 加 --no-kill 参数可以跳过这一步，自己手动关。
+KILL_STALE = '--no-kill' not in sys.argv
 BUILD_SCRIPT = 'build:devtools' if DEV_TOOLS else 'build'
 # 开发者面板只在设置页出现，用这个类名当标记检查产物（见 verify_dist）。
 DEV_TOOLS_MARKER = 'dev-panel'
+# 允许被自动结束的映像名，避免误杀 node 等别的服务。
+PYTHON_IMAGE_NAMES = {'python.exe', 'python', 'python3', 'python3.exe', 'py.exe', 'py'}
 
 
 def _get_console_cp():
@@ -87,6 +97,144 @@ def verify_dist() -> bool:
     return True
 
 
+def listening_pids(port):
+    """找出正在监听该端口的进程 PID（Windows 用 netstat，类 Unix 用 lsof / ss）。"""
+    if os.name == 'nt':
+        try:
+            output = subprocess.run(['netstat', '-ano', '-p', 'TCP'], capture_output=True, text=True, errors='ignore').stdout
+        except OSError:
+            return []
+        pids = set()
+        for line in output.splitlines():
+            # 形如：TCP    127.0.0.1:8000    0.0.0.0:0    LISTENING    12345
+            fields = line.split()
+            if len(fields) >= 5 and fields[0].upper() == 'TCP' and fields[3].upper() == 'LISTENING':
+                if fields[1].rsplit(':', 1)[-1] == str(port) and fields[4].isdigit():
+                    pids.add(int(fields[4]))
+        return sorted(pids)
+    try:
+        output = subprocess.run(['lsof', '-ti', f'tcp:{port}', '-sTCP:LISTEN'], capture_output=True, text=True, errors='ignore').stdout
+    except OSError:
+        output = ''
+    pids = {int(token) for token in output.split() if token.isdigit()}
+    if pids:
+        return sorted(pids)
+    try:
+        output = subprocess.run(['ss', '-lptnH', f'sport = :{port}'], capture_output=True, text=True, errors='ignore').stdout
+    except OSError:
+        return []
+    return sorted({int(match.group(1)) for match in re.finditer(r'pid=(\d+)', output)})
+
+
+def _windows_command_line(pid):
+    """用 PowerShell 取命令行；取不到就返回 None（此时只能靠映像名判断）。"""
+    try:
+        output = subprocess.run(
+            ['powershell', '-NoProfile', '-Command', f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"],
+            capture_output=True, text=True, errors='ignore'
+        ).stdout
+    except OSError:
+        return None
+    return output.strip() or None
+
+
+def describe_process(pid):
+    """返回 (映像名, 命令行)，拿不到的部分为 None。"""
+    if os.name == 'nt':
+        try:
+            output = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'], capture_output=True, text=True, errors='ignore').stdout.strip()
+        except OSError:
+            output = ''
+        name = output.split('","')[0].strip('"').lower() if output.startswith('"') else None
+        return name, _windows_command_line(pid)
+    try:
+        name = Path(f'/proc/{pid}/comm').read_text(encoding='utf-8', errors='ignore').strip().lower() or None
+    except OSError:
+        name = None
+    try:
+        command_line = Path(f'/proc/{pid}/cmdline').read_bytes().replace(b'\0', b' ').decode('utf-8', 'ignore').strip() or None
+    except OSError:
+        command_line = None
+    return name, command_line
+
+
+def _pid_alive(pid):
+    if os.name == 'nt':
+        try:
+            output = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'], capture_output=True, text=True, errors='ignore').stdout
+        except OSError:
+            return False
+        return str(pid) in output
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def terminate_pid(pid):
+    """结束进程；Windows 直接 taskkill /F，类 Unix 先 SIGTERM 再 SIGKILL。"""
+    if os.name == 'nt':
+        try:
+            result = subprocess.run(['taskkill', '/PID', str(pid), '/F'], capture_output=True, text=True, errors='ignore')
+        except OSError:
+            return False
+        return result.returncode == 0
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    for _ in range(20):
+        if not _pid_alive(pid):
+            return True
+        time.sleep(0.1)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+    return not _pid_alive(pid)
+
+
+def wait_port_free(port, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while True:
+        if not listening_pids(port):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.2)
+
+
+def kill_stale_servers(port):
+    """结束上一次占用该端口的本脚本实例，让新实例能顺利监听。
+
+    只结束「确认是本脚本旧实例」的进程：映像名必须是 Python，且命令行（能读到的话）里必须
+    出现本脚本文件名。宁可留一个旧进程让你手动处理，也不误杀别的服务。"""
+    pids = listening_pids(port)
+    if not pids:
+        return True
+    for pid in pids:
+        if pid == os.getpid():
+            continue
+        name, command_line = describe_process(pid)
+        if name not in PYTHON_IMAGE_NAMES:
+            print(f'[warn] 端口 {port} 被 PID {pid}（{name or "未知程序"}）占用，看起来不是本脚本的旧实例，不自动结束。')
+            continue
+        if command_line and SCRIPT_NAME not in command_line:
+            print(f'[warn] 端口 {port} 被 PID {pid} 占用，但命令行里没有 {SCRIPT_NAME}，不自动结束。')
+            print(f'[warn] 该进程命令行：{command_line}')
+            continue
+        print(f'[info] 端口 {port} 被上一次的 {SCRIPT_NAME} 占用（PID {pid}），正在结束它……')
+        if not terminate_pid(pid):
+            print(f'[error] 结束 PID {pid} 失败，请手动关掉那个窗口。')
+            return False
+    if wait_port_free(port):
+        print(f'[info] 端口 {port} 已释放。')
+        return True
+    print(f'[error] 端口 {port} 结束后仍未释放，请检查是否还有别的程序在监听。')
+    return False
+
+
 class WebGameServer(ThreadingHTTPServer):
     """端口被占用时直接报错。
 
@@ -105,6 +253,13 @@ class WebGameHandler(SimpleHTTPRequestHandler):
 
 
 if __name__ == '__main__':
+    # 先腾端口再构建：否则旧窗口会在整个构建期间继续托管旧产物。
+    if not KILL_STALE:
+        print('[info] 已指定 --no-kill，跳过结束旧实例，端口占用请自行处理。')
+    elif not kill_stale_servers(PORT):
+        print(f'[error] 端口 {PORT} 仍被占用，已中止启动。')
+        sys.exit(1)
+
     if SKIP_BUILD:
         print('[info] 已指定 --no-build，跳过构建，按现有 dist 托管。')
     elif not build_dist():
@@ -127,8 +282,11 @@ if __name__ == '__main__':
         server = WebGameServer(('127.0.0.1', PORT), WebGameHandler)
     except OSError as error:
         print(f'[error] 无法监听 127.0.0.1:{PORT}：{error}')
-        print('[error] 端口多半被上一次的 python server.py 占着，那个窗口还在托管旧产物。')
-        print('[error] 请关掉它（或在任务管理器里结束占用该端口的 python 进程）后重新运行本脚本。')
+        print('[error] 启动前已尝试结束旧实例，说明占用方是别的程序，或本次用了 --no-kill。')
+        for pid in listening_pids(PORT):
+            name, command_line = describe_process(pid)
+            print(f'[error] 占用者：PID {pid} {name or "未知程序"} {command_line or ""}'.rstrip())
+        print('[error] 请结束上面这些进程后重新运行本脚本。')
         sys.exit(1)
 
     print(f'WebIdle running at http://localhost:8000 ({ROOT})')
