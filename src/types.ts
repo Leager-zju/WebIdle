@@ -73,7 +73,7 @@ export interface CampBattleState { kind: number; id: number; name: string; icon:
     nextInstanceId 单调递增，删掉实例后不复用 id。
     encountered 的下标是敌人表下标，1 表示击杀过（图鉴收录条件）。
     discoveredDrops[enemyId] 是这只怪物已经实际掉落过（玩家拿到手）的物品下标列表，图鉴据此逐条揭示掉落表。 */
-export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; research: number; companions: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
+export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; research: number; companions: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; /** 已经看过的新手指引 id（见 guide.ts 的 GUIDES）。 */ guides: string[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
   devOverrides: number[];
   /** 研究基地：研究点数、当前委托（itemId 为 -1 表示尚未发布）、各研究项等级。 */
   researchPoints: number; /** 当前选择的委托难度（1 ~ 已解锁战斗区域数），只影响下一份委托。 */ researchDifficulty: number; researchTask: ResearchTaskState; researchLevels: number[]; }
@@ -125,7 +125,7 @@ export interface Achievement {
   id: string; name: string; icon: string; hint: string; reward: string; secret?: boolean; condition: (state: GameState) => boolean;
   /** 奖励若解锁了别的系统（例如「初次冒险」解锁图鉴），在这里声明：解锁成就会额外弹一条该系统的提示。
       category 是它所在的页面 / 板块，用于提示文案里的「解锁：系统「图鉴」」。 */
-  rewardUnlock?: { icon: string; category: string; name: string };
+  rewardUnlock?: { id: string; icon: string; category: string; name: string };
 }
 /** locked 返回 true 时，导航栏里的入口会置灰、显示为「❓未解锁」且不可点击（见 main.ts 的 updateNavLocks）。
     没有声明 locked 的页面视为始终可用。 */

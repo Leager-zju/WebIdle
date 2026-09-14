@@ -4,7 +4,7 @@
 PROJECT   WebIdle / 余烬远征（纯文字放置 RPG，单页多视图）
 AUDIENCE  代码生成 / 修改代理（LLM）
 USAGE     改 UI 前：先读 §0 §1 §2；按 §3 任务索引定位；写完后跑 §9 自检
-RULES     规则编号 R01–R30，违反即缺陷；反模式见 §8
+RULES     规则编号 R01–R32，违反即缺陷；反模式见 §8
 SOURCE    本文件由现有代码反向整理，每条规则对应既有实现，勿凭偏好"优化"
 ```
 
@@ -38,6 +38,7 @@ SOURCE    本文件由现有代码反向整理，每条规则对应既有实现�
 | `src/event-prompt.ts` | 随机事件弹窗 | 一般不改 |
 | `src/codex-ref.ts` | 图鉴引用：物品 / 怪物 / 区域 / 事件 / 页面的 icon + 名称 + 类型色 + 可点开 wiki；wiki 未解锁时降级为纯文本 | 是（加引用类型） |
 | `src/wiki.ts` | 内置 wiki 弹窗：首页 / 列表页 / 条目页 + 路径导航 | 是（往里填内容） |
+| `src/guide.ts` | 新手指引：四块遮罩挖孔 + 气泡 + 跳过 / 重置；步骤表在文件顶部 `GUIDES` | 是（往 `GUIDES` 加步骤） |
 | `src/types.ts` | 类型定义 | 是 |
 | `src/globals.d.ts` | 构建期常量声明 | 新增常量时改 |
 | `src/config/*.ts` | 静态配置表（items / affixes / rarity / zones / events） | 仅末尾追加 |
@@ -81,6 +82,7 @@ game-state 变更 → notify() → main.ts subscribe 回调
 | R29 | 有解锁门槛的内容，未解锁时**禁止**渲染（不占位、不置灰、不挂锁）；**必须**按解锁状态同步列表，解锁后追加。解锁提示统一走 `unlockNotices`，页面不要自己弹。详见 §6.11 |
 | R30 | 未解锁的内容**禁止**参与游戏逻辑：动作入口（`canStartWorkshop`…）自带解锁判定，自动流程（`advanceLogistics`…）跳过未解锁项。详见 §6.11 |
 | R31 | wiki 未解锁时，所有图鉴引用**必须**降级为纯文本（保留 icon 与类型色，去掉下划线、不可点、无 `data-codex`）。解锁状态由 `main.ts` 同步给 `setWikiUnlocked()`，渲染层不要自己判断。详见 §6.10 |
+| R32 | 新手指引**必须**用「外层遮罩 + 高亮区拦截层」两层模型：引导层自身 `pointer-events: none`，高亮区**默认整体不可点**，只有 `step.click` 指定的元素被让出来。**禁止**用 SVG mask / `box-shadow` 挖孔。详见 §6.12 |
 
 ### 交互
 
@@ -320,6 +322,8 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 新增有解锁门槛的内容 | §6.11 §1-R29 R30 | 配置表（给 `unlockIndex`）、`src/pages/*.ts`（列表同步）、`src/game-state.ts`（`unlockNotices` 会自动收录、动作函数加判定） |
 | 改内置 wiki 内容 | §6.10 | `src/wiki.ts`、`style.css` |
 | 新增事件（天灾 / 兽潮 / 随机事件） | §6.10 | `src/config/events.ts`（末尾追加；随机事件会自动进 `campEventEntries`） |
+| 新增新手指引 | §6.12 §1-R32 | `src/guide.ts`（`GUIDES` 表，键要和解锁事件 id 对上） |
+| 调整怪物数值 | §7.6 | `src/config/zones.ts`（**键顺序不能动**） |
 | 新增弹窗 | §2.5 §1-R12 | `src/pages/*.ts`、`style.css` |
 | 新增悬停详情 | §2.6 §1-R10 R11 | `src/pages/*.ts`、`style.css`、`hover-tip.ts` 选择器 |
 | 新增进度条 / 倒计时 | §6.4 §1-R22 | `style.css`、`src/pages/*.ts` |
@@ -657,6 +661,57 @@ if (ctx.signature !== signature) {
 | 未完成的主线节点 | `未解锁记录` / `??? 待恢复` | 剧情进度，占位表达「还有内容」 |
 | 营地随机事件计时块 | `setHidden` | 单个元素，隐藏与不渲染等效 |
 
+### 6.12 新手指引（R32）
+
+引擎在 `src/guide.ts`，步骤表是文件顶部的 `GUIDES` —— 键同时是存档标记（`state.guides`）和解锁事件的 id。
+
+**两层拦截（R32）**
+
+高亮区**默认整体不可点**，只有 `step.click` 指定的元素被让出来 —— 讲某个面板时面板里的按钮按不动，是刻意的。
+
+| 层 | 覆盖范围 | 作用 |
+| --- | --- | --- |
+| `.guide-shade`（4 块） | 高亮区**之外** | 挡住页面其他部分 |
+| `.guide-block`（4 块） | 高亮区**之内** | 挡住面板里的按钮，默认整块拦死 |
+
+`.guide-block` 围出的"洞"就是**允许点击的范围**：`step.click` 元素的矩形（裁进高亮区）。没写 `click` 时洞收缩成高亮框正中心的一个零尺寸点 = 整块拦死。
+
+```css
+.guide-layer  { position: fixed; inset: 0; z-index: 90; pointer-events: none; }  /* 层本身不挡 */
+.guide-shade  { position: absolute; pointer-events: auto; }                       /* 外层：挡高亮区之外 */
+.guide-block  { position: absolute; pointer-events: auto; }                       /* 内层：挡高亮区之内 */
+.guide-ring   { pointer-events: none; }                                           /* 高亮框：虚线细边，纯展示 */
+.guide-pocket { pointer-events: none; }                                           /* 可点区：实线脉冲，一眼找到 */
+.guide-bubble { pointer-events: auto; }
+```
+
+`.guide-ring` 用虚线、`.guide-pocket` 用实线粗边 + 更快脉冲 —— 两者视觉上必须拉开差距，否则玩家分不清"在讲这个"和"要点这个"。
+
+为什么不用 SVG mask / `box-shadow`：那两种方案里遮罩层仍然铺满整屏 —— SVG 的"洞"只是视觉上的、元素还在，得再补一层点击拦截；`box-shadow` 会被祖先的 `overflow` / `contain` 裁掉。四块 div 天然只挡该挡的地方。
+
+**步骤写法**
+
+```ts
+{ target: '#camp-view', title: '营地', body: '…' }                          // 高亮面板，面板里的按钮按不动
+{ target: '[data-page="camp"]', requireClick: true, title: '…' }            // 没写 click → 默认放行 target 本身
+{ target: '#inventory-view', click: '[data-action="equip-stats"]', requireClick: true, title: '…' }  // 只放行面板里的某一个按钮
+{ target: '#adventure-view', waitFor: state => state.totalWins >= 1, waitHint: '远征队正在交战，等这一场打完。', title: '…' }  // 等玩家真的做完一件事
+{ title: '…', body: '…' }                                                    // 不挖孔，气泡居中
+```
+
+- `click` 与 `requireClick` 都不写 → 高亮区整体不可点。
+- `requireClick: true` 且没写 `click` → 默认放行 `target` 本身（"点这里进去"这类）。
+- `requireClick` 的步骤不显示「下一步」，只能点放行的元素或跳过。
+- `waitFor` 成立前「下一步」禁用并显示 `waitHint`，成立后自动放行 —— 用来让玩家在引导里**真的做完一件事**（打赢一场、交一次委托）。判定只用 `GameState` 里的持久字段，刷新后能正确恢复；不要用 DOM 状态或一次性事件。
+- 目标不在当前页面（还没切过去）时不挖孔、气泡居中，下一帧再试 —— 所以 `updateGuide()` 每次状态同步都重算位置，`waitFor` 也靠它轮询，不需要额外定时器。
+
+**进度与触发**
+
+- 「看过哪些」存 `state.guides`（id 字符串数组，新增引导不会让旧存档错位）。
+- 首次进游戏放 `intro`；`onUnlock` 收到解锁事件时放同 id 的引导（不在 `GUIDES` 里的会被忽略，例如成就）。
+- 跳过 = 标记已看 + 结束；多段引导自动排队播放。
+- 重置入口：设置页「重置新手指引」（`restartGuides`）；重置存档后也会重放 `intro`。
+
 ---
 
 ## §7 API 契约
@@ -722,6 +777,48 @@ interface PageDefinition<Context = any> {
 页面只在 `locked(state)` 里声明条件（如工坊 `state.mainlineIndex < 2`、研究基地 `!isResearchUnlocked(state)`）。
 ⚠️ 若当前停留页被锁上（如重置存档），`updateNavLocks` 会自动退回主界面。
 
+### 7.6 敌人数值（`src/config/zones.ts`）
+
+改 `ENEMY_DEFS` 前先读文件顶部的注释，三条约束：
+
+| 约束 | 怎么保证 |
+| --- | --- |
+| 区域内强度相当 | 用「无装备玩家击杀这只怪的**净损失生命**」当强度指标，同区域所有怪物落在同一区间 |
+| 偏科不同 | 强度拉平的前提下，攻击 / 出手间隔 / 血量 / 防御各偏一头（高攻慢手、低攻快攻、高血高防低攻…） |
+| 开局区域无装备可过 | 新档 `inventory` 全 0、`equipment` 为空，废弃边境每一只都必须在「攻 12 / 防 0 / 血 100 / 回复 2」下打得赢 |
+
+净损失 ≈ `T × (怪物 DPS − 玩家回复 2)`，`T = 玩家出手次数 × 2.2 秒`。
+「血厚 + 防高」的怪 `T` 天然更长，**攻击必须相应压低**，净损失才拉得平。
+参考区间：废弃边境 21~23（100 生命可连打 4 只）、余烬矿脉 35~38、核心深井 48~60。
+
+⚠️ **`ENEMY_DEFS` 的键顺序不能动** —— `enemyId` 就是下标，`state.encountered` / `state.discoveredDrops` / `adventure.enemyId` 全按下标存，重排会让旧存档整体错位。新增怪物追加到所属区域分组的末尾。
+
+### 7.7 物品储藏的页签（`src/pages/inventory.ts`）
+
+页签集合是**「全部」+ `categoryOrder`**，不是纯 `categoryOrder`：
+
+```ts
+const ALL_TAB = 'all';                                    // 不是 ItemCategory，只在物品储藏内部用
+const STORAGE_TABS: string[] = [ALL_TAB, ...categoryOrder];
+const inTab = (category, tab) => tab === ALL_TAB || category === tab;
+const tabLabel = (tab) => tab === ALL_TAB ? '全部' : itemCategories[tab].name;
+```
+
+- `ctx.category` 存的是**页签 id**（可能是 `'all'`），所以类型是 `string` 而不是 `ItemCategory`。
+- 新增分类只改 `config/items.ts` 的 `categoryOrder`，页签会自动多一个 —— **不要**在页面里手写页签列表。
+- 默认页签是 `ALL_TAB`（打开物品栏先看到全部东西）。
+
+**强化道具的目标可以是装备槽**
+
+使用模式（`body.enhancing`）下，点选目标统一由 `instanceAt()` 解析：
+
+| 点击位置 | 怎么拿到 instanceId |
+| --- | --- |
+| 物品卡片 | `data-instance` 属性 |
+| 装备槽 | 装备槽不记装着谁，用 `getState().equipped[equipType][slot]` 反查 |
+
+空槽 / 可堆叠物品卡片 / 空白处都返回 `-1`，等同于「取消」。装备槽的可点状态由 CSS 给（`body.enhancing .equip-slot.filled`），JS 不重复判断。
+
 ---
 
 ## §8 反模式对照（❌ → ✅）
@@ -784,6 +881,10 @@ interface PageDefinition<Context = any> {
 - [ ] 指代一整类内容（「任意怪物」这类）用 `pageRefMarkup`，不是编一个不存在的条目引用
 - [ ] 对照 §6.10 的「统一接口速查」逐项检查：没有页面自己重写条目取数、稀有度类名、掉落行、秒数格式化、解锁判定
 - [ ] wiki 未解锁时引用是纯文本（`.is-plain`）、解锁后才是可点链接（R31）；`main.ts` 的同步在页面渲染之前
+- [ ] 引导层 `pointer-events: none`；高亮区默认被 `.guide-block` 拦死，只有 `step.click`（或 `requireClick` 时的 `target`）被让出来（R32）
+- [ ] 高亮框（虚线）与可点区（实线脉冲）视觉上能一眼区分（R32）
+- [ ] 等待型步骤的 `waitFor` 只读 `GameState` 的持久字段，不依赖 DOM 状态（刷新后仍能恢复）
+- [ ] 物品储藏的页签由 `STORAGE_TABS`（全部 + `categoryOrder`）生成，页面里没有手写的页签列表
 - [ ] 悬停元素支持 `:focus-visible` 且有 outline（R11）
 - [ ] 点击卡片不会让悬停浮层移动（`focusin` 已按键盘 / 鼠标来源区分，R28）
 - [ ] 弹窗三种关闭方式齐全（按钮 / 遮罩 / Esc）（R12）
@@ -837,3 +938,5 @@ interface PageDefinition<Context = any> {
 | 16 | 页面上直接显示 `[[item:1]]` 原文 | 渲染点过 `renderCodexTags`（`MainlineRequirement.text()` 的每个调用处都不能漏） | 生成时写了标记、渲染时没解析（R27） |
 | 17 | 动态列表重建后 `update` 写到旧节点上 | 重建后重新 `collectCards(ctx.grid)`；模板里的 `data-ref` 不带下标 | 旧节点已从 DOM 摘掉，引用成了悬空对象（R29） |
 | 18 | 未解锁的内容仍被自动流程处理（如后勤把未解锁的制造项造出来） | 动作入口加解锁判定，自动流程 `continue` 跳过 | 未解锁的内容不该参与逻辑（R30） |
+| 19 | 引导高亮某个面板时，面板里的按钮被误点 | 高亮区**默认整体不可点**，只有 `step.click` 的元素被让出来（靠 `.guide-block` 围洞） | 高亮区若直接敞开，玩家会点到正在被讲解的按钮（R32） |
+| 20 | `requireClick` 的步骤卡死，怎么点都不前进 | 引导层自身 `pointer-events: none`；放行元素要写进 `step.click`，或依赖 `requireClick` 时默认放行 `target` | 拦截层盖过头，会把该点的地方也挡上（R32） |

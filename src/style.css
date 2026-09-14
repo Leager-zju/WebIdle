@@ -525,6 +525,8 @@ select:focus { border-color: var(--accent); }
 :root { --enhance-cursor: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Ccircle cx='13' cy='13' r='8' fill='none' stroke='%238bf5c9' stroke-width='2'/%3E%3Cpath d='M13 1v6M13 19v6M1 13h6M19 13h6' fill='none' stroke='%238bf5c9' stroke-width='2'/%3E%3C/svg%3E") 13 13, crosshair; }
 body.enhancing, body.enhancing *, body.enhancing .item-card[draggable="true"], body.enhancing .item-card.dragging { cursor: var(--enhance-cursor); }
 body.enhancing .item-card[data-instance]:not([data-instance="-1"]) { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(139, 245, 201, .45); }
+/* 装备槽也能当强化目标：只有装着东西的槽（.filled）可点，空槽不算目标。 */
+body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgba(139, 245, 201, .12); }
 .enhance-hint { position: fixed; left: 50%; bottom: 22px; z-index: 65; display: flex; align-items: center; gap: 9px; padding: 10px 15px; border: 1px solid var(--accent); background: #101a1d; box-shadow: 0 18px 40px rgba(0, 0, 0, .5); font-size: .74rem; transform: translateX(-50%); }
 .enhance-hint[hidden] { display: none; }
 .enhance-hint-icon { color: var(--accent); font-size: .95rem; }
@@ -613,6 +615,35 @@ body.enhancing .item-card[data-instance]:not([data-instance="-1"]) { border-colo
 .wiki-cell-icon { flex: 0 0 auto; font-size: 1rem; line-height: 1; }
 .wiki-cell-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
 .wiki-cell-note { flex: 0 0 auto; color: var(--muted); font: .62rem DM Mono, monospace; }
+
+/* ——— 新手指引 ———
+   遮罩由四块 div 围成，中间留出的矩形就是「允许点击的范围」。
+   层本身不接收指针事件，只有遮罩块与气泡接收 —— 高亮区里没有任何元素，点击直接落到页面上。
+   放在 wiki(78) / 解锁提示(80) 之上，引导期间它是唯一的交互层。 */
+.guide-layer { position: fixed; inset: 0; z-index: 90; pointer-events: none; }
+.guide-layer[hidden] { display: none; }
+.guide-shade { position: absolute; background: rgba(4, 9, 11, .74); pointer-events: auto; }
+/* 高亮区里的点击拦截层：透明但接收指针事件 —— 盖在正常内容上，所以不能用遮罩色。
+   默认整块拦死，只有 step.click 指定的元素被让出来（那正是「面板里的按钮按不动」的实现）。 */
+.guide-block { position: absolute; pointer-events: auto; }
+/* 高亮框：虚线细边 + 极淡底 —— 表示「这一段在讲这个」，本身不可点。 */
+.guide-ring { position: absolute; border: 1px dashed rgba(139, 245, 201, .55); background: rgba(139, 245, 201, .05); pointer-events: none; }
+.guide-ring[hidden] { display: none; }
+/* 可点区：实线粗边 + 强发光 + 更快的脉冲，与高亮框拉开差距，一眼知道该点哪里。 */
+.guide-pocket { position: absolute; border: 2px solid var(--accent); box-shadow: 0 0 0 2px rgba(139, 245, 201, .45), 0 0 26px rgba(139, 245, 201, .5); pointer-events: none; animation: guide-pocket-pulse .9s ease-in-out infinite; }
+.guide-pocket[hidden] { display: none; }
+@keyframes guide-pocket-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.guide-bubble { position: absolute; width: min(340px, calc(100vw - 28px)); padding: 15px 17px; border: 1px solid var(--accent); background: #101a1d; box-shadow: 0 22px 50px rgba(0, 0, 0, .6); pointer-events: auto; }
+.guide-bubble h3 { margin: 6px 0 8px; color: var(--accent); }
+.guide-bubble p { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.7; }
+.guide-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.guide-actions button { padding: 7px 13px; font-size: .72rem; }
+.guide-actions button[hidden] { display: none; }
+.guide-progress { margin-right: auto; color: var(--muted); font: .66rem DM Mono, monospace; }
+/* 等待型步骤的提示：条件成立前一直显示，成立后由 syncWait 收起。 */
+.guide-hint { margin: 10px 0 0; color: var(--accent); font-size: .72rem; }
+.guide-hint[hidden] { display: none; }
+.guide-actions button:disabled { opacity: .4; cursor: default; }
 @media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.inventory-layout { grid-template-columns: 1fr; }.archive-layout { grid-template-columns: 1fr; }.camp-layout { grid-template-columns: 1fr; }.sidebar, .nav-collapsed .sidebar { min-height: auto; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(8, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.home-grid { grid-template-columns: 1fr; }.home-hero, .home-log { grid-column: auto; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
 @media (max-width: 600px) { .app-shell { width: min(100% - 24px, 1240px); padding-top: 30px; }.game-header { align-items: start; flex-direction: column; gap: 17px; }.brand-group { gap: 10px; }.nav-toggle { width: 28px; height: 28px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(4, 1fr); }.resource-strip { grid-auto-flow: row; grid-template-columns: repeat(2, 1fr); }.resource:last-child { grid-column: 1 / -1; }.hero-stats { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }.page-heading, .inventory-heading { flex-direction: column; gap: 10px; }.adventure-toolbar, .toolbar-row { align-items: stretch; flex-direction: column; }.battle-arena { grid-template-columns: 1fr; }.versus { padding: 2px 0; }.combatant { padding: 14px; }.log-entry { grid-template-columns: 58px 40px 1fr; gap: 7px; }.home-log .log-entry { grid-template-columns: 58px minmax(0, 1fr); }.item-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
  }

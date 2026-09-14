@@ -282,7 +282,7 @@ export function setNotify(enabled: boolean): void { state.settings.notify = !!en
    条件一旦为真就自动解锁并记一条日志。目前只有「开始游戏」这一条。 */
 export const achievements: Achievement[] = [
   { id: 'start', name: '开始游戏', icon: '💋', hint: '进入游戏', reward: '作者的一个飞吻', condition: () => true },
-  { id: 'firstBlood', name: '初次冒险', icon: '⚔️', hint: '首次击杀一个怪物', reward: '解锁【图鉴】', condition: (target: GameState) => target.totalWins >= 1, rewardUnlock: { icon: '📖', category: '系统', name: '图鉴' } }
+  { id: 'firstBlood', name: '初次冒险', icon: '⚔️', hint: '首次击杀一个怪物', reward: '解锁【图鉴】', condition: (target: GameState) => target.totalWins >= 1, rewardUnlock: { id: 'wiki', icon: '📖', category: '系统', name: '图鉴' } }
 ];
 /* ——— 解锁提示 ———
    机制（工坊、研究基地…）与条目（制造项、研究项、区域…）解锁时都弹一条顶部 tips，
@@ -311,9 +311,10 @@ export const unlockNotices = [
   ...entryNotices(researchItems, '研究基地', 'research', isResearchItemUnlocked),
   ...entryNotices(zones, '冒险', 'zone', isZoneUnlocked)
 ];
-/** 解锁事件：界面（unlock-toast.ts）订阅它来弹 tips。
+/** 解锁事件：界面（unlock-toast.ts）订阅它来弹 tips，新手指引（guide.ts）也订阅它来放该系统的引导。
+    id 与 guide.ts 的 GUIDES 键对应（没有对应引导的会被忽略）；
     category 是这项东西所在的页面 / 板块，提示会写成「icon 解锁：category「name」」。 */
-export interface UnlockEvent { icon: string; category: string; name: string; detail?: string; }
+export interface UnlockEvent { id: string; icon: string; category: string; name: string; detail?: string; }
 const unlockListeners = new Set<(event: UnlockEvent) => void>();
 /** 没有订阅者时先攒着：技能解锁可能发生在界面接管之前（例如读档时立刻检查一次）。 */
 const bufferedUnlocks: UnlockEvent[] = [];
@@ -330,11 +331,21 @@ function checkUnlocks(target: GameState): void {
     target.notices[index] = 1;
     unlockedAny = true;
     addLog(target, `解锁：${entry.category}「${entry.name}」`, 'progress');
-    emitUnlock({ icon: entry.icon, category: entry.category, name: entry.name, detail: entry.hint });
+    emitUnlock({ id: entry.id, icon: entry.icon, category: entry.category, name: entry.name, detail: entry.hint });
   });
   /* 立刻写盘：这些「已提示过」的标记如果留到下一次自动保存，刷新后会重复弹同一条 tips。 */
   if (unlockedAny) saveState();
 }
+/* ——— 新手指引的进度 ———
+   引导本身在 guide.ts（UI 层），这里只存「看过哪些」。
+   存 id 字符串而不是下标：以后新增引导不会让旧存档的标记整体错位。 */
+/** 这条引导是否已经看过（首次引导的 id 是 'intro'）。 */
+export function hasSeenGuide(id: string, target: GameState = state): boolean { return !!target.guides?.includes(id); }
+/** 标记引导已看过。立刻写盘，避免刷新后重复弹。 */
+export function markGuideSeen(id: string): void { if (!state.guides) state.guides = []; if (state.guides.includes(id)) return; state.guides.push(id); saveState(); }
+/** 重置全部引导进度（设置页的「重置新手指引」用）。 */
+export function resetGuides(): void { state.guides = []; saveState(); }
+
 export function isAchievementUnlocked(index: number, target: GameState = state): boolean { return !!target.achievements?.[index]; }
 /** 按 id 查解锁状态：界面上的「解锁后」奖励项据此生效，避免条件写在两处。 */
 export function isAchievementUnlockedById(id: string, target: GameState = state): boolean { const index = achievements.findIndex(entry => entry.id === id); return index >= 0 && isAchievementUnlocked(index, target); }
@@ -350,9 +361,9 @@ function checkAchievements(target: GameState): void {
     target.achievements[index] = 1;
     unlockedAny = true;
     addLog(target, `成就解锁：${entry.name} —— 解锁奖励：${entry.reward}`, 'progress');
-    emitUnlock({ icon: entry.icon, category: '成就', name: entry.name, detail: `解锁奖励：${entry.reward}` });
+    emitUnlock({ id: `achievement:${entry.id}`, icon: entry.icon, category: '成就', name: entry.name, detail: `解锁奖励：${entry.reward}` });
     /* 奖励本身解锁了别的系统时，再补一条那个系统的提示（例如成就「初次冒险」→ 系统「图鉴」）。 */
-    if (entry.rewardUnlock) emitUnlock({ icon: entry.rewardUnlock.icon, category: entry.rewardUnlock.category, name: entry.rewardUnlock.name, detail: `由成就「${entry.name}」解锁` });
+    if (entry.rewardUnlock) emitUnlock({ id: entry.rewardUnlock.id, icon: entry.rewardUnlock.icon, category: entry.rewardUnlock.category, name: entry.rewardUnlock.name, detail: `由成就「${entry.name}」解锁` });
   });
   if (unlockedAny) saveState();
 }
@@ -378,6 +389,7 @@ const freshState = (): GameState => ({
   camp: { hp: CAMP_BASE.hp, worksiteProgress: 0, disasterWins: 0, tideWins: 0, randomTimer: RANDOM_EVENT_INTERVAL, pendingKind: -1, pendingId: -1, pendingExpires: 0 },
   achievements: achievements.map(() => 0),
   notices: unlockNotices.map(() => 0),
+  guides: [],
   devOverrides: new Array(Object.keys(DEV_STAT).length).fill(-1),
   log: [], lastTick: Date.now()
 });
