@@ -497,8 +497,9 @@ export function getPlayerAttack(target: GameState = state): number { const overr
 export function getPlayerAttackInterval(target: GameState = state): number { const override = devOverride(DEV_STAT.attackInterval, target); if (override !== null) return Math.max(.1, override); return Math.max(.9, 2.2 - target.research * .08); }
 /** 刷怪间隔：击杀 / 进入区域后到下一个敌人出现的秒数（可被开发者面板覆盖，同样有 0.1 秒下限）。 */
 export function getSpawnCooldown(target: GameState = state): number { const override = devOverride(DEV_STAT.spawnCooldown, target); return override !== null ? Math.max(.1, override) : SPAWN_COOLDOWN; }
-/* 物品栏上限按「种类」算：同一种物品可以无限叠加，只有新种类才会占用空位。 */
-export function getInventoryCapacity(target: GameState = state): number { return 8 + target.workshop * 2 + target.companions; }
+/* 物品栏上限按「种类」算：同一种物品可以无限叠加，只有新种类才会占用空位。
+   初始 20 格：开局不加工坊与伙伴也放得下三个区域的掉落种类，不会刚出门就被上限卡住。 */
+export function getInventoryCapacity(target: GameState = state): number { return 20 + target.workshop * 2 + target.companions; }
 /** 已占用格数：可堆叠物品按「种类」算一类一格；不可堆叠（装备）一件一格，同名的每一件都要各自占一格。 */
 export function getInventoryUsed(target: GameState = state): number { let kinds = 0; for (const quantity of target.inventory) if (quantity > 0) kinds += 1; return kinds + target.equipment.length; }
 export function currentZoneId(target: GameState = state): number { return zones[target.adventure.zoneId] ? target.adventure.zoneId : CAMP_ZONE_ID; }
