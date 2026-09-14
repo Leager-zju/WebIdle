@@ -1,5 +1,6 @@
 import { mainline, achievements, isAchievementUnlocked, getUnlockedAchievementCount } from '../game-state';
 import { setText, setHtml, setClass, setHidden, pick } from '../dom';
+import { renderCodexTags } from '../codex-ref';
 import pageController from '../page-controller';
 import type { GameState, PageDefinition } from '../types';
 
@@ -102,7 +103,8 @@ const page: PageDefinition<any> = {
     setText(ctx.detailGoal, known ? quest.description : '???');
     /* 具体条件逐条列出，达成的用 status-dot 点亮（与冒险页的状态点同一个类）。 */
     setHtml(ctx.detailRequirements, known
-      ? quest.requirements.map(entry => { const done = entry.done(state); return `<div class="requirement ${done ? 'done' : ''}"><span class="status-dot ${done ? '' : 'pending'}"></span><span>${entry.text(state)}</span></div>`; }).join('')
+      /* text() 返回的引用 HTML 直接可用；再过一遍 renderCodexTags 是兜底——万一某条文案写成 [[kind:id]] 标记，也不会把标记原样显示出来。 */
+      ? quest.requirements.map(entry => { const done = entry.done(state); return `<div class="requirement ${done ? 'done' : ''}"><span class="status-dot ${done ? '' : 'pending'}"></span><span>${renderCodexTags(entry.text(state))}</span></div>`; }).join('')
       : '<div class="requirement"><span class="status-dot pending"></span><span>???</span></div>');
     setText(ctx.detailReward, known ? quest.reward : '???');
 
@@ -116,7 +118,7 @@ const page: PageDefinition<any> = {
       setText(refs.icon, unlocked ? entry.icon : '❓');
       setText(refs.status, unlocked ? '已解锁' : '未解锁');
       setText(refs.condition, unlocked || !entry.secret ? `解锁条件：${entry.hint}` : '秘密成就，继续探索吧！');
-      setText(refs.reward, unlocked || !entry.secret ? `解锁后：${entry.reward}` : '解锁后：???');
+      setText(refs.reward, unlocked || !entry.secret ? `解锁奖励：${entry.reward}` : '解锁奖励：???');
     });
     setText(ctx.achievementProgress, `已解锁 ${getUnlockedAchievementCount(state)} / ${achievements.length}`);
   }

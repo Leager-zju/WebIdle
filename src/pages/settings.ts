@@ -1,4 +1,5 @@
-import { items, rarities, devStats, devGrantItem, devSetStat, devUnlockSystems, getState, getOwnedCount, fontScales, getFontScale, setFontScale, numberFormats, getNumberFormat, setNumberFormat, setNotify, formatNumberExact } from '../game-state';
+import { items, devStats, devGrantItem, devSetStat, devUnlockSystems, getState, getOwnedCount, fontScales, getFontScale, setFontScale, numberFormats, getNumberFormat, setNumberFormat, setNotify, formatNumberExact } from '../game-state';
+import { rarityClass } from '../config/rarity';
 import { setText, setNumber, setClass, pick } from '../dom';
 import type { GameState, PageDefinition } from '../types';
 
@@ -15,7 +16,7 @@ let devModalEl: HTMLElement | null = null;
 let devMultiplier = DEV_AMOUNTS[0];
 
 /* 一个物品一个按钮。装备这类不堆叠的物品，发 5 件就是 5 张卡片（见 pages/inventory.ts）。 */
-function devItemButtonsMarkup(): string { return items.map((item, id) => `<button class="dev-item-button rarity-${rarities[item.rarity].className}" type="button" data-dev-grant="${id}"><span class="dev-item-icon">${item.icon}</span><span class="dev-item-name">${item.name}</span><span class="dev-item-owned" data-dev-owned="${id}"></span></button>`).join(''); }
+function devItemButtonsMarkup(): string { return items.map((item, id) => `<button class="dev-item-button ${rarityClass(item.rarity)}" type="button" data-dev-grant="${id}"><span class="dev-item-icon">${item.icon}</span><span class="dev-item-name">${item.name}</span><span class="dev-item-owned" data-dev-owned="${id}"></span></button>`).join(''); }
 /** 悬浮窗只建一次，之后复用；挂在 body 上，不受设置页重绘影响。 */
 function ensureDevModal(): HTMLElement { if (devModalEl) return devModalEl; const modal = document.createElement('div'); modal.className = 'dev-modal-layer'; modal.hidden = true; modal.innerHTML = `<div class="dev-modal"><div class="dev-modal-head"><div><span class="panel-kicker">DEVELOPER</span><h3>增加物品</h3></div><button class="dev-modal-close" type="button" data-dev-close aria-label="关闭">×</button></div><div class="dev-item-grid">${devItemButtonsMarkup()}</div><div class="dev-modal-foot"><span class="dev-multiplier-label">每次发放</span><div class="segmented">${DEV_AMOUNTS.map(amount => `<button class="segment" type="button" data-dev-multiplier="${amount}">×${amount}</button>`).join('')}</div></div></div>`; modal.addEventListener('click', event => { const target = event.target as Element; /* 点关闭按钮、或点在遮罩本身上（不是它的子节点）都关窗。 */ if (target.closest('[data-dev-close]') || target.classList.contains('dev-modal-layer')) { closeDevModal(); return; } const amountButton = target.closest<HTMLElement>('[data-dev-multiplier]'); if (amountButton) { devMultiplier = Number(amountButton.dataset.devMultiplier); syncDevModal(); return; } const grantButton = target.closest<HTMLElement>('[data-dev-grant]'); if (grantButton) { devGrantItem(Number(grantButton.dataset.devGrant), devMultiplier); syncDevModal(); } }); document.addEventListener('keydown', event => { if (event.key === 'Escape') closeDevModal(); }); document.body.appendChild(modal); devModalEl = modal; return modal; }
 /** 同步档位高亮与每个物品按钮上的持有数。 */

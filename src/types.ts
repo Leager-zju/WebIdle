@@ -39,8 +39,8 @@ export interface Item {
 export interface DropEntry { itemId: number; chance: number; min: number; max: number; }
 /** art 是战斗卡片与图鉴里用的单字图标。defense 减免玩家造成的伤害，缺省按 0 处理。 */
 export interface Enemy { art: string; name: string; description: string; maxHp: number; attack: number; defense?: number; attackInterval: number; gold: number; dropTable: DropEntry[]; }
-/** enemyIds 是敌人表下标。 */
-export interface Zone { name: string; description: string; enemyIds: number[]; /** 进入所需的主线进度：mainlineIndex 达到这个值才算解锁。 */ unlockIndex: number; }
+/** enemyIds 是敌人表下标。icon 是区域在界面上的图标（区域引用、图鉴里用）。 */
+export interface Zone { name: string; icon: string; description: string; enemyIds: number[]; /** 进入所需的主线进度：mainlineIndex 达到这个值才算解锁。 */ unlockIndex: number; }
 export interface LogEntry { time: string; message: string; type: LogType; }
 /** zoneId / enemyId 都是各自表的下标。spawnTimer 是距离下一个敌人出现的剩余秒数，0 表示场上已有敌人。
     attackCount 是累计出手次数，词条赋予的技能按它决定第几次触发。 */
@@ -108,7 +108,11 @@ export type UseOutcome =
   | { kind: 'pick-equipment' }                                                // 需要玩家点选一件装备
   | { kind: 'pick-affix'; instanceId: number; affixIndices: number[] };       // 有多条可移除的词条，需要玩家选一条
 export type UseHandler = (context: UseContext) => UseOutcome;
-/** 主线节点的具体达成条件：text 是给玩家看的进度文案（如「收集旧电池 2/3 个」），done 决定状态点是否点亮。 */
+/** 主线节点的具体达成条件：text 是给玩家看的进度文案（如「收集旧电池 2/3 个」），done 决定状态点是否点亮。
+    text 返回的字符串会当作 HTML 渲染（页面用 setHtml 输出），所以物品 / 怪物 / 区域名一律用
+    itemRefMarkup / enemyRefMarkup / zoneRefMarkup 生成，不要直接拼名字字符串——
+    否则界面上不会带 icon 与类型色，也点不开图鉴。
+    这份文案不进存档（每次由 text() 现算），所以直接用 markup；日志那种要进存档的文本才用 xxxTag 标记。 */
 export interface MainlineRequirement { text: (state: GameState) => string; done: (state: GameState) => boolean; }
 /** 研究基地发布的资源收集委托：要交 itemId 这种掉落物 need 个。 */
 export interface ResearchTaskState { itemId: number; /** 目标区域：委托要的物品在这里掉落。 */ zoneId: number; /** 发布时的难度：奖励倍率按它算，事后改难度不影响已接的委托。 */ difficulty: number; need: number; }
@@ -119,8 +123,8 @@ export interface MainlineQuest { title: string; description: string; condition: 
     condition 一旦为真就自动解锁并记一条日志（见 game-state 的 checkAchievements）。 */
 export interface Achievement {
   id: string; name: string; icon: string; hint: string; reward: string; secret?: boolean; condition: (state: GameState) => boolean;
-  /** 奖励若解锁了别的系统（例如「初次冒险」解锁怪物图鉴），在这里声明：解锁成就会额外弹一条该系统的提示。
-      category 是它所在的页面 / 板块，用于提示文案里的「解锁：冒险「怪物图鉴」」。 */
+  /** 奖励若解锁了别的系统（例如「初次冒险」解锁图鉴），在这里声明：解锁成就会额外弹一条该系统的提示。
+      category 是它所在的页面 / 板块，用于提示文案里的「解锁：系统「图鉴」」。 */
   rewardUnlock?: { icon: string; category: string; name: string };
 }
 /** locked 返回 true 时，导航栏里的入口会置灰、显示为「❓未解锁」且不可点击（见 main.ts 的 updateNavLocks）。

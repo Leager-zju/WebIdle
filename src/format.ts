@@ -113,3 +113,11 @@ export function formatDuration(seconds: number): string {
   if (minutes) return `${minutes}分${secs}秒`;
   return `${secs}秒`;
 }
+
+/* ——— 秒级数值 ———
+   出手间隔、恢复速度这类「只有几秒」的数值不参与缩写（formatNumber 会把 1.4 写成完整整数），
+   统一固定一位小数：界面各处不要再自己写 toFixed(1)。 */
+/** 一段秒数：1.4 秒。 */
+export function formatSeconds(value: number): string { return `${(Number(value) || 0).toFixed(1)} 秒`; }
+/** 每秒速率：1.5 / 秒。 */
+export function formatPerSecond(value: number): string { return `${(Number(value) || 0).toFixed(1)} / 秒`; }

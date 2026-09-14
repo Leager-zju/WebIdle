@@ -37,14 +37,20 @@ export const ENEMY = Object.fromEntries(Object.keys(ENEMY_DEFS).map((name, id) =
 
 /* 区域表：键顺序就是 zoneId。enemyIds 引用敌人表下标；
    enemyIds 为空的区域是「非战斗区域」（营地），不刷怪、只按倍率回复生命值。
-   unlockIndex 是进入所需的主线进度（mainlineIndex 达到这个值才算解锁）。 */
+   unlockIndex 是进入所需的主线进度（mainlineIndex 达到这个值才算解锁）。
+   icon 是区域在界面上的图标：区域引用（icon + 名称）与图鉴标题栏都用它。 */
 const ZONE_DEFS = {
-  camp: { name: '营地', description: '远征队的落脚点。营火不灭，这里不会遭遇敌人，生命恢复速度远高于野外。', enemyIds: [], unlockIndex: 0 },
-  wasteBorder: { name: '废弃边境', description: '营火以北，失去联络的旧哨站。锈蚀的机械单位仍在街区与哨塔之间徘徊。', enemyIds: [ENEMY.scavenger, ENEMY.brute, ENEMY.wirehound, ENEMY.scrapGolem, ENEMY.rustSentry], unlockIndex: 0 },
-  emberVein: { name: '余烬矿脉', description: '被结晶污染的旧矿井，渗出的热量让整条矿道都在发光。守卫这里的单位已经开始结晶化。', enemyIds: [ENEMY.emberMite, ENEMY.ashCrawler, ENEMY.veinWarden, ENEMY.emberLeech, ENEMY.moltenHound], unlockIndex: 5 },
-  coreDeep: { name: '核心深井', description: '核心信号的源头。井壁上结满结晶，越往下信号越清晰，也越致命。', enemyIds: [ENEMY.coreDrone, ENEMY.signalAdept, ENEMY.echoWraith, ENEMY.abyssBrute, ENEMY.coreTitan], unlockIndex: 7 }
+  camp: { name: '营地', icon: '🔥', description: '远征队的落脚点。营火不灭，这里不会遭遇敌人，生命恢复速度远高于野外。', enemyIds: [], unlockIndex: 0 },
+  wasteBorder: { name: '废弃边境', icon: '🏚️', description: '营火以北，失去联络的旧哨站。锈蚀的机械单位仍在街区与哨塔之间徘徊。', enemyIds: [ENEMY.scavenger, ENEMY.brute, ENEMY.wirehound, ENEMY.scrapGolem, ENEMY.rustSentry], unlockIndex: 0 },
+  emberVein: { name: '余烬矿脉', icon: '💠', description: '被结晶污染的旧矿井，渗出的热量让整条矿道都在发光。守卫这里的单位已经开始结晶化。', enemyIds: [ENEMY.emberMite, ENEMY.ashCrawler, ENEMY.veinWarden, ENEMY.emberLeech, ENEMY.moltenHound], unlockIndex: 5 },
+  coreDeep: { name: '核心深井', icon: '🕳️', description: '核心信号的源头。井壁上结满结晶，越往下信号越清晰，也越致命。', enemyIds: [ENEMY.coreDrone, ENEMY.signalAdept, ENEMY.echoWraith, ENEMY.abyssBrute, ENEMY.coreTitan], unlockIndex: 7 }
 } satisfies Record<string, Zone>;
 
 export const zones: Zone[] = Object.values(ZONE_DEFS);
 /** 名字 → 下标，用法同 ITEM。 */
 export const ZONE = Object.fromEntries(Object.keys(ZONE_DEFS).map((name, id) => [name, id])) as { [K in keyof typeof ZONE_DEFS]: number };
+
+/** 这只怪物出现在哪个区域（战斗信息与图鉴都要反查）。找不到返回 -1。 */
+export function zoneOfEnemy(enemyId: number): number {
+  return zones.findIndex(zone => zone.enemyIds.includes(enemyId));
+}

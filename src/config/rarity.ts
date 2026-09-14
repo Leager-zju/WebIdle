@@ -14,3 +14,9 @@ const RARITY_DEFS = {
 export const rarities = Object.entries(RARITY_DEFS).map(([className, definition]) => ({ ...definition, className }));
 /** 名字 → 下标，用法同 ITEM / EQUIP_TYPE。 */
 export const RARITY = Object.fromEntries(Object.keys(RARITY_DEFS).map((name, id) => [name, id])) as { [K in keyof typeof RARITY_DEFS]: number };
+
+/** 稀有度对应的 CSS 类名（style.css 里的 .rarity-*，它提供 --rarity-color）。
+    所有需要给元素上稀有度色的地方都用它，不要再手拼 `rarity-${rarities[...].className}`。 */
+export function rarityClass(rarity: number): string {
+  return `rarity-${(rarities[rarity] || rarities[0]).className}`;
+}

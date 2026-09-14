@@ -64,8 +64,15 @@ function onPointerMove(event: PointerEvent): void {
   });
 }
 
-/** 键盘聚焦时没有鼠标坐标：退回「贴在卡片下方」的老位置，至少不会盖住卡面。 */
+/* 最近一次聚焦是不是键盘（Tab）发起的。
+   卡片带 tabindex="0"，鼠标点它同样会触发 focusin —— 那时玩家的指针还停在卡片上，
+   把浮层挪到卡片下方就成了「点一下就瞬移」。所以鼠标来源的聚焦一律忽略。 */
+let keyboardFocus = false;
+
+/** 键盘聚焦时没有鼠标坐标：退回「贴在卡片下方」的老位置，至少不会盖住卡面。
+    鼠标点击引起的聚焦直接跳过：浮层不该对点击有任何响应，指针在哪它就留在哪。 */
 function onFocusIn(event: FocusEvent): void {
+  if (!keyboardFocus) return;
   const host = (event.target as Element | null)?.closest<HTMLElement>(HOST_SELECTOR);
   const tip = host?.querySelector<HTMLElement>(TIP_SELECTOR);
   if (host && tip) { activeHost = host; placeBelowCard(tip, host); }
@@ -81,6 +88,10 @@ function park(): void {
 }
 
 export function startHoverTip(): void {
+  /* 聚焦来源：Tab 之后紧接着的 focusin 算键盘，其余（鼠标按下、脚本聚焦）算鼠标。
+     两个监听都走捕获，保证在 focusin 之前拿到最新的来源。 */
+  document.addEventListener('keydown', event => { keyboardFocus = event.key === 'Tab'; }, true);
+  document.addEventListener('pointerdown', () => { keyboardFocus = false; }, true);
   document.addEventListener('pointermove', onPointerMove, { passive: true });
   document.addEventListener('focusin', onFocusIn);
   document.addEventListener('pointerout', event => { if (!event.relatedTarget) park(); }, true);

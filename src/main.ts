@@ -2,8 +2,10 @@ import pageController from './page-controller';
 import { updateEventPrompt } from './event-prompt';
 import { startHoverTip } from './hover-tip';
 import { startUnlockToasts } from './unlock-toast';
-import { getState, currentZone, getFontScale, getNumberFormat, subscribe, startLoop, resetGame } from './game-state';
-import { setText, setClass } from './dom';
+import { startCodexWiki } from './wiki';
+import { getState, currentZoneId, getFontScale, getNumberFormat, isWikiUnlocked, subscribe, startLoop, resetGame } from './game-state';
+import { setText, setClass, setHtml } from './dom';
+import { zoneRefMarkup, setWikiUnlocked } from './codex-ref';
 import { setActiveNumberFormat } from './format';
 import homePage from './pages/home';
 import campPage from './pages/camp';
@@ -26,6 +28,10 @@ function applyFontScale(state: ReturnType<typeof getState>): void { const next =
 /* 数字显示方式：把当前档位同步给 format 模块，本帧渲染出的所有数值就用新风格。 */
 let appliedNumberFormat = -1;
 function applyNumberFormat(state: ReturnType<typeof getState>): void { const id = getNumberFormat(state).id; if (id === appliedNumberFormat) return; appliedNumberFormat = id; setActiveNumberFormat(id); }
+/* 图鉴（wiki）解锁状态：同步给 codex-ref，决定引用渲染成可点链接还是纯文本。
+   必须在页面渲染之前同步，否则本帧画出来的引用还是上一帧的形态。 */
+let appliedWikiUnlocked: boolean | null = null;
+function applyWikiUnlock(state: ReturnType<typeof getState>): void { const next = isWikiUnlocked(state); if (next === appliedWikiUnlocked) return; appliedWikiUnlocked = next; setWikiUnlocked(next); }
 /* 导航项的原始图标与文字先记下来：未解锁时要换成「❓未解锁」，解锁后要能还原（重置存档会重新锁上）。 */
 navItems.forEach(item => { item.dataset.icon = item.querySelector('.nav-index')?.textContent || ''; item.dataset.label = item.querySelector('.sidebar-label')?.textContent || ''; });
 /* 未解锁的系统入口：置灰、换成「❓未解锁」、并 disabled（浏览器不会给 disabled 按钮派发 click，鼠标自然点不动）。
@@ -46,12 +52,12 @@ function updateNavLocks(state: ReturnType<typeof getState>): void {
   /* 当前停留的页面被锁上（例如刚重置存档）时，退回主界面，避免停在不可用的系统里。 */
   if (pageController.pages.get(pageController.currentId)?.locked?.(state)) pageController.switchTo('home');
 }
-function updateSharedHeader(state: ReturnType<typeof getState>): void { status.classList.toggle('paused', !state.adventure.running); statusText.textContent = state.adventure.running ? `远征中 · ${currentZone(state).name}` : '营地待命'; updateNavLocks(state); navItems.forEach(item => item.classList.toggle('active', item.dataset.page === pageController.currentId)); }
+function updateSharedHeader(state: ReturnType<typeof getState>): void { status.classList.toggle('paused', !state.adventure.running); setHtml(statusText, state.adventure.running ? `远征中 · ${zoneRefMarkup(currentZoneId(state))}` : '营地待命'); updateNavLocks(state); navItems.forEach(item => item.classList.toggle('active', item.dataset.page === pageController.currentId)); }
 navToggle.addEventListener('click', () => { const collapsed = app.classList.toggle('nav-collapsed'); navToggle.setAttribute('aria-expanded', String(!collapsed)); });
 document.querySelector<HTMLElement>('#main-nav')!.addEventListener('click', event => { const button = (event.target as Element).closest<HTMLElement>('[data-page]'); if (!button) return; pageController.switchTo(button.dataset.page!); updateSharedHeader(getState()); });
 document.addEventListener('click', event => { const target = event.target as Element; const pageButton = target.closest<HTMLElement>('[data-page]'); if (pageButton && !pageButton.closest('#main-nav')) pageController.switchTo(pageButton.dataset.page!); if (target.closest('[data-action="reset"]')) resetGame(); });
 navItems.forEach(item => { const prefetch = () => pageController.prefetch(item.dataset.page); ['mouseenter', 'focus', 'pointerdown'].forEach(type => item.addEventListener(type, prefetch, { once: true })); });
-subscribe(state => { updateSharedHeader(state); applyFontScale(state); applyNumberFormat(state); pageController.renderCurrent(); updateEventPrompt(); });
-updateSharedHeader(getState()); applyFontScale(getState()); applyNumberFormat(getState()); pageController.switchTo('home'); pageController.prefetchAll(); startHoverTip(); startUnlockToasts(); startLoop();
+subscribe(state => { updateSharedHeader(state); applyFontScale(state); applyNumberFormat(state); applyWikiUnlock(state); pageController.renderCurrent(); updateEventPrompt(); });
+updateSharedHeader(getState()); applyFontScale(getState()); applyNumberFormat(getState()); applyWikiUnlock(getState()); pageController.switchTo('home'); pageController.prefetchAll(); startHoverTip(); startUnlockToasts(); startCodexWiki(); startLoop();
 /* 启动信号：index.html 的看门狗用它判断主模块是否真的跑起来了，未收到时才会输出错误日志。 */
 (window as any).__idleBooted = true;
