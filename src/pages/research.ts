@@ -1,23 +1,22 @@
 import {
-  researchItems, RESEARCH, isResearchUnlocked, getResearchTask, getResearchProgress, canSubmitResearchTask, submitResearchTask,
+  researchItems, isResearchUnlocked, getResearchTask, getResearchProgress, canSubmitResearchTask, submitResearchTask,
   getResearchLevel, getResearchCost, canUpgradeResearch, upgradeResearchItem, upgradeResearchItemToMax,
-  isResearchItemUnlocked, getTaskReward, getResearchDifficulty, getResearchMaxDifficulty, setResearchDifficulty,
-  getResearchDifficultyMultiplier, researchDifficultyRarity, items, rarities, zones, getState, formatNumber
+  isResearchItemUnlocked, getResearchReward, canRefreshResearchTask, getResearchRefreshCost, refreshResearchTask,
+  items, zones, RESEARCH, getState, formatNumber
 } from '../game-state';
-import { setText, setHtml, setNumber, setClass, setDisabled, setWidth, pick } from '../dom';
+import { setText, setHtml, setClass, setDisabled, pick } from '../dom';
 import { itemRefMarkup, zoneRefMarkup } from '../codex-ref';
 import type { GameState, PageDefinition } from '../types';
 
-/* ——— 左栏：当前委托（UI 参考远征档案的章节详情：一句话描述 + 达成条件 + 提交按钮）——— */
+/* ——— 左栏：当前委托（UI 参考远征档案的章节详情：一句话描述 + 达成条件 + 提交按钮）———
+   委托要的是「某个区域的任务物品」—— 该区域所有怪物统一 10% 掉落，所以诉求是
+   「去那个区域刷」而不是「挑某只怪刷」。不满意这份委托可以花钱刷新，费用递增。 */
 const taskMarkup = `<div class="panel-heading"><div><span class="panel-kicker">CONTRACT</span><h3>当前委托</h3></div></div>
   <p class="task-desc" data-ref="desc"></p>
   <div class="task-requirement" data-ref="requirement"></div>
-  <div class="research-difficulty"><span class="field-label">委托难度</span>
-    <div class="difficulty-stepper"><button class="step-button" type="button" data-action="difficulty" data-delta="-1" data-ref="difficultyDown" aria-label="降低难度">−</button>
-      <span class="difficulty-value" data-ref="difficulty"></span>
-      <button class="step-button" type="button" data-action="difficulty" data-delta="1" data-ref="difficultyUp" aria-label="提高难度">+</button></div>
-    <span class="muted" data-ref="difficultyHint"></span></div>
-  <button class="primary-button wide" type="button" data-action="submit" data-ref="submit">提交委托</button>`;
+  <button class="primary-button wide" type="button" data-action="submit" data-ref="submit">提交委托</button>
+  <button class="secondary-button wide" type="button" data-action="refresh" data-ref="refresh"></button>
+  <p class="research-refresh-hint" data-ref="refreshHint"></p>`;
 
 /* ——— 右栏：研究项 ———
    卡面只有图标，名称 / 等级 / 效果 / 消耗都在悬停浮层里（浮层逻辑见 hover-tip.ts，
@@ -47,7 +46,7 @@ const page: PageDefinition<any> = {
       </section>
     </div>`;
     const ctx: any = {
-      ...pick(view, 'points', 'desc', 'requirement', 'difficulty', 'difficultyDown', 'difficultyUp', 'difficultyHint', 'submit'),
+      ...pick(view, 'points', 'desc', 'requirement', 'submit', 'refresh', 'refreshHint'),
       grid: view.querySelector<HTMLElement>('[data-ref="grid"]'),
       cards: [], signature: ''
     };
@@ -55,8 +54,7 @@ const page: PageDefinition<any> = {
       const target = event.target as Element;
       const action = target.closest<HTMLElement>('[data-action]');
     if (action?.dataset.action === 'submit') { submitResearchTask(); return; }
-    /* 难度只影响下一份委托：改完当前这份的报酬不变。 */
-    if (action?.dataset.action === 'difficulty') { setResearchDifficulty(getResearchDifficulty(getState()) + Number(action.dataset.delta)); return; }
+    if (action?.dataset.action === 'refresh') { refreshResearchTask(); return; }
       const card = target.closest<HTMLElement>('[data-research]');
       if (card) upgradeResearchItem(Number(card.dataset.research));
     };
@@ -76,20 +74,21 @@ const page: PageDefinition<any> = {
     const done = owned >= task.need;
     setHtml(ctx.points, `研究点数 <b class="research-points">${formatNumber(state.researchPoints)}</b>`);
     const zone = zones[task.zoneId];
-    const reward = item ? getTaskReward(task, state) : 0;
+    const reward = item ? getResearchReward(state) : 0;
     /* 一句话说完：要什么（物品引用）、去哪儿（区域引用）、给多少点。 */
     setHtml(ctx.desc, item && zone
-      ? `基地正在分析异常电池，需要一批${itemRefMarkup(task.itemId)}。到${zoneRefMarkup(task.zoneId)}狩猎，把掉落物带回来即可交付，可获得<b class="research-points">${reward} 研究点数</b>。`
+      ? `基地正在分析异常电池，需要一批${itemRefMarkup(task.itemId)}。到${zoneRefMarkup(task.zoneId)}狩猎，这里的每一只怪物都可能带着它，凑齐即可交付，可获得<b class="research-points">${reward} 研究点数</b>。`
       : '暂时没有可发布的委托：先在冒险里解锁新的区域。');
     /* 条件行沿用远征档案的 .requirement：物品写成物品引用（icon + 名称），够了就点亮。 */
     setHtml(ctx.requirement, item ? `<div class="requirement ${done ? 'done' : ''}"><span class="status-dot ${done ? '' : 'pending'}"></span><span>${itemRefMarkup(task.itemId)} ${formatNumber(owned)}/${formatNumber(task.need)}</span></div>` : '');
     setDisabled(ctx.submit, !canSubmitResearchTask(state));
-    const difficulty = getResearchDifficulty(state);
-    const maxDifficulty = getResearchMaxDifficulty(state);
-    setText(ctx.difficulty, `${difficulty} / ${maxDifficulty}`);
-    setText(ctx.difficultyHint, `下一份委托索取${rarities[researchDifficultyRarity(difficulty)].name}物品，奖励 ×${getResearchDifficultyMultiplier(difficulty)}`);
-    setDisabled(ctx.difficultyDown, difficulty <= 1);
-    setDisabled(ctx.difficultyUp, difficulty >= maxDifficulty);
+    /* 刷新：费用随刷新次数递增，交委托后归零。按钮上直接写价钱，不用再点一次才知道要花多少。 */
+    const refreshCost = getResearchRefreshCost(state);
+    setText(ctx.refresh, `刷新委托（${formatNumber(refreshCost)} 金币）`);
+    setDisabled(ctx.refresh, !canRefreshResearchTask(state));
+    setText(ctx.refreshHint, state.researchRefreshCount > 0
+      ? `已刷新 ${state.researchRefreshCount} 次，每次刷新费用 +${formatNumber(RESEARCH.refreshCostBase)}；交委托后重新计数。`
+      : `换一个区域。首次 ${formatNumber(RESEARCH.refreshCostBase)} 金币，连续刷会越来越贵。`);
 
     /* 未解锁的研究项不渲染：按解锁状态同步网格，签名变了才重建（解锁是单向的，重置存档也能收回）。 */
     const visible = researchItems.map((_, id) => id).filter(id => isResearchItemUnlocked(id, state));

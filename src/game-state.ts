@@ -1,7 +1,8 @@
-import { zones, enemyTable, ENEMY, ZONE, zoneOfEnemy } from './config/zones';
+import { zones, enemyTable, ENEMY, ZONE, zoneOfEnemy, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
 import { sets, setTable, SET, setOfZone, setOfItem } from './config/sets';
-import { items, ITEM, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY } from './config/items';
-import { affixes, AFFIX, affixCap, affixMarkup, skills, SKILL, AFFIX_MAX_MULTIPLIER } from './config/affixes';
+import { items, ITEM, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, SOLVENT_IDS } from './config/items';
+import { affixes, AFFIX, affixCap, affixMarkup, affixCategoryClass, affixCategories, AFFIX_CATEGORY, skills, SKILL, AFFIX_MAX_MULTIPLIER } from './config/affixes';
+import { rarityClass } from './config/rarity';
 import { CAMP_EVENT, randomEventDefs, campEventDef } from './config/events';
 /* 物品 / 怪物 / 区域名不直接写文字，交给 codex-ref.ts 生成「icon + 名称 + 类型色 + 可点开图鉴」的引用。
    按「这段文字会不会进存档」选入口：
@@ -12,12 +13,85 @@ import { itemTag, itemRefMarkup, enemyTag, zoneTag, pageRefMarkup } from './code
 import type { Achievement, AdventureState, AutoEatState, CampBattleState, EquipmentInstance, GameState, LogType, MainlineQuest, MainlineRequirement, ResearchTaskState, SetBonus, UseOutcome } from './types';
 
 export const MAX_OFFLINE_SECONDS = 8 * 60 * 60;
-/* v6：强化等级换成词条——实例上存 affixes，道具的 use 变成函数。
+
+/* ——— 存档格式 ———
+   存档 = 信封（SaveEnvelope）+ GameState。信封带 format / version / savedAt：
+   format 用来识别「这是不是本游戏的存档」，version 用来判断兼容性。
+   导出到文本 / 文件、以及 localStorage 里存的都是这一份结构，只有一条格式定义。
+
+   版本规则（改动 GameState 时按这里走）：
+   - **新增字段**：不用动 SAVE_VERSION。rebuildState 以 freshState() 为底，
+     新字段自动拿到初始值（见 rebuildState 里的 { ...initial, ...data }）。
+   - **改动已有字段**（改名、拆字段、换类型、枚举重排）：SAVE_VERSION + 1，
+     并在 MIGRATIONS 里补一条「从旧版本升到新版本」的转换。
+   - **删除字段**：同样 +1。迁移里不写也行 —— rebuildState 会忽略多余字段。
+
+   低版本存档永远读得进来：parseSave 先按存档自己的版本依次跑 MIGRATIONS 升到当前版本，
+   再交给 rebuildState 做逐字段校验。导入的文本走的是同一条路。
+
+   版本历史（旧格式说明，保留备查）：
+   v8：委托重做 —— 删掉 researchDifficulty 与 researchTask.difficulty，新增 researchRefreshCount；
+       物品表新增 quest 类别（任务物品）与三个任务物品、清洗剂改按类别移除。
+       这些都不需要数据转换：多余字段由 rebuildState 忽略，新字段拿 freshState() 的初始值，
+       失效的委托由 getResearchTask 的校验重新抽一份。
+   v7：存档加信封，版本号从 localStorage 的 key 名移进内容（key 里的 -v6 是历史遗留）。
+   v6：强化等级换成词条 —— 实例上存 affixes，道具的 use 变成函数。
    v5：移除等级与经验（xp / level 字段不再存在）。
-   v4：装备改成「实例」——物品栏只存可堆叠物品的数量，装备放进 equipment 实例列表，
-   equipped 里存实例 id。这样同名装备的每一件都是独立的，词条也挂在实例上。
-   v5 及更早的存档格式不兼容，直接作废。 */
-const SAVE_KEY = 'ember-expedition-save-v6';
+   v4：装备改成「实例」—— 物品栏只存可堆叠物品的数量，装备放进 equipment 实例列表，
+       equipped 里存实例 id。这样同名装备的每一件都是独立的，词条也挂在实例上。
+   v3 及更早：格式不兼容，直接作废（那时版本号还在 key 名里，换 key 就等于作废旧档）。 */
+const SAVE_KEY = 'ember-expedition-save';
+/** v7 之前版本号写在 key 名里，读盘时按顺序兜底；读到就顺手搬到新 key。 */
+const LEGACY_SAVE_KEYS = ['ember-expedition-save-v6'];
+/** 当前存档格式版本。改结构时 +1，并在 MIGRATIONS 里补一条。 */
+const SAVE_VERSION = 8;
+/** 信封上的 format 标记：导入时据此拒绝无关的 JSON。 */
+const SAVE_FORMAT = 'ember-expedition';
+
+/** 存档信封。state 是明文 GameState；整体编码后变成一段文本（见 encodeEnvelope）。 */
+interface SaveEnvelope { format: string; version: number; savedAt: number; state: any }
+/** 导出 / 导入的结果：message 是给玩家看的一行话。 */
+export interface SaveIoResult { ok: boolean; message: string }
+
+/* 存档文本的前缀。用来一眼认出「这段文本是不是本游戏的存档」，不必先尝试解码。
+   末尾的版本号只是给人看的（真正的版本在信封里），解析时不读它。 */
+const SAVE_PREFIX = 'EMBER7.';
+/* 编码用的异或密钥。**这不是加密** —— 密钥就在产物里，会看代码的人都能还原；
+   它只让存档「看起来不是能直接改的文本」，挡住随手改数值的念头。
+   单机游戏里真正的防作弊做不到（密钥必然在客户端），所以不往那个方向投入。 */
+const XOR_KEY = [0x45, 0x6d, 0x62, 0x65, 0x72, 0x2d, 0x49, 0x64];   // "Ember-Id"
+
+/** 把信封编码成存档文本：JSON → UTF-8 字节 → 异或 → Base64 → 加前缀。
+    走 UTF-8 而不是直接 btoa：万一以后存档里出现非 ASCII 字符（物品备注之类）不会炸。 */
+function encodeEnvelope(envelope: SaveEnvelope): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(envelope));
+  let binary = '';
+  /* 逐字节拼而不是 String.fromCharCode(...bytes)：存档上千字节，展开成参数会爆栈。 */
+  for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index] ^ XOR_KEY[index % XOR_KEY.length]);
+  return SAVE_PREFIX + btoa(binary);
+}
+
+/** 解出存档文本里的信封。前缀不对、Base64 坏了、JSON 坏了、format 不对，一律返回 null。 */
+function decodeEnvelope(text: string): SaveEnvelope | null {
+  if (!text.startsWith(SAVE_PREFIX)) return null;
+  try {
+    const binary = atob(text.slice(SAVE_PREFIX.length));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index) ^ XOR_KEY[index % XOR_KEY.length];
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    return parsed && typeof parsed === 'object' && parsed.format === SAVE_FORMAT ? parsed : null;
+  } catch { return null; }
+}
+
+/** 迁移表：键是「旧版本号」，值把它升到「旧版本号 + 1」。依次跑过去就能从任意旧版本升到当前版本。
+    每一项只做结构转换，不要顺手补默认值 —— 那是 rebuildState 的活，两处都做会互相打架。 */
+const MIGRATIONS: Record<number, (data: any) => any> = {
+  /* 6 → 7 只是加了信封，GameState 结构没变。
+     7 → 8 删了两个字段、加了一个字段，也都不需要转换：
+     被删的字段 rebuildState 会忽略，新字段从 freshState() 拿初始值。
+     以后遇到「字段改名 / 拆字段 / 换类型」这类真要转换的情况，在这里补，例如：
+     8: data => ({ ...data, newField: data.oldField || 0 }), */
+};
 /* ——— 开发者面板的数值覆盖 ———
    攻击力 / 防御力 / 生命上限 / 生命回复 / 出手间隔 / 刷怪间隔 都是算出来的派生值，
    开发者面板不直接改公式，而是用 state.devOverrides 覆盖最终结果（-1 表示不覆盖）。
@@ -85,7 +159,7 @@ const CAMP_BASE = { hp: 200, attack: 10, defense: 4 };
 export const LOGISTICS = { camp: 0, workshop: 1 };
 export const logisticsTargets = [
   { id: 'camp', name: '营垒修筑', icon: '🧱', desc: '每人每秒贡献 1 工时，每 100 工时提升 1 级营垒，提高营地生命、攻击与防御。' },
-  { id: 'workshop', name: '工坊制造', icon: '🔧', desc: '分配的人数就是建造速度：制造耗时 = 该项总工时 ÷ 分配人数。' }
+  { id: 'workshop', name: '工坊制造', icon: '🔧', desc: '分配的人数就是建造速度：制造耗时 = 该项总工时 ÷（人数 × 每人每秒工时）。每人每秒的工时基础为 1，可被装备词条「勤务」提升。' }
 ];
 /** 工坊页面本身的解锁进度：完成「清理废弃边境」（mainline 下标 1）后 mainlineIndex 才是 2。 */
 const WORKSHOP_UNLOCK_INDEX = 2;
@@ -104,44 +178,48 @@ export function isWorkshopUnlocked(target: GameState = state): boolean { return 
 /** 某个制造项是否已解锁：主线进度不够时工坊里不显示它。 */
 export function isWorkshopItemUnlocked(id: number, target: GameState = state): boolean { return !!workshopItems[id] && target.mainlineIndex >= workshopItems[id].unlockIndex; }
 /* ——— 研究基地 ———
-   完成「分析异常电池」解锁（mainlineIndex >= 3）。基地会发布资源收集委托：
-   交齐指定掉落物换研究点数，研究点数用来提升研究项。 */
+   完成「分析异常电池」解锁（mainlineIndex >= 3）。基地会发布收集委托：
+   去某个已解锁的战斗区域收集该区域的**任务物品**（见 config/zones.ts 的 questItem），
+   交齐换研究点数，研究点数用来提升研究项。
+
+   委托不再要求「怪物的普通掉落物」—— 那种委托逼玩家挑怪刷（一个物品常常只有 1~2 只怪会掉），
+   而任务物品是区域内**所有**怪物统一 10% 掉落，委托的诉求因此变成「去那个区域刷」。
+   难度选择也一并去掉：委托随机落在某个已解锁区域、奖励固定 —— 越深的区域任务物品一样难掉，
+   但那里的怪本身更值钱，收益差已经体现在刷的过程中，不需要再加一层倍率。 */
 export const RESEARCH = {
-  /** 委托要求的数量区间：needMin ~ needMax，上限会被「任务难度降低」压低。 */
-  needMin: 20, needMax: 40,
+  /** 委托要求的数量区间：needMin ~ needMax，上限会被「任务需求降低」压低。
+      10% 掉率下 8~12 个约等于 80~120 次击杀，按一场战斗 20~30 秒算就是半小时左右。 */
+  needMin: 8, needMax: 12,
   /** 每份委托的研究点数奖励。 */
   reward: 10,
   /** 研究项升级消耗：costBase + costStep × 当前等级。 */
   costBase: 10, costStep: 5,
-  /** 难度 → 奖励倍率（下标 = 难度 - 1）。高稀有度的掉落更难凑齐，所以越往上加得越快。 */
-  difficultyMultiplier: [1, 1.6, 2.4, 3.4]
+  /** 刷新委托的首次费用：之后每次多花一个基数（见 getResearchRefreshCost）。 */
+  refreshCostBase: 100
 };
-/** 难度对应的物品稀有度：1 → 普通、2 → 精良、3 → 稀有、4 → 史诗（下标即难度 - 1）。 */
-export const researchDifficultyRarity = (difficulty: number): number => Math.max(0, Math.min(rarities.length - 1, difficulty - 1));
-/** 某档难度的奖励倍率。 */
-export function getResearchDifficultyMultiplier(difficulty: number): number {
-  const table = RESEARCH.difficultyMultiplier;
-  return table[Math.max(0, Math.min(table.length - 1, Math.floor(difficulty) - 1))];
+/** 刷新这份委托要花多少金币：首次 refreshCostBase，之后每刷一次多一个基数。
+    交委托后计数归零，所以「反复刷到满意」的代价是递增的，正常接单不受影响。 */
+export function getResearchRefreshCost(target: GameState = state): number {
+  return RESEARCH.refreshCostBase * (Math.max(0, Math.floor(target.researchRefreshCount) || 0) + 1);
 }
-/** 难度上限 = 已解锁的战斗区域数量：开局只有废弃边境，所以一开始只能选 1 级。 */
-export function getResearchMaxDifficulty(target: GameState = state): number {
-  return Math.max(1, zones.reduce((total, zone, id) => total + (zone.enemyIds.length && isZoneUnlocked(id, target) ? 1 : 0), 0));
-}
-export function getResearchDifficulty(target: GameState = state): number {
-  return Math.max(1, Math.min(getResearchMaxDifficulty(target), Math.floor(Number(target.researchDifficulty) || 1)));
-}
-export function setResearchDifficulty(value: number): void {
-  const next = Math.max(1, Math.min(getResearchMaxDifficulty(state), Math.floor(Number(value) || 1)));
-  if (next === state.researchDifficulty) return;
-  state.researchDifficulty = next;
-  addLog(state, `委托难度调整为 ${next} 级：下一份委托会索取${rarities[researchDifficultyRarity(next)].name}物品。`, 'system');
+/** 能不能刷新：金币够就行（未解锁研究基地时也不给刷）。 */
+export function canRefreshResearchTask(target: GameState = state): boolean { return isResearchUnlocked(target) && target.gold >= getResearchRefreshCost(target); }
+/** 刷新委托：扣金币、重抽一份、计数 +1。返回是否真的刷新了（金币不够时 false）。 */
+export function refreshResearchTask(): boolean {
+  if (!canRefreshResearchTask(state)) return false;
+  const cost = getResearchRefreshCost(state);
+  state.gold -= cost;
+  state.researchTask = rollResearchTask(state);
+  state.researchRefreshCount += 1;
+  addLog(state, `支付 ${cost} 金币，研究基地重新发布了委托。`, 'system');
   saveState(); notify();
+  return true;
 }
 /** 研究项：下标即 state.researchLevels 的下标，追加新项要放在末尾。 */
 export const RESEARCH_ITEM = { taskNeed: 0, reward: 1, autoEat: 2 };
 export const researchItems = [
   {
-    name: '任务难度降低 I', icon: '📉', maxLevel: 10, unlockIndex: 3,
+    name: '任务需求降低 I', icon: '📉', maxLevel: 10, unlockIndex: 3,
     desc: '整理委托流程，让基地少要点东西。',
     /** 每级的效果：需求数量上限 -1。 */
     effect: (level: number): string => level ? `委托要求的数量上限 -${level} 点` : '尚未研究：研究后每级让要求的数量上限 -1 点'
@@ -159,14 +237,10 @@ export const researchItems = [
 ];
 /** 研究项是否已解锁：主线进度不够时卡片锁着、点了也没反应。 */
 export function isResearchItemUnlocked(id: number, target: GameState = state): boolean { return !!researchItems[id] && target.mainlineIndex >= researchItems[id].unlockIndex; }
-/** 某份委托的研究点数：基础值 + 「信号放大」等级，再乘这份委托自己的难度倍率
-   （倍率按委托发布时的难度算，所以事后改难度不会改变已经接下的委托的报酬）。 */
-export function getTaskReward(task: ResearchTaskState, target: GameState = state): number {
-  return Math.round((RESEARCH.reward + getResearchLevel(RESEARCH_ITEM.reward, target)) * getResearchDifficultyMultiplier(task.difficulty || 1));
-}
-/** 以当前难度接下一份委托能拿多少点（界面预览用）。 */
+/** 一份委托的研究点数：基础值 + 「信号放大」等级。奖励不再随区域或难度浮动 ——
+    越深的区域靠怪物本身的金币与掉落拉开收益差，不需要再加一层倍率。 */
 export function getResearchReward(target: GameState = state): number {
-  return getTaskReward({ itemId: -1, zoneId: -1, difficulty: getResearchDifficulty(target), need: 0 }, target);
+  return RESEARCH.reward + getResearchLevel(RESEARCH_ITEM.reward, target);
 }
 
 /* ——— 自动进食（研究项「自动进食」解锁）———
@@ -271,7 +345,8 @@ export function getWorkshopRemaining(id: number, target: GameState = state): num
   const workers = getLogisticsAssigned(LOGISTICS.workshop, target);
   const item = target.campWorkshop[id];
   if (!workers || item.target < 0) return Infinity;
-  return Math.max(0, (getWorkshopWorkTotal(id, target) - item.work) / workers);
+  /* 剩余秒数同样要按「每人每秒的实际工时」算，否则界面上的倒计时会和真实进度对不上。 */
+  return Math.max(0, (getWorkshopWorkTotal(id, target) - item.work) / (workers * getWorkshopRate(target)));
 }
 /** 制造进度百分比（0~100）。 */
 export function getWorkshopProgress(id: number, target: GameState = state): number { const item = target.campWorkshop[id]; if (item.target < 0) return item.level > 0 ? 100 : 0; return Math.max(0, Math.min(100, item.work / getWorkshopWorkTotal(id, target) * 100)); }
@@ -431,7 +506,7 @@ const freshAdventure = (): AdventureState => ({
 });
 const freshState = (): GameState => ({
   gold: 45, scrap: 24, essence: 0, totalWins: 0, mainlineIndex: 0,
-  workshop: 0, researchPoints: 0, researchDifficulty: 1, researchTask: { itemId: -1, zoneId: -1, difficulty: 1, need: 0 }, researchLevels: researchItems.map(() => 0), autoEat: { itemId: -1, threshold: AUTO_EAT.defaultThreshold }, equipped: equipTypes.map(type => new Array(type.baseSlots).fill(-1)), settings: { fontScale: 0, notify: true, numberFormat: 0 },
+  workshop: 0, researchPoints: 0, researchRefreshCount: 0, researchTask: { itemId: -1, zoneId: -1, need: 0 }, researchLevels: researchItems.map(() => 0), autoEat: { itemId: -1, threshold: AUTO_EAT.defaultThreshold }, equipped: equipTypes.map(type => new Array(type.baseSlots).fill(-1)), settings: { fontScale: 0, notify: true, numberFormat: 0 },
   inventory: new Array(items.length).fill(0), equipment: [], nextInstanceId: 1, encountered: new Array(enemyTable.length).fill(0), discoveredDrops: enemyTable.map(() => []), perfectItems: [], adventure: freshAdventure(),
   /* 后勤小队开局 1 人（全部待命）；工坊只有一个制造项，0 级且空闲；营地满血、随机事件从满间隔开始倒数。 */
   logistics: { assigned: logisticsTargets.map(() => 0) },
@@ -594,10 +669,11 @@ export function getSetWorn(setId: number, target: GameState = state): number {
   }
   return pieces.filter(itemId => worn.has(itemId)).length;
 }
-/** 已装备实例上所有词条的汇总。pct 是百分比（6 表示 +6%），在最后一步放大玩家的最终属性。 */
-export interface AffixTotals { attack: number; hp: number; defense: number; attackPct: number; hpPct: number; skills: { skill: number; value: number }[] }
+/** 已装备实例上所有词条的汇总。pct 是百分比（6 表示 +6%），在最后一步放大玩家的最终属性。
+    workshopRate 是「工坊工时」的百分比加成，属于功能类 —— 不参与战斗，只作用在后勤推进上。 */
+export interface AffixTotals { attack: number; hp: number; defense: number; attackPct: number; hpPct: number; workshopRate: number; skills: { skill: number; value: number }[] }
 export function getAffixTotals(target: GameState = state): AffixTotals {
-  const totals: AffixTotals = { attack: 0, hp: 0, defense: 0, attackPct: 0, hpPct: 0, skills: [] };
+  const totals: AffixTotals = { attack: 0, hp: 0, defense: 0, attackPct: 0, hpPct: 0, workshopRate: 0, skills: [] };
   for (const slots of target.equipped) for (const instanceId of slots) {
     const instance = instanceId >= 0 ? findEquipment(instanceId, target) : undefined;
     if (!instance?.affixes) continue;
@@ -609,11 +685,15 @@ export function getAffixTotals(target: GameState = state): AffixTotals {
       totals.defense += (effect.defense || 0) * affix.value;
       totals.attackPct += (effect.attackPct || 0) * affix.value;
       totals.hpPct += (effect.hpPct || 0) * affix.value;
+      totals.workshopRate += (effect.workshopRate || 0) * affix.value;
       if (effect.skill !== undefined) totals.skills.push({ skill: effect.skill, value: affix.value });
     }
   }
   return totals;
 }
+/** 工坊工时倍率：每人每秒的工时 = 1 × 这个值。功能类词条「勤务」是唯一来源。
+    只影响工坊制造，不影响营垒修筑 —— 词条写的是「工坊工时」。 */
+export function getWorkshopRate(target: GameState = state): number { return 1 + getAffixTotals(target).workshopRate / 100; }
 /** 装备栏加成面板的取值键。flat 来自装备自身与固定数值词条，pct 来自百分比词条。 */
 export type EquipBonusKey = 'attack' | 'hp' | 'defense' | 'attackPct' | 'hpPct';
 /** 装备栏加成面板要列哪几项：下标即面板里的行顺序。flat 表示固定值，pct 表示百分比。 */
@@ -625,16 +705,18 @@ export const equipBonusStats: { key: EquipBonusKey; label: string; kind: 'flat' 
   { key: 'hpPct', label: '生命加成', kind: 'pct' }
 ];
 /** 某一项加成的逐件来源：装备自身一条、每条词条一条，没有贡献的不列（悬停详情用）。
-    tier 是词条品阶（装备自身用物品稀有度），界面据此着色。 */
-export function getEquipBonusSources(key: EquipBonusKey, target: GameState = state): { name: string; value: number; tier: number }[] {
-  const sources: { name: string; value: number; tier: number }[] = [];
+    colorClass 是给这一行着色的类名 —— 装备自身用稀有度色，词条用类别色。 */
+export function getEquipBonusSources(key: EquipBonusKey, target: GameState = state): { name: string; value: number; colorClass: string }[] {
+  const sources: { name: string; value: number; colorClass: string }[] = [];
   for (const slots of target.equipped) for (const instanceId of slots) {
     const instance = instanceId >= 0 ? findEquipment(instanceId, target) : undefined;
     if (!instance) continue;
     const item = items[instance.itemId];
     const base = key === 'attackPct' || key === 'hpPct' ? 0 : getInstanceBonus(instance)[key];
-    if (base) sources.push({ name: item.name, value: base, tier: item.rarity });
-    for (const affix of instance.affixes || []) { const definition = affixes[affix.id]; const value = (definition.effect[key] || 0) * affix.value; if (value) sources.push({ name: `${item.name} · ${definition.name}`, value, tier: definition.tier }); }
+    /* colorClass 直接给出类名：装备自身走稀有度色，词条走类别色（进攻红 / 生存绿 / 功能蓝），
+       消费方不需要知道这两套颜色是从哪来的。 */
+    if (base) sources.push({ name: item.name, value: base, colorClass: rarityClass(item.rarity) });
+    for (const affix of instance.affixes || []) { const definition = affixes[affix.id]; const value = (definition.effect[key] || 0) * affix.value; if (value) sources.push({ name: `${item.name} · ${definition.name}`, value, colorClass: affixCategoryClass(definition.category) }); }
   }
   return sources;
 }
@@ -680,6 +762,15 @@ export function isCampZone(zoneId: number): boolean { return !zones[zoneId] || z
 export function isEncountered(enemyId: number, target: GameState = state): boolean { return !!target.encountered?.[enemyId]; }
 /** 这只怪物的这条掉落是否已经被玩家实际拿到过：图鉴据此逐条揭示掉落表。 */
 export function isDropDiscovered(enemyId: number, itemId: number, target: GameState = state): boolean { return !!target.discoveredDrops?.[enemyId]?.includes(itemId); }
+/** 这个物品是否已经被发现过。三个来源取「或」：真的掉落过、当前物品栏里有、身上有这件装备实例。
+    只看 discoveredDrops 不够 —— 研究委托的奖励、开发者面板发的物品都不经过掉落，
+    那些途径拿到的东西在物品栏里躺着，图鉴却还标着「待发现」说不过去。
+    图鉴的物品列表据此把没见过的显示成占位，而不是直接列出名字。 */
+export function isItemDiscovered(itemId: number, target: GameState = state): boolean {
+  if (target.discoveredDrops?.some(list => list?.includes(itemId))) return true;
+  if ((target.inventory?.[itemId] || 0) > 0) return true;
+  return !!target.equipment?.some(instance => instance.itemId === itemId);
+}
 export function currentEnemy(target: GameState = state) { return enemyTable[target.adventure.enemyId] || enemyTable[zones[currentZoneId(target)].enemyIds[0]] || enemyTable[FIRST_ENEMY_ID]; }
 export function getEnemyAttackInterval(target: GameState = state): number { return currentEnemy(target).attackInterval; }
 /* 目前所有区域都开放；后续做进度门槛时改这里的判断即可。 */
@@ -698,6 +789,29 @@ function revealDrop(target: GameState, enemyId: number, itemId: number): void { 
 /* 只有真正进了包才算「获得」：被物品栏上限拒收的不揭示。 */
 function grantDrops(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; enemy.dropTable.forEach(drop => { if (Math.random() > drop.chance) return; const item = items[drop.itemId]; /* 可堆叠的进数量，装备每件都建成独立实例；拿完如果超出上限，就丢掉刚拿到的这一件。 */
 const amount = randomAmount(drop.min, drop.max); /* 装备每件都建成独立实例，可堆叠的进数量。 */ if (item.stackable) { target.inventory[drop.itemId] += amount; if (drop.itemId === ITEM.scrap) target.scrap += amount; if (drop.itemId === ITEM.emberShard) target.essence += amount; } else addEquipment(target, drop.itemId, amount, zoneDropRefine(enemyId)); revealDrop(target, enemyId, drop.itemId); addLog(target, `掉落：${itemTag(drop.itemId)} ×${amount}`, 'drop'); /* 超上限就把刚拿到的这件丢掉，不动玩家原有的东西。 */ trimInventoryOverflow(target, drop.itemId); }); }
+/** 任务物品掉落：区域内**所有**怪物统一 QUEST_DROP_CHANCE，与各自的 dropTable 无关。
+    和套装掉落一样独立成一步 —— 不占「同一只怪物最多 3 条掉落」的名额。
+    委托因此变成「去那个区域刷」，而不是「挑某只怪刷」。 */
+function grantQuestDrop(target: GameState, enemyId: number): void {
+  const itemId = questItemOf(zoneOfEnemy(enemyId));
+  if (itemId < 0 || Math.random() > QUEST_DROP_CHANCE) return;
+  target.inventory[itemId] += 1;
+  revealDrop(target, enemyId, itemId);
+  addLog(target, `掉落：${itemTag(itemId)} ×1`, 'drop');
+  trimInventoryOverflow(target, itemId);
+}
+/** 清洗剂掉落：**任何**怪物都有 SOLVENT_DROP_CHANCE 的概率掉一瓶，三选一。
+    和任务物品、套装掉落一样独立成一步 —— 不写进 dropTable，所以不占
+    「同一只怪物最多 3 条掉落」的名额，也不需要给 15 只怪各写一条。
+    掉率极低，这里不做任何区域或难度上的区分：它就是一张随手刮的彩票。 */
+function grantSolventDrop(target: GameState, enemyId: number): void {
+  if (Math.random() > SOLVENT_DROP_CHANCE) return;
+  const itemId = SOLVENT_IDS[Math.floor(Math.random() * SOLVENT_IDS.length)];
+  target.inventory[itemId] += 1;
+  revealDrop(target, enemyId, itemId);
+  addLog(target, `掉落：${itemTag(itemId)} ×1`, 'drop');
+  trimInventoryOverflow(target, itemId);
+}
 /** 套装掉落：按怪物所在区域掉对应的套装部件，随机给其中一个部位。
     与怪物的 dropTable 完全独立 —— 它不写进 dropTable，所以不占用「同一只怪物最多 3 条掉落」的名额。 */
 function grantSetDrop(target: GameState, enemyId: number): void {
@@ -710,7 +824,7 @@ function grantSetDrop(target: GameState, enemyId: number): void {
   trimInventoryOverflow(target, itemId);
 }
 /* 击杀才记入图鉴：仅仅遇到（prepareEnemy）不算。 */
-function defeatEnemy(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; target.gold += enemy.gold; target.totalWins += 1; target.adventure.battleCount += 1; target.encountered[enemyId] = 1; addLog(target, `击败${enemyTag(enemyId)}，获得 ${enemy.gold} 金币。`, 'battle'); grantDrops(target, enemyId); grantSetDrop(target, enemyId); updateMainline(target); startSpawnCooldown(target); }
+function defeatEnemy(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; target.gold += enemy.gold; target.totalWins += 1; target.adventure.battleCount += 1; target.encountered[enemyId] = 1; addLog(target, `击败${enemyTag(enemyId)}，获得 ${enemy.gold} 金币。`, 'battle'); grantDrops(target, enemyId); grantSetDrop(target, enemyId); grantQuestDrop(target, enemyId); grantSolventDrop(target, enemyId); updateMainline(target); startSpawnCooldown(target); }
 /* 伤害 = 攻击力 − 对方防御，至少 1 点：防御只能减免，不能完全免伤。
    词条赋予的技能按出手次数触发，额外叠一记倍率伤害（强度取词条数值的百分比）。 */
 function playerAttack(target: GameState): void { const enemy = currentEnemy(target); target.adventure.attackCount += 1; const attack = getPlayerAttack(target); let damage = Math.max(1, attack - (enemy.defense || 0)); const triggered = []; for (const entry of getAffixTotals(target).skills) { const skill = skills[entry.skill]; if (!skill || target.adventure.attackCount % skill.interval !== 0) continue; damage += Math.round(attack * skill.multiplier * entry.value / 100); triggered.push(skill.name); } target.adventure.enemyHp = Math.max(0, target.adventure.enemyHp - damage); addLog(target, `${triggered.length ? `${triggered.join('、')}触发！` : ''}你攻击${enemyTag(target.adventure.enemyId)}，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.enemyHp <= 0) defeatEnemy(target, target.adventure.enemyId); }
@@ -719,7 +833,8 @@ function enemyAttack(target: GameState): void { const enemy = currentEnemy(targe
 function applyRegen(target: GameState, seconds: number): void { if (!(seconds > 0)) return; target.adventure.playerHp = Math.min(getPlayerMaxHp(target), target.adventure.playerHp + getPlayerRegen(target) * getRegenMultiplier(target) * seconds); }
 function advanceAdventure(target: GameState, seconds: number): void { if (isCampZone(currentZoneId(target))) { applyRegen(target, seconds); return; } if (!target.adventure.running) return; let remaining = Math.max(0, seconds); while (remaining > 0 && target.adventure.running) { /* 刷怪冷却：场上没有敌人，只回复生命值。 */ if (target.adventure.spawnTimer > 0) { const wait = Math.min(remaining, target.adventure.spawnTimer); target.adventure.spawnTimer -= wait; applyRegen(target, wait); remaining -= wait; if (target.adventure.spawnTimer > 0) break; prepareEnemy(target); continue; } const enemy = currentEnemy(target); const playerInterval = getPlayerAttackInterval(target); const playerWait = Math.max(0, playerInterval - target.adventure.playerAttackTimer); const enemyWait = Math.max(0, enemy.attackInterval - target.adventure.enemyAttackTimer); const step = Math.min(remaining, playerWait, enemyWait); target.adventure.playerAttackTimer += step; target.adventure.enemyAttackTimer += step; applyRegen(target, step); remaining -= step; if (target.adventure.playerAttackTimer >= playerInterval - .0001) { target.adventure.playerAttackTimer = 0; playerAttack(target); } if (target.adventure.running && target.adventure.enemyAttackTimer >= enemy.attackInterval - .0001) { target.adventure.enemyAttackTimer = 0; enemyAttack(target); } if (step === 0 && target.adventure.running) { target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; } } }
 /* ——— 营地 / 后勤小队的推进 ———
-   分配出去的每个人每秒贡献 1 工时：营垒修筑把它换成营垒等级，工坊制造把它换成制造进度。 */
+   分配出去的每个人每秒贡献 1 工时：营垒修筑把它换成营垒等级，工坊制造把它换成制造进度。
+   工坊这一侧的工时会被功能类词条「勤务」放大（getWorkshopRate），营垒不受影响。 */
 function advanceLogistics(target: GameState, seconds: number): void {
   if (!(seconds > 0)) return;
   const builders = getLogisticsAssigned(LOGISTICS.camp, target);
@@ -731,14 +846,16 @@ function advanceLogistics(target: GameState, seconds: number): void {
   /* 人手按制造项顺序投入：先把人给第一个能开工的项，做完再轮到下一个。
      不能让每项各用一次 workers —— 那样同一批人会被算两遍，两项一起造反而更快。 */
   let budget = seconds;
+  /* 每人每秒的实际工时：基础 1，被功能类词条「勤务」放大。人手乘上它才是这一轮的总产出。 */
+  const output = workers * getWorkshopRate(target);
   for (let id = 0; id < target.campWorkshop.length && budget > 0; id++) {
     /* 未解锁的制造项不参与：后勤人手不会投到还没解锁的东西上，它也不该被自动造出来。 */
     if (!isWorkshopItemUnlocked(id, target)) continue;
     const item = target.campWorkshop[id];
     for (let guard = 0; guard < 100 && budget > 0; guard++) {
       if (item.target < 0 && !beginWorkshopBuild(id, target, true)) break;
-      const need = (getWorkshopWorkTotal(id, target) - item.work) / workers;
-      if (need > budget) { item.work += workers * budget; budget = 0; break; }
+      const need = (getWorkshopWorkTotal(id, target) - item.work) / output;
+      if (need > budget) { item.work += output * budget; budget = 0; break; }
       budget -= need; item.level = item.target; item.target = -1; item.work = 0;
       addLog(target, `工坊完成制造：${workshopItems[id].name} 提升至 Lv.${item.level}，营地数值提高。`, 'progress');
       updateMainline(target);
@@ -807,16 +924,166 @@ function advanceCamp(target: GameState, seconds: number): void {
   target.camp.pendingKind = CAMP_EVENT.random; target.camp.pendingId = id; target.camp.pendingExpires = Date.now() + PENDING_EVENT_TIMEOUT * 1000;
   addLog(target, `营地收到警报：${randomEventDefs[id].name}。${PENDING_EVENT_TIMEOUT} 秒内决定是否应对。`, 'progress');
 }
-function hydrate(): void { const initial = freshState(); try { const saved = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (!saved) { state = initial; return; } /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id)); state = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: { ...initial.settings, ...saved.settings }, inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: { ...initial.camp, ...saved.camp, hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp) }, perfectItems: (Array.isArray(saved.perfectItems) ? saved.perfectItems : []).map((itemId: number) => Math.floor(Number(itemId) || -1)).filter((itemId: number) => itemId >= 0 && !!items[itemId]),
-achievements: achievements.map((_, index) => (saved.achievements?.[index] ? 1 : 0)), notices: unlockNotices.map((_, index) => (saved.notices?.[index] ? 1 : 0)), devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)), ...readResearchState(saved), autoEat: readAutoEat(saved), log: [] }; if (!zones[state.adventure.zoneId]) state.adventure.zoneId = CAMP_ZONE_ID; if (isCampZone(state.adventure.zoneId)) state.adventure.running = false; if (!Number.isFinite(state.adventure.spawnTimer)) state.adventure.spawnTimer = 0; if (state.adventure.spawnTimer <= 0 && (!enemyTable[state.adventure.enemyId] || !state.adventure.enemyHp)) prepareEnemy(state); const offlineSeconds = Math.min(MAX_OFFLINE_SECONDS, Math.max(0, (Date.now() - (saved.lastTick || Date.now())) / 1000)); if (offlineSeconds >= 3) { if (state.adventure.running) { const before = state.totalWins; advanceAdventure(state, offlineSeconds); addLog(state, `你离开了 ${formatDuration(offlineSeconds)}。远征队完成了 ${formatNumber(state.totalWins - before)} 场战斗。`, 'system'); } else if (isCampZone(currentZoneId(state))) { advanceAdventure(state, offlineSeconds); addLog(state, `你离开了 ${formatDuration(offlineSeconds)}。远征队在营地休整。`, 'system'); } } } catch { state = initial; }
-  /* 离线期间后勤小队与营地也要继续走：营垒 / 工坊进度、营地回血、随机事件计时与待响应事件的超时。
-     state.lastTick 此刻还是存档里的旧时间戳（{ ...initial, ...saved } 覆盖而来）。 */
-  const offlineForCamp = Math.min(MAX_OFFLINE_SECONDS, Math.max(0, (Date.now() - state.lastTick) / 1000));
-  if (offlineForCamp >= 1) { advanceLogistics(state, offlineForCamp); advanceCamp(state, offlineForCamp); }
+/** 把一份（已经跑过迁移的）存档数据校验重建。每个字段都单独取默认值与上下限：
+    存档可能来自旧版本、手改过的文件、或者被截断的文本，不能直接信。
+    以 freshState() 为底再覆盖，所以新增字段会自动拿到初始值 —— 这就是「加字段不用改版本号」的原因。 */
+function rebuildState(saved: any): GameState {
+  const initial = freshState();
+  /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id)); const rebuilt: GameState = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: { ...initial.settings, ...saved.settings }, inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: { ...initial.camp, ...saved.camp, hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp) }, perfectItems: (Array.isArray(saved.perfectItems) ? saved.perfectItems : []).map((itemId: number) => Math.floor(Number(itemId) || -1)).filter((itemId: number) => itemId >= 0 && !!items[itemId]),
+achievements: achievements.map((_, index) => (saved.achievements?.[index] ? 1 : 0)), notices: unlockNotices.map((_, index) => (saved.notices?.[index] ? 1 : 0)), devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)), ...readResearchState(saved), autoEat: readAutoEat(saved), log: [] };
+  /* 区域 / 敌人这类字段存的是配置表下标，配置删项后可能指向不存在的位置，进来先对齐一次。 */
+  if (!zones[rebuilt.adventure.zoneId]) rebuilt.adventure.zoneId = CAMP_ZONE_ID;
+  if (isCampZone(rebuilt.adventure.zoneId)) rebuilt.adventure.running = false;
+  if (!Number.isFinite(rebuilt.adventure.spawnTimer)) rebuilt.adventure.spawnTimer = 0;
+  if (rebuilt.adventure.spawnTimer <= 0 && (!enemyTable[rebuilt.adventure.enemyId] || !rebuilt.adventure.enemyHp)) prepareEnemy(rebuilt);
+  return rebuilt;
+}
+
+/** 解析一份存档数据：解信封 → 按存档自己的版本跑迁移 → 校验重建。
+    localStorage 读盘与「从文本 / 文件导入」都走这里，两条路共用同一套兜底规则。 */
+function parseSave(raw: unknown): GameState {
+  const unwrapped = unwrapSave(raw);
+  if (!unwrapped) return freshState();
+  let data = unwrapped.data;
+  for (let from = unwrapped.version; from < SAVE_VERSION; from += 1) {
+    const migrate = MIGRATIONS[from];
+    if (migrate) data = migrate(data);
+  }
+  return rebuildState(data);
+}
+
+/** 从任意来源读出一个存档载荷与它的版本号；读不出来（不是存档）时返回 null。三种输入都认：
+    1) 编码后的存档文本（当前格式，带 SAVE_PREFIX）；
+    2) 明文信封对象（v7 的中间格式 —— 那时 state 还是明文 JSON，没有编码层）；
+    3) 裸 GameState（v6 及更早 —— 那时版本号在 localStorage 的 key 名里）。 */
+function unwrapSave(raw: unknown): { version: number; data: any } | null {
+  if (typeof raw === 'string') {
+    const envelope = decodeEnvelope(raw);
+    if (!envelope || !envelope.state || typeof envelope.state !== 'object') return null;
+    return { version: Math.floor(Number(envelope.version)) || SAVE_VERSION, data: envelope.state };
+  }
+  if (!raw || typeof raw !== 'object') return null;
+  const envelope = raw as Partial<SaveEnvelope>;
+  if (envelope.format === SAVE_FORMAT) {
+    if (!envelope.state || typeof envelope.state !== 'object') return null;
+    return { version: Math.floor(Number(envelope.version)) || SAVE_VERSION, data: envelope.state };
+  }
+  return isRawState(raw) ? { version: SAVE_VERSION - 1, data: raw } : null;
+}
+
+/** 粗判「这是不是一个 GameState」：只看两个每个版本都一定有的字段。
+    导入时要靠它把无关的 JSON 挡在外面 —— parseSave 对任何输入都会「成功」（补成初始存档），
+    没有这道判断，玩家贴一段无关文本会得到「导入成功但进度没了」。 */
+function isRawState(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const data = value as Record<string, unknown>;
+  return Array.isArray(data.inventory) && typeof data.gold === 'number';
+}
+
+/** 离线补偿：远征、后勤、营地各推进一段。上限 MAX_OFFLINE_SECONDS，超出部分不算。
+    不到 3 秒不值得记一条日志，但后勤与营地的进度照走。 */
+function applyOfflineProgress(target: GameState): void {
+  const seconds = Math.min(MAX_OFFLINE_SECONDS, Math.max(0, (Date.now() - target.lastTick) / 1000));
+  if (seconds < 1) return;
+  if (seconds >= 3) {
+    if (target.adventure.running) {
+      const before = target.totalWins;
+      advanceAdventure(target, seconds);
+      addLog(target, `你离开了 ${formatDuration(seconds)}。远征队完成了 ${formatNumber(target.totalWins - before)} 场战斗。`, 'system');
+    } else if (isCampZone(currentZoneId(target))) {
+      advanceAdventure(target, seconds);
+      addLog(target, `你离开了 ${formatDuration(seconds)}。远征队在营地休整。`, 'system');
+    }
+  }
+  advanceLogistics(target, seconds);
+  advanceCamp(target, seconds);
+}
+
+/** 读 localStorage 里的存档：先试新 key，再按顺序试历史 key（v7 之前版本号写在 key 名里）。
+    读到历史 key 就顺手搬一次家，下次启动不必再兜底。
+    存量值的格式有三种（见 unwrapSave），所以这里不假定它是 JSON：先按 JSON 试，失败就当文本。 */
+function readStoredSave(): unknown {
+  const current = localStorage.getItem(SAVE_KEY);
+  if (current) return parseStored(current);
+  for (const key of LEGACY_SAVE_KEYS) {
+    const legacy = localStorage.getItem(key);
+    if (!legacy) continue;
+    localStorage.setItem(SAVE_KEY, legacy);
+    localStorage.removeItem(key);
+    return parseStored(legacy);
+  }
+  return null;
+}
+
+/** localStorage 里的存量值可能是编码文本（当前格式）或 JSON（v7 中间格式与更早）。
+    先按 JSON 试，失败就当文本 —— 编码文本带 EMBER7. 前缀，JSON.parse 必然失败。 */
+function parseStored(raw: string): unknown {
+  try { return JSON.parse(raw); } catch { return raw; }
+}
+
+/** 启动时读盘。没有存档、或存档坏了，都退回全新状态。 */
+function hydrate(): void {
+  try { state = parseSave(readStoredSave()); } catch { state = freshState(); }
+  applyOfflineProgress(state);
   state.lastTick = Date.now(); syncEquipSlots(state); syncLogistics(state); syncCamp(state); checkAchievements(state); checkUnlocks(state);
   /* 旧存档（或改过的存档）可能带着超过上限的负载：进来先压回上限。 */
-  trimInventoryOverflow(state); }
-function saveState(): void { state.lastTick = Date.now(); try { /* 战斗日志不写入存档：它占了全量 JSON 的绝大部分，而刷新后重建的成本极低。 */ const { log, ...persisted } = state; localStorage.setItem(SAVE_KEY, JSON.stringify(persisted)); } catch {} }
+  trimInventoryOverflow(state);
+}
+
+/** 序列化成信封。log 与 devOverrides 都不入档：
+    log 占了全量 JSON 的绝大部分、刷新后重建成本极低；
+    devOverrides 是开发者面板的临时覆盖值，带出去会让导入方的数值对不上。 */
+function serialize(): SaveEnvelope {
+  const { log, devOverrides, ...persisted } = state;
+  return { format: SAVE_FORMAT, version: SAVE_VERSION, savedAt: Date.now(), state: persisted };
+}
+
+function saveState(): void { state.lastTick = Date.now(); try { localStorage.setItem(SAVE_KEY, exportSaveText()); } catch {} }
+
+/* ——— 存档的导出与导入 ———
+   导出成一段文本（`EMBER7.` + Base64），存成文件下载，或复制到别处保存；
+   导入接受同一段文本，从文件读或直接粘贴都行。
+
+   导入走 parseSave，所以进来的数据和读盘一样会被逐字段校验 —— 改过的、截断的、
+   旧版本的备份都兜得住。 */
+
+/** 导出成存档文本。存成文件、复制粘贴、写进 localStorage 用的都是它，只有一条编码路径。 */
+export function exportSaveText(): string { return encodeEnvelope(serialize()); }
+
+/** JSON.parse 的静默版：解析失败返回 null，不抛。 */
+function safeParseJson(text: string): unknown {
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+/** 校验一段数据能不能当成本游戏的存档读。返回给玩家看的错误说明，null 表示通过。 */
+function validateSave(raw: unknown): string | null {
+  const unwrapped = unwrapSave(raw);
+  if (!unwrapped) return '这不是本游戏的存档。';
+  if (unwrapped.version > SAVE_VERSION) return `存档格式版本（v${unwrapped.version}）比当前游戏（v${SAVE_VERSION}）新，请先更新游戏再导入。`;
+  return null;
+}
+
+/** 从存档文本导入。成功返回 { ok: true }，失败返回原因 —— **失败时不动当前存档**。
+    会先弹一次确认：导入不可撤销。
+    导入不补偿离线（lastTick 直接对齐到当前时间）—— 否则「存一份备份、挂一周、再导入」
+    就成了刷进度的捷径，而导入本身是「恢复进度」，不是「继续挂机」。 */
+export function importSaveText(text: string): SaveIoResult {
+  const trimmed = text.trim();
+  if (!trimmed) return { ok: false, message: '存档文本是空的。' };
+  /* 存档文本是一整段 Base64（内部没有空白），粘贴时带进来的换行与空格先去掉。
+     另外也接受明文 JSON：v7 的中间格式就是它，手改过的备份可能长这样。 */
+  let raw: unknown = trimmed.startsWith('{') ? safeParseJson(trimmed) : trimmed.replace(/\s+/g, '');
+  if (raw === null) return { ok: false, message: '不是有效的存档文本。' };
+  const error = validateSave(raw);
+  if (error) return { ok: false, message: error };
+  if (!window.confirm('导入会覆盖当前进度，且无法撤销。确定继续吗？')) return { ok: false, message: '已取消导入。' };
+  state = parseSave(raw);
+  state.lastTick = Date.now();
+  addLog(state, '已从备份导入存档。', 'system');
+  saveState();
+  notify();
+  return { ok: true, message: '存档已导入。' };
+}
 
 /* 进入战斗区域立刻自动开战；进入营地这类非战斗区域则停下战斗、开始休整。 */
 export function selectZone(zoneId: number): void { const zone = zones[zoneId]; if (!zone || !isZoneUnlocked(zoneId)) return; state.adventure.zoneId = zoneId; state.adventure.playerAttackTimer = 0; state.adventure.enemyAttackTimer = 0; if (isCampZone(zoneId)) { state.adventure.running = false; state.adventure.spawnTimer = 0; addLog(state, `远征队回到${zoneTag(zoneId)}，开始休整。`, 'system'); } else { state.adventure.running = true; startSpawnCooldown(state); addLog(state, `远征队进入${zoneTag(zoneId)}，等待敌人出现。`, 'system'); } saveState(); notify(); }
@@ -827,14 +1094,15 @@ export function toggleAutoPush(): void { state.adventure.autoPush = !state.adven
 /** 由「分析异常电池」解锁（mainline 下标 2 完成后 mainlineIndex 变成 3）。 */
 export function isResearchUnlocked(target: GameState = state): boolean { return target.mainlineIndex >= RESEARCH_UNLOCK_INDEX; }
 /** 读档时把研究基地的字段规整成合法值：旧存档没有这些字段，越界的等级也要压回上限。 */
-function readResearchState(saved: any): { researchPoints: number; researchDifficulty: number; researchTask: ResearchTaskState; researchLevels: number[] } {
+function readResearchState(saved: any): { researchPoints: number; researchRefreshCount: number; researchTask: ResearchTaskState; researchLevels: number[] } {
   const task = saved?.researchTask;
   return {
     researchPoints: Math.max(0, Math.floor(Number(saved?.researchPoints) || 0)),
-    /* 需求区间调整过（90~110 → 20~40）：旧存档里的委托需求一并压回新区间，
+    /* 需求区间调整过两次（90~110 → 20~40 → 8~12）：旧存档里的委托需求一并压回新区间，
        不然老玩家会背着一份要交 100 个的委托。已攒的数量不浪费，压完可能立刻就能交。 */
-    researchTask: { itemId: Number.isFinite(task?.itemId) ? Math.floor(task.itemId) : -1, zoneId: Number.isFinite(task?.zoneId) ? Math.floor(task.zoneId) : -1, difficulty: Math.max(1, Math.floor(Number(task?.difficulty) || 1)), need: Math.min(RESEARCH.needMax, Math.max(0, Math.floor(Number(task?.need) || 0))) },
-    researchDifficulty: Math.max(1, Math.floor(Number(saved?.researchDifficulty) || 1)),
+    researchTask: { itemId: Number.isFinite(task?.itemId) ? Math.floor(task.itemId) : -1, zoneId: Number.isFinite(task?.zoneId) ? Math.floor(task.zoneId) : -1, need: Math.min(RESEARCH.needMax, Math.max(0, Math.floor(Number(task?.need) || 0))) },
+    /* 刷新次数是 v8 新增字段，旧存档没有，从 0 开始。 */
+    researchRefreshCount: Math.max(0, Math.floor(Number(saved?.researchRefreshCount) || 0)),
     researchLevels: researchItems.map((entry, id) => Math.min(entry.maxLevel, Math.max(0, Math.floor(Number(saved?.researchLevels?.[id]) || 0))))
   };
 }
@@ -847,42 +1115,29 @@ function readAutoEat(saved: any): AutoEatState {
     threshold: Math.max(AUTO_EAT.minThreshold, Math.min(AUTO_EAT.maxThreshold, threshold))
   };
 }
-/** 委托物品池：已解锁区域里的怪物会掉的、可堆叠的物品（装备一件一格，不适合当收集目标）。 */
-/** 委托候选：物品 + 它所在的区域（同一掉落物可能多个区域都掉，取最先出现的那个区域）。
-   只取「难度对应稀有度」的物品；那一档没有候选（例如还没解锁会掉它的区域）时，
-   退到稀有度最接近的一档，保证任何难度都发得出委托。 */
-function researchDropPool(target: GameState, difficulty: number): { itemId: number; zoneId: number }[] {
-  const pool = new Map<number, number>();
-  zones.forEach((zone, zoneId) => {
-    if (!zone.enemyIds.length || !isZoneUnlocked(zoneId, target)) return;
-    zone.enemyIds.forEach(enemyId => enemyTable[enemyId]?.dropTable?.forEach(drop => { if (items[drop.itemId]?.stackable && !pool.has(drop.itemId)) pool.set(drop.itemId, zoneId); }));
-  });
-  const all = [...pool].map(([itemId, zoneId]) => ({ itemId, zoneId }));
-  const wanted = researchDifficultyRarity(difficulty);
-  const ofRarity = (rarity: number): { itemId: number; zoneId: number }[] => all.filter(entry => items[entry.itemId].rarity === rarity);
-  for (let step = 0; step < rarities.length; step++) {
-    const lower = ofRarity(wanted - step);
-    if (lower.length) return lower;
-    const higher = ofRarity(wanted + step);
-    if (higher.length) return higher;
-  }
-  return all;
-}
-/** 需求数量的上限：被「任务难度降低」逐级压低，但不低于下限。 */
+/** 需求数量的上限：被「任务需求降低」逐级压低，但不低于下限。 */
 export function getResearchNeedMax(target: GameState = state): number { return Math.max(RESEARCH.needMin, RESEARCH.needMax - getResearchLevel(RESEARCH_ITEM.taskNeed, target)); }
+/** 可发布委托的区域：已解锁的战斗区域（营地这类没有任务物品的区域排除在外）。 */
+function researchZones(target: GameState): number[] {
+  return zones.map((zone, zoneId) => (zone.enemyIds.length && isZoneUnlocked(zoneId, target) && questItemOf(zoneId) >= 0 ? zoneId : -1)).filter(zoneId => zoneId >= 0);
+}
+/** 抽一份委托：随机挑一个已解锁区域，要它的任务物品。 */
 function rollResearchTask(target: GameState): ResearchTaskState {
-  const difficulty = getResearchDifficulty(target);
-  const pool = researchDropPool(target, difficulty);
-  if (!pool.length) return { itemId: -1, zoneId: -1, difficulty, need: 0 };
+  const pool = researchZones(target);
+  if (!pool.length) return { itemId: -1, zoneId: -1, need: 0 };
+  const zoneId = pool[Math.floor(Math.random() * pool.length)];
   const min = RESEARCH.needMin;
   const max = getResearchNeedMax(target);
-  const pick = pool[Math.floor(Math.random() * pool.length)];
-  return { itemId: pick.itemId, zoneId: pick.zoneId, difficulty, need: min + Math.floor(Math.random() * (max - min + 1)) };
+  return { itemId: questItemOf(zoneId), zoneId, need: min + Math.floor(Math.random() * (max - min + 1)) };
 }
-/** 当前委托：没有（或存档里的数据失效）就立刻发布一份。 */
+/** 当前委托：没有（或存档里的数据失效）就立刻发布一份。
+    校验里带「必须是这个区域的任务物品」—— 旧存档里的委托要的是普通掉落物，
+    版本更新后会被这一步换掉，玩家不会背着一份再也交不上的委托。 */
 export function getResearchTask(target: GameState = state): ResearchTaskState {
   const task = target.researchTask;
-  if (!task || !items[task.itemId] || !zones[task.zoneId] || !(task.need > 0)) target.researchTask = rollResearchTask(target);
+  const valid = !!task && task.need > 0 && task.zoneId >= 0 && task.itemId >= 0
+    && items[task.itemId]?.category === 'quest' && task.itemId === questItemOf(task.zoneId);
+  if (!valid) target.researchTask = rollResearchTask(target);
   return target.researchTask;
 }
 /** 已交数量（按 need 截断，避免进度条超过 100%）。 */
@@ -895,14 +1150,14 @@ export function canSubmitResearchTask(target: GameState = state): boolean {
 export function submitResearchTask(): void {
   if (!canSubmitResearchTask(state)) return;
   const task = getResearchTask(state);
+  /* 任务物品是普通可堆叠物品，直接扣数量。它不是金币 / 精华的镜像资源，不用同步那两个字段。 */
   state.inventory[task.itemId] -= task.need;
-  /* 金币 / 精华是与物品栏同步的镜像资源，扣物品时一起扣（见 discardItem）。 */
-  if (task.itemId === ITEM.scrap) state.scrap = Math.max(0, state.scrap - task.need);
-  if (task.itemId === ITEM.emberShard) state.essence = Math.max(0, state.essence - task.need);
-  const reward = getTaskReward(task, state);
+  const reward = getResearchReward(state);
   state.researchPoints += reward;
   addLog(state, `研究基地完成委托：交付 ${itemTag(task.itemId)} ×${task.need}，获得研究点数 ${reward}。`, 'progress');
   state.researchTask = rollResearchTask(state);
+  /* 交完委托，刷新计数归零 —— 递增费用是「反复挑单」的代价，不该跟着玩家一辈子。 */
+  state.researchRefreshCount = 0;
   saveState(); notify();
 }
 export function getResearchLevel(id: number, target: GameState = state): number {

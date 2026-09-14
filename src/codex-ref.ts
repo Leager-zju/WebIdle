@@ -105,15 +105,6 @@ export function pageRefMarkup(page: string, label: string): string {
   return `<button class="codex-ref codex-page" type="button" data-codex="page:${page}">${label}</button>`;
 }
 
-/** 掉落表的一行：物品引用 + 「概率 · 数量区间」。wiki 的怪物页用这一份格式。
-    discovered 为 false 时只给占位 —— 掉落逐条揭示，没拿到过的不剧透。
-    两种状态都带 status-dot：和主线条件一样，「有没有达成」一眼可辨。 */
-export function dropEntryMarkup(drop: { itemId: number; chance: number; min: number; max: number }, discovered: boolean): string {
-  if (!discovered) return '<li class="codex-drop-locked"><span class="status-dot pending"></span><span>??? 待发现</span></li>';
-  const item = items[drop.itemId];
-  return `<li class="${rarityClass(item.rarity)}"><span class="status-dot"></span>${itemRefMarkup(drop.itemId)}<span>${Math.round(drop.chance * 100)}% · ${drop.min}~${drop.max} 个</span></li>`;
-}
-
 /** 把纯文本里的图鉴标记渲染成引用。没有标记（或下标无效）时原样返回。 */
 export function renderCodexTags(text: string): string {
   if (!text || text.indexOf('[[') < 0) return text;

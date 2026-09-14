@@ -14,6 +14,26 @@
   --warm: #ffb86b;
   --red: #ff8e7b;
   --blue: #9ac8ff;
+  /* ——— 稀有度色板（下标即 rarity id，见 config/rarity.ts）———
+     一次备足 16 档：后续每加一个区域就往上取一档，不用再回来改这里。
+     目前只用到 0 / 1 / 2 / 15 四档（三个区域 + 任务物品）。
+     取色参考泰拉瑞亚：明度整体调高，保证在深色底上可读。 */
+  --rarity-0: #8c9a99;    /* 灰色 */
+  --rarity-1: #edf2ec;    /* 白色 */
+  --rarity-2: #9ac8ff;    /* 蓝色 */
+  --rarity-3: #8ee08e;    /* 绿色 */
+  --rarity-4: #ffb86b;    /* 橙色 */
+  --rarity-5: #ff9d9d;    /* 浅红 */
+  --rarity-6: #ff9ee8;    /* 粉红 */
+  --rarity-7: #d6a8ff;    /* 浅紫 */
+  --rarity-8: #b8f05c;    /* 青柠 */
+  --rarity-9: #ffe45c;    /* 黄色 */
+  --rarity-10: #7ce8e8;   /* 青色 */
+  --rarity-11: #ff7b7b;   /* 红色 */
+  --rarity-12: #b57bff;   /* 紫色 */
+  --rarity-13: #ffd75c;   /* 彩虹色（无渐变时的回落色）*/
+  --rarity-14: #ff7a45;   /* 火红色 */
+  --rarity-15: #ffc233;   /* 琥珀色 */
   /* 各页面共用的高度下限，JS 会按实际最高的一页继续上调 */
   --page-min-height: 620px;
 }
@@ -134,18 +154,8 @@ h3 { margin-bottom: 5px; font-size: 1rem; }
 /* 直接子选择器：引用内部的 <span> 不该被数值格的标签样式命中（同类问题见 .mini-stat > span）。 */
 .codex-stats > span { color: var(--muted); font: .62rem DM Mono, monospace; }
 .codex-stats b { font: 500 1rem DM Mono, monospace; }
-.codex-drops { margin-top: 16px; }
-.codex-drops ul { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
-.codex-drops li { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border: 1px solid var(--line-soft); background: var(--surface-2); font-size: .74rem; }
-/* 每行前面是 status-dot（已发现点亮 / 未发现灰），概率那一段靠右。 */
-.codex-drops li .status-dot { flex: 0 0 auto; width: 8px; height: 8px; box-shadow: none; }
-.codex-drops li .status-dot.pending { background: var(--line); }
-.codex-drops li span:last-child { margin-left: auto; color: var(--muted); font: .66rem DM Mono, monospace; }
-.codex-drops li { color: var(--rarity-color, inherit); }
-.codex-drops li.codex-drop-locked { color: var(--muted); }
 /* wiki 里的「是否达成」行：沿用主线条件那一套样式，只补一点与上下文之间的间距。 */
 .wiki-body .requirement { margin-top: 12px; }
-.wiki-body .requirement + .wiki-refs, .wiki-body .requirement + .codex-stats { margin-top: 10px; }
 /* 物品名字按稀有度着色（--rarity-color 由 .rarity-* 提供，没有稀有度类时继承原色）。 */
 .item-card .item-copy b { color: var(--rarity-color, inherit); }
 .field-label { display: grid; gap: 7px; color: var(--muted); font: .67rem DM Mono, monospace; }
@@ -276,9 +286,8 @@ select:focus { border-color: var(--accent); }
 .item-name { color: var(--rarity-color, var(--text)); }
 /* 研究点数用主色：和四种稀有度色都不撞，且是这份委托「能换到什么」的落点。 */
 .research-points { color: var(--accent); font-weight: 700; }
-.research-difficulty { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
-.difficulty-stepper { display: flex; align-items: center; gap: 6px; }
-.difficulty-value { min-width: 46px; color: var(--text); font: .72rem DM Mono, monospace; text-align: center; }
+/* 刷新按钮下面的一行说明：首次费用与递增规则。 */
+.research-refresh-hint { margin: 9px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.6; }
 .research-card { cursor: pointer; }
 .research-card:hover, .research-card:focus-visible { z-index: 7; }
 /* 0 级置灰、满级高亮都不用 opacity：opacity < 1 会给卡片建层叠上下文，悬停浮层会被后面的卡片盖住。 */
@@ -417,14 +426,40 @@ select:focus { border-color: var(--accent); }
 .event-prompt-count { margin: 0; padding: 8px 18px 0; color: var(--accent); font: .68rem DM Mono, monospace; }
 .event-prompt-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 18px 18px; }
 
-.inventory-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }.inventory-heading p { margin: 9px 0 0; color: var(--muted); font-size: .75rem; }.capacity-track { width: min(420px, 100%); height: 6px; margin-top: 12px; overflow: hidden; background: #0b1214; }.capacity-bar { height: 100%; background: var(--accent); transition: width .25s ease; }.inventory-empty { margin: 0; padding: 46px 20px; color: var(--muted); font: .72rem DM Mono, monospace; text-align: center; }.item-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }.item-card { position: relative; min-width: 0; padding: 16px; border: 1px solid var(--line-soft); background: var(--surface-2); }.item-grid .item-card { min-height: 170px; }.item-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 13px; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1.2rem; }.item-copy b { display: block; font-size: .85rem; }.item-type { display: block; margin-top: 4px; color: var(--muted); font: .62rem DM Mono, monospace; }.item-copy p { margin: 10px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }.item-quantity { position: absolute; right: 14px; top: 14px; color: var(--accent); font: .72rem DM Mono, monospace; }/* 稀有度配色：--rarity-color 供物品名字使用，边框只加在物品卡片上。 */
-.rarity-common { --rarity-color: var(--text); }
-.rarity-uncommon { --rarity-color: var(--blue); }
-.rarity-rare { --rarity-color: var(--warm); }
-.rarity-epic { --rarity-color: #d69dff; }
-.item-card.rarity-uncommon { border-color: rgba(154, 200, 255, .3); }
-.item-card.rarity-rare { border-color: rgba(255, 184, 107, .35); }
-.item-card.rarity-epic { border-color: rgba(214, 157, 255, .45); }.story-quote { margin: 17px 0 0; padding: 14px; border-left: 2px solid var(--warm); color: #d8dfd8; font-size: .81rem; line-height: 1.7; }.story-quote.large { padding: 22px; font-size: 1rem; }
+.inventory-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }.inventory-heading p { margin: 9px 0 0; color: var(--muted); font-size: .75rem; }.capacity-track { width: min(420px, 100%); height: 6px; margin-top: 12px; overflow: hidden; background: #0b1214; }.capacity-bar { height: 100%; background: var(--accent); transition: width .25s ease; }.inventory-empty { margin: 0; padding: 46px 20px; color: var(--muted); font: .72rem DM Mono, monospace; text-align: center; }.item-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }/* 卡片描边：border 1px + inset 阴影 7px = 视觉 8px。
+   不用 `border-width` —— 那会让卡片外廓变大，网格跟着抖（同 §7.10 的装备槽）。
+   --card-line 由稀有度类提供，边框与内阴影共用同一个颜色，改色时只改一处。 */
+.item-card { position: relative; min-width: 0; padding: 16px; border: 1px solid var(--card-line, var(--line-soft)); box-shadow: inset 0 0 0 7px var(--card-line, var(--line-soft)); background: var(--surface-2); }.item-grid .item-card { min-height: 170px; }.item-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 13px; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1.2rem; }.item-copy b { display: block; font-size: .85rem; }.item-type { display: block; margin-top: 4px; color: var(--muted); font: .62rem DM Mono, monospace; }.item-copy p { margin: 10px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }.item-quantity { position: absolute; right: 14px; top: 14px; color: var(--accent); font: .72rem DM Mono, monospace; }/* 稀有度配色：--rarity-color 供物品名字使用，边框只加在物品卡片上。 */
+/* 稀有度类：只提供 --rarity-color，实际着色交给各处的 `color: var(--rarity-color, …)`。
+   类名由 rarityClass() 生成，不要在别处手拼。 */
+.rarity-gray { --rarity-color: var(--rarity-0); }
+.rarity-white { --rarity-color: var(--rarity-1); }
+.rarity-blue { --rarity-color: var(--rarity-2); }
+.rarity-green { --rarity-color: var(--rarity-3); }
+.rarity-orange { --rarity-color: var(--rarity-4); }
+.rarity-lightRed { --rarity-color: var(--rarity-5); }
+.rarity-pink { --rarity-color: var(--rarity-6); }
+.rarity-lightPurple { --rarity-color: var(--rarity-7); }
+.rarity-lime { --rarity-color: var(--rarity-8); }
+.rarity-yellow { --rarity-color: var(--rarity-9); }
+.rarity-cyan { --rarity-color: var(--rarity-10); }
+.rarity-red { --rarity-color: var(--rarity-11); }
+.rarity-purple { --rarity-color: var(--rarity-12); }
+.rarity-rainbow { --rarity-color: var(--rarity-13); }
+.rarity-fireRed { --rarity-color: var(--rarity-14); }
+.rarity-amber { --rarity-color: var(--rarity-15); }
+/* 词条类别色：进攻红 / 生存绿 / 功能蓝（见 config/affixes.ts 的 affixCategoryClass）。
+   和稀有度是两条独立通道 —— 一件装备的名字按稀有度着色，它身上的词条按类别着色，
+   两者可能同时出现在一段文本里，所以变量名不共用。 */
+.affix-offense { --affix-color: var(--red); }
+.affix-survival { --affix-color: var(--rarity-3); }
+.affix-utility { --affix-color: var(--rarity-2); }
+/* 卡片边框跟着稀有度走：越靠后的档位边框越亮，扫一眼网格就能看出层级。 */
+/* 卡片描边从 --rarity-color 派生：混 30% 到透明，得到一条低饱和的彩色描边。
+   不手写 16 组 rgba —— 那要同步维护「文字色」和「描边色」两个变量，加档位时必然漏（踩过一次：
+   清洗剂改用火红色后描边掉回灰色，因为火红色那一档没手写 --card-line）。 */
+.item-card[class*="rarity-"] { --card-line: color-mix(in srgb, var(--rarity-color) 30%, transparent); }
+.story-quote { margin: 17px 0 0; padding: 14px; border-left: 2px solid var(--warm); color: #d8dfd8; font-size: .81rem; line-height: 1.7; }.story-quote.large { padding: 22px; font-size: 1rem; }
 .item-section { margin-top: 26px; }
 .settings-panel { padding: 22px; }
 .setting-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; }
@@ -473,6 +508,19 @@ select:focus { border-color: var(--accent); }
 .dev-modal-foot .segment { padding: 8px 16px; font-size: .76rem; }
 .setting-copy p { margin: 8px 0 0; color: var(--muted); font-size: .78rem; }
 .setting-copy b { color: var(--accent); }
+/* 存档操作：四个按钮排在文案右侧，窄屏时整行换下去。 */
+.setting-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 文本操作区：「导出为文本」与「从文本导入」共用这一块，按动作切换内容。 */
+.save-io { display: grid; gap: 10px; margin-top: 16px; }
+/* 必须显式写：.save-io 自己设了 display: grid，会盖掉 hidden 属性的 UA 默认样式。 */
+.save-io[hidden] { display: none; }
+.save-textarea { width: 100%; min-height: 132px; padding: 12px; border: 1px solid var(--line); outline: none; background: #0b1214; color: var(--text); font: .68rem/1.6 DM Mono, monospace; resize: vertical; word-break: break-all; }
+.save-textarea:focus { border-color: var(--accent); }
+.save-io-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.save-io-actions { display: flex; gap: 8px; margin-left: auto; }
+.save-feedback { min-height: 1em; color: var(--muted); font-size: .74rem; }
+.save-feedback.ok { color: var(--accent); }
+.save-feedback.error { color: var(--red); }
 .segmented { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--line); background: var(--surface-2); }
 .segment { padding: 10px 24px; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font-size: .82rem; }
 .segment:first-child { border-left: 0; }
@@ -540,7 +588,8 @@ select:focus { border-color: var(--accent); }
 .equip-stat-label { color: var(--muted); font: .68rem DM Mono, monospace; }
 .equip-stat-value { color: var(--accent); font: 500 .95rem DM Mono, monospace; }
 .equip-stat.empty .equip-stat-value { color: var(--muted); }
-.equip-stat-source { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 12px 7px 20px; color: var(--rarity-color, inherit); font-size: .72rem; }
+/* 这一行可能是装备（稀有度色）也可能是词条（类别色），两个通道都接住。 */
+.equip-stat-source { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 12px 7px 20px; color: var(--affix-color, var(--rarity-color, inherit)); font-size: .72rem; }
 .equip-stat-source + .equip-stat-source { border-top: 1px solid rgba(167, 214, 194, .08); }
 .equip-stat-source.empty { color: var(--muted); }
 .equip-stat-source b { font: 500 .72rem DM Mono, monospace; }
@@ -556,7 +605,9 @@ select:focus { border-color: var(--accent); }
 .item-grid .item-detail { text-align: left; min-width: 168px; }
 /* 物品储藏改成图标磁贴：正方形，卡面只有图标与数量（名称、稀有度、属性、词条都在悬停浮层里）。 */
 .storage-grid .item-card { aspect-ratio: 1 / 1; min-height: 0; display: grid; place-content: center; gap: 5px; padding: 8px; }
-.storage-grid .item-icon { width: 30px; height: 30px; margin: 0 auto; font-size: .95rem; }
+/* 图标框与里面的字形一起放大：只放大框会让字符缩在中间，只放大字形会撑破边框。
+   60px 的框放在约 152px 见方的卡片里，上下还能留出数量那行的位置。 */
+.storage-grid .item-icon { width: 60px; height: 60px; margin: 0 auto; font-size: 1.9rem; }
 .storage-grid .item-quantity { position: static; margin: 0; color: var(--accent); font: 500 .64rem DM Mono, monospace; text-align: center; }
 .item-detail-name { display: block; color: var(--rarity-color, var(--text)); font-size: .8rem; font-weight: 700; }
 .item-card { cursor: context-menu; }
@@ -565,11 +616,13 @@ select:focus { border-color: var(--accent); }
 .item-card.dragging { opacity: .4; cursor: grabbing; }
 .item-card:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 /* 已装备：边框加粗到视觉 2px。用内阴影而不是 border-width —— 后者会让卡片尺寸跳 1px，网格跟着抖。 */
-.item-card.equipped { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+/* 已装备的卡片描边再加粗一档：border 1px + inset 11px = 视觉 12px，比普通卡片（8px）明显一档。 */
+.item-card.equipped { --card-line: var(--accent); box-shadow: inset 0 0 0 11px var(--accent); }
 .item-equipped-tag { margin-left: 8px; color: var(--accent); font: .58rem DM Mono, monospace; }
 /* 词条名：列在装备名下方，用 · 分隔，颜色跟随词条品阶；装备槽上只标条数。 */
-.item-affix-names { margin-top: 4px; font-size: .6rem; line-height: 1.5; }
-.item-affix-name { color: var(--rarity-color, inherit); }
+/* 词条名：颜色跟类别，字重加粗 —— 它是「这条属性叫什么」，要和后面的数值区分开。
+   只在详细信息（statLine）里用，所以规则写在这里不会影响别处。 */
+.item-affix-name { color: var(--affix-color, inherit); font-weight: 700; }
 .item-affix-sep { margin: 0 4px; color: var(--muted); }
 /* 词条数值：当前值加粗，上限用灰字跟在斜杠后面。 */
 .affix-value { color: inherit; font-weight: 700; }
@@ -579,7 +632,7 @@ select:focus { border-color: var(--accent); }
    卡片和按钮自己带 cursor 规则，且 .item-card[draggable] 的优先级更高，所以要单独列出来压住。 */
 :root { --enhance-cursor: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Ccircle cx='13' cy='13' r='8' fill='none' stroke='%238bf5c9' stroke-width='2'/%3E%3Cpath d='M13 1v6M13 19v6M1 13h6M19 13h6' fill='none' stroke='%238bf5c9' stroke-width='2'/%3E%3C/svg%3E") 13 13, crosshair; }
 body.enhancing, body.enhancing *, body.enhancing .item-card[draggable="true"], body.enhancing .item-card.dragging { cursor: var(--enhance-cursor); }
-body.enhancing .item-card[data-instance]:not([data-instance="-1"]) { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(139, 245, 201, .45); }
+body.enhancing .item-card[data-instance]:not([data-instance="-1"]) { --card-line: var(--accent); box-shadow: inset 0 0 0 1px rgba(139, 245, 201, .45); }
 /* 装备槽也能当强化目标：只有装着东西的槽（.filled）可点，空槽不算目标。 */
 body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgba(139, 245, 201, .12); }
 .enhance-hint { position: fixed; left: 50%; bottom: 22px; z-index: 65; display: flex; align-items: center; gap: 9px; padding: 10px 15px; border: 1px solid var(--accent); background: #101a1d; box-shadow: 0 18px 40px rgba(0, 0, 0, .5); font-size: .74rem; transform: translateX(-50%); }
@@ -599,7 +652,7 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .affix-picker-list { display: grid; gap: 7px; padding: 0 18px 18px; }
 .affix-picker-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid var(--line-soft); background: var(--surface-2); text-align: left; }
 .affix-picker-option:hover { border-color: var(--accent); background: rgba(139, 245, 201, .08); }
-.affix-picker-name { color: var(--rarity-color, inherit); font-size: .82rem; font-weight: 700; }
+.affix-picker-name { color: var(--affix-color, inherit); font-size: .82rem; font-weight: 700; }
 .affix-picker-text { color: var(--muted); font: .7rem DM Mono, monospace; }
 .item-detail { z-index: 6; padding: 12px 13px; border: 1px solid var(--accent-dim); background: #101a1d; box-shadow: 0 16px 34px rgba(0, 0, 0, .4); opacity: 0; visibility: hidden; pointer-events: none; }
 .item-card:hover .item-detail, .item-card:focus-visible .item-detail { opacity: 1; visibility: visible; }
@@ -624,7 +677,7 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .item-refine { position: absolute; right: -4px; bottom: -4px; padding: 1px 4px; border: 1px solid var(--accent-dim); background: #0b1214; color: var(--accent); font: 700 .56rem DM Mono, monospace; }
 .item-refine.perfect { border-color: var(--warm); color: var(--warm); }
 /* 拖拽同名装备到卡片上做精炼时的目标高亮。 */
-.item-card.refine-target { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(139, 245, 201, .45); }
+.item-card.refine-target { --card-line: var(--accent); box-shadow: inset 0 0 0 1px rgba(139, 245, 201, .45); }
 /* ——— 图鉴引用：icon + 名称，颜色按条目类型，点击打开内置 wiki（见 codex-ref.ts） ———
    像超链接那样用虚线底边示意可点，hover / 聚焦时变实线并压一层淡底。
    颜色有两个通道，都挂在引用元素自身上，所以在任何容器里都能自己着色，
@@ -664,6 +717,14 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .wiki { width: min(680px, 100%); max-height: 84vh; overflow: auto; border: 1px solid var(--accent-dim); background: #131d21; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
 .wiki-head { display: flex; align-items: center; gap: 14px; padding: 18px 20px 15px; border-bottom: 1px solid var(--line-soft); }
 .wiki-head h3 { margin: 0; color: var(--codex-color, var(--rarity-color, var(--text))); }
+/* 物品名与【极致】徽章同一行。 */
+.wiki-name-row { display: flex; align-items: center; gap: 10px; }
+/* 已精炼到顶的物品，名字旁边挂一个方框徽章。
+   align-self: stretch 让框的高度贴着物品名的行高 —— 上下边框正好和物品名的上下沿齐平，
+   比写死 height 稳（物品名的行高会随根字号档位变）。
+   字号取 h4 档（h3 的物品名是 1rem，按标题层级小一档）。 */
+.wiki-perfect { align-self: stretch; display: grid; place-items: center; padding: 0 9px; border: 1px solid var(--warm); color: var(--warm); font: 500 .85rem DM Mono, monospace; }
+.wiki-perfect[hidden] { display: none; }
 .wiki-icon { flex: 0 0 auto; display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid var(--accent-dim); color: var(--codex-color, var(--rarity-color, var(--accent))); font-size: 1.35rem; }
 .wiki-close { flex: 0 0 auto; margin-left: auto; width: 28px; height: 28px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 1rem; line-height: 1; }
 .wiki-close:hover { border-color: var(--accent); color: var(--accent); }
@@ -675,13 +736,17 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .wiki-path-link:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 .wiki-path-sep { color: var(--muted); font: .72rem DM Mono, monospace; }
 .wiki-path-current { color: var(--text); font: .72rem DM Mono, monospace; }
-/* 正文：导语 / 补充说明 / 小节。 */
-.wiki-lead { margin: 0 0 16px; font-size: .8rem; line-height: 1.7; }
+/* 正文：条目描述 / 补充说明 / 小节。 */
+.wiki-desc { margin: 0 0 16px; font-size: .8rem; line-height: 1.7; }
 .wiki-note { margin: 0; color: var(--muted); font-size: .74rem; line-height: 1.7; }
 .wiki-section { margin-top: 18px; }
 .wiki-section-title { margin: 0 0 9px; color: var(--muted); font: .64rem DM Mono, monospace; letter-spacing: .08em; }
-/* 一排图鉴引用（掉落来源 / 出现区域 / 区域怪物）。 */
-.wiki-refs { display: flex; flex-wrap: wrap; gap: 10px; }
+/* 小节里「格子 → 说明文字」的间距（掉落区域、出现区域这类：先一格，后面跟一段补充）。 */
+.wiki-body .wiki-grid + .wiki-note { margin-top: 12px; }
+/* 未发现 / 未确认的条目占位格：和真格子同一套骨架，虚线边框 + 压暗，一眼看出是待揭示而不是内容。 */
+.wiki-cell-locked { border-style: dashed; color: var(--muted); }
+/* 占位格不是按钮，不该有可点的悬停反馈（它没有 data-codex，点了也没反应）。 */
+.wiki-cell-locked:hover, .wiki-cell-locked:focus-visible { border-color: var(--line-soft); background: var(--surface-2); }
 /* 列表页的格子：图标 + 名称，颜色跟着条目类型（--codex-color / --rarity-color）。 */
 .wiki-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 8px; }
 .wiki-cell { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 10px 11px; border: 1px solid var(--line-soft); background: var(--surface-2); color: var(--codex-color, var(--rarity-color, var(--text))); text-align: left; }

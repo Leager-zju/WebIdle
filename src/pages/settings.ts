@@ -1,4 +1,4 @@
-import { items, devStats, devGrantItem, devSetStat, devUnlockSystems, getState, getOwnedCount, fontScales, getFontScale, setFontScale, numberFormats, getNumberFormat, setNumberFormat, setNotify, formatNumberExact } from '../game-state';
+import { items, devStats, devGrantItem, devSetStat, devUnlockSystems, getState, getOwnedCount, fontScales, getFontScale, setFontScale, numberFormats, getNumberFormat, setNumberFormat, setNotify, formatNumberExact, exportSaveText, importSaveText } from '../game-state';
 import { rarityClass } from '../config/rarity';
 import { restartGuides } from '../guide';
 import { setText, setNumber, setClass, pick } from '../dom';
@@ -74,9 +74,98 @@ function devPanelMarkup(): string { return `<section class="dev-panel"><div clas
 function devPanelMount(view: HTMLElement): void { view.addEventListener('click', event => { const action = (event.target as Element).closest<HTMLElement>('[data-dev-action]'); if (!action) return; if (action.dataset.devAction === 'items') openDevModal(); else if (action.dataset.devAction === 'stats') openDevStatsModal(); else if (action.dataset.devAction === 'unlock') devUnlockSystems(); }); }
 function devPanelSync(): void { /* 悬浮窗开着时，里面的数值跟着刷新。 */ if (devModalEl && !devModalEl.hidden) syncDevModal(); syncDevStatsModal(); }
 
-const page: PageDefinition<any> = { id: 'settings', template: './pages/settings.html', mount(root) { const view = root.querySelector<HTMLElement>('#settings-view')!; let devMarkup = ''; if (__DEV_TOOLS__) devMarkup = devPanelMarkup(); view.innerHTML = `<div class="setting-row"><div class="setting-copy"><span class="panel-kicker">FONT SIZE</span><h3>字体大小</h3><span data-ref="current" class="muted"></span></div><div class="segmented" data-ref="group">${fontScales.map((option, id) => `<button class="segment" type="button" data-scale="${id}">${option.label}</button>`).join('')}</div></div><div class="setting-row"><div class="setting-copy"><span class="panel-kicker">NUMBER FORMAT</span><h3>数字显示方式</h3><span data-ref="numberCurrent" class="muted"></span></div><div class="segmented" data-ref="numberGroup">${numberFormats.map(option => `<button class="segment" type="button" data-number-format="${option.id}">${option.label}</button>`).join('')}</div></div><div class="setting-row"><div class="setting-copy"><span class="panel-kicker">NOTIFICATION</span><h3>事件弹窗提醒</h3><span class="muted">随机事件触发时是否弹出提醒。关掉后仍可在营地页响应，超时（30 秒）一律跳过。</span></div><div class="segmented" data-ref="notifyGroup"><button class="segment" type="button" data-notify="1">开</button><button class="segment" type="button" data-notify="0">关</button></div></div><div class="setting-row"><div class="setting-copy"><span class="panel-kicker">GUIDE</span><h3>新手指引</h3><p>重新看一遍从主界面开始的面板介绍；已经解锁的系统引导也会一并重置。</p></div><button class="secondary-button" type="button" data-ref="guideReset">重置新手指引</button></div><div class="setting-row"><div class="setting-copy"><span class="panel-kicker">DANGER ZONE</span><h3>重置存档</h3><p>清空当前远征进度，从一簇微弱的火星重新开始。</p></div><button class="secondary-button danger" type="button" data-action="reset">重置存档</button></div>${devMarkup}`; const refs = pick(view, 'current', 'group', 'numberCurrent', 'numberGroup', 'notifyGroup', 'guideReset'); refs.group!.addEventListener('click', event => { const button = (event.target as Element).closest<HTMLButtonElement>('[data-scale]'); if (button) setFontScale(Number(button.dataset.scale)); });
+/* ——— 存档的导入导出 ———
+   四个按钮共用一个操作区：导出为文本 / 从文本导入在 textarea 里贴文本，
+   导出为文件 / 从文件导入走浏览器的下载与文件选择。两条通道的数据完全一样，
+   区别只在「怎么搬」—— 换设备时文件更省事，手机上复制粘贴更方便。
+   反馈写在操作区那一行文字上，不另做 toast —— 设置页本身不长，一行提示足够醒目。 */
+
+/** 文件名里的时间戳，用本地时间（toISOString 是 UTC，会给出一份名字差几小时的备份）。 */
+function timestampName(): string {
+  const now = new Date();
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+}
+
+function mountSaveIo(view: HTMLElement): void {
+  const io = view.querySelector<HTMLElement>('[data-ref="saveIo"]')!;
+  const textarea = view.querySelector<HTMLTextAreaElement>('[data-ref="saveText"]')!;
+  const feedbackEl = view.querySelector<HTMLElement>('[data-ref="saveFeedback"]')!;
+  const fileInput = view.querySelector<HTMLInputElement>('[data-ref="saveFile"]')!;
+  const copyButton = view.querySelector<HTMLButtonElement>('[data-save-action="copy"]')!;
+  const confirmButton = view.querySelector<HTMLButtonElement>('[data-save-action="confirm-import"]')!;
+
+  const feedback = (message: string, ok: boolean): void => {
+    feedbackEl.textContent = message;
+    setClass(feedbackEl, 'ok', ok);
+    setClass(feedbackEl, 'error', !ok);
+  };
+  const showExportText = (): void => {
+    io.hidden = false;
+    textarea.readOnly = true;
+    textarea.value = exportSaveText();
+    /* 顺手全选：玩家按 Ctrl+C 就能拿走，不用自己拖选一大段。 */
+    textarea.select();
+    copyButton.hidden = false;
+    confirmButton.hidden = true;
+    feedback(`已生成存档文本（${textarea.value.length} 字符）。`, true);
+  };
+  const showImportText = (): void => {
+    io.hidden = false;
+    textarea.readOnly = false;
+    textarea.value = '';
+    copyButton.hidden = true;
+    confirmButton.hidden = false;
+    feedback('把备份文本粘贴到上面，然后点「确认导入」。', true);
+    textarea.focus();
+  };
+  const runImport = (text: string): void => {
+    const result = importSaveText(text);
+    feedback(result.message, result.ok);
+    if (result.ok) confirmButton.hidden = true;
+  };
+  const downloadSave = (): void => {
+    const text = exportSaveText();
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ember-expedition-${timestampName()}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+    feedback(`已下载存档文件（${text.length} 字符）。`, true);
+  };
+  const copySaveText = (): void => {
+    /* clipboard 只在 HTTPS / localhost 下可用。用局域网 IP 打开时 writeText 会失败，
+       这时退回「已选中，请手动复制」—— 不要静默失败，玩家会以为复制成功了。 */
+    const writing = navigator.clipboard?.writeText(textarea.value);
+    if (!writing) { textarea.select(); feedback('当前环境不支持自动复制，文本已选中，请按 Ctrl+C。', false); return; }
+    writing.then(() => feedback('已复制到剪贴板。', true), () => { textarea.select(); feedback('浏览器不允许自动复制，文本已选中，请按 Ctrl+C。', false); });
+  };
+
+  view.addEventListener('click', event => {
+    const button = (event.target as Element).closest<HTMLElement>('[data-save-action]');
+    if (!button) return;
+    switch (button.dataset.saveAction) {
+      case 'export-text': showExportText(); break;
+      case 'export-file': downloadSave(); break;
+      case 'import-text': showImportText(); break;
+      case 'import-file': fileInput.click(); break;
+      case 'copy': copySaveText(); break;
+      case 'confirm-import': runImport(textarea.value); break;
+    }
+  });
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    /* 读完立刻清空 input：否则连续选同一个文件不会再触发 change。 */
+    fileInput.value = '';
+    if (!file) return;
+    file.text().then(runImport, () => feedback('文件读取失败。', false));
+  });
+}
+
+const page: PageDefinition<any> = { id: 'settings', template: './pages/settings.html', mount(root) { const view = root.querySelector<HTMLElement>('#settings-view')!; let devMarkup = ''; if (__DEV_TOOLS__) devMarkup = devPanelMarkup(); view.innerHTML = `<div class="setting-row"><div class="setting-copy"><span class="panel-kicker">FONT SIZE</span><h3>字体大小</h3><span data-ref="current" class="muted"></span></div><div class="segmented" data-ref="group">${fontScales.map((option, id) => `<button class="segment" type="button" data-scale="${id}">${option.label}</button>`).join('')}</div></div><div class="setting-row"><div class="setting-copy"><span class="panel-kicker">NUMBER FORMAT</span><h3>数字显示方式</h3><span data-ref="numberCurrent" class="muted"></span></div><div class="segmented" data-ref="numberGroup">${numberFormats.map(option => `<button class="segment" type="button" data-number-format="${option.id}">${option.label}</button>`).join('')}</div></div><div class="setting-row"><div class="setting-copy"><span class="panel-kicker">NOTIFICATION</span><h3>事件弹窗提醒</h3><span class="muted">随机事件触发时是否弹出提醒。关掉后仍可在营地页响应，超时（30 秒）一律跳过。</span></div><div class="segmented" data-ref="notifyGroup"><button class="segment" type="button" data-notify="1">开</button><button class="segment" type="button" data-notify="0">关</button></div></div><div class="setting-row"><div class="setting-copy"><span class="panel-kicker">GUIDE</span><h3>新手指引</h3><p>重新看一遍从主界面开始的面板介绍；已经解锁的系统引导也会一并重置。</p></div><button class="secondary-button" type="button" data-ref="guideReset">重置新手指引</button></div><div class="setting-row"><div class="setting-copy"><span class="panel-kicker">SAVE</span><h3>存档操作</h3><p>导出备份或从备份恢复。文件与文本是同一份数据，哪种方便用哪种。导出内容不含战斗日志。<br><b>重置存档</b>会清空当前远征进度，从一簇微弱的火星重新开始，无法撤销。</p></div><div class="setting-actions"><button class="secondary-button" type="button" data-save-action="export-text">导出为文本</button><button class="secondary-button" type="button" data-save-action="export-file">导出为文件</button><button class="secondary-button" type="button" data-save-action="import-text">从文本导入</button><button class="secondary-button" type="button" data-save-action="import-file">从文件导入</button><button class="secondary-button danger" type="button" data-action="reset">重置存档</button></div></div><div class="save-io" data-ref="saveIo" hidden><textarea class="save-textarea" data-ref="saveText" spellcheck="false" aria-label="存档文本"></textarea><div class="save-io-foot"><span class="save-feedback" data-ref="saveFeedback" role="status"></span><div class="save-io-actions"><button class="secondary-button" type="button" data-save-action="copy" hidden>复制</button><button class="secondary-button" type="button" data-save-action="confirm-import" hidden>确认导入</button></div></div></div><input type="file" data-ref="saveFile" accept=".txt,.json,text/plain,application/json" hidden>${devMarkup}`; const refs = pick(view, 'current', 'group', 'numberCurrent', 'numberGroup', 'notifyGroup', 'guideReset'); refs.group!.addEventListener('click', event => { const button = (event.target as Element).closest<HTMLButtonElement>('[data-scale]'); if (button) setFontScale(Number(button.dataset.scale)); });
 refs.numberGroup!.addEventListener('click', event => { const button = (event.target as Element).closest<HTMLButtonElement>('[data-number-format]'); if (button) setNumberFormat(Number(button.dataset.numberFormat)); }); refs.notifyGroup!.addEventListener('click', event => { const button = (event.target as Element).closest<HTMLButtonElement>('[data-notify]'); if (button) setNotify(button.dataset.notify === '1'); }); /* 重置指引会顺手切回主界面，所以点完就离开这一页了。 */
-refs.guideReset!.addEventListener('click', () => restartGuides()); const ctx: any = { current: refs.current, buttons: [...refs.group!.querySelectorAll<HTMLButtonElement>('[data-scale]')], notifyButtons: [...refs.notifyGroup!.querySelectorAll<HTMLButtonElement>('[data-notify]')], numberCurrent: refs.numberCurrent, numberButtons: [...refs.numberGroup!.querySelectorAll<HTMLButtonElement>('[data-number-format]')] }; if (__DEV_TOOLS__) devPanelMount(view); return ctx; }, update(state: GameState, ctx: any) { ctx.buttons.forEach((button: HTMLButtonElement) => setClass(button, 'active', Number(button.dataset.scale) === state.settings.fontScale)); ctx.notifyButtons.forEach((button: HTMLButtonElement) => setClass(button, 'active', (button.dataset.notify === '1') === !!state.settings.notify)); setText(ctx.current, `当前：${getFontScale(state).label}`);
+refs.guideReset!.addEventListener('click', () => restartGuides()); const ctx: any = { current: refs.current, buttons: [...refs.group!.querySelectorAll<HTMLButtonElement>('[data-scale]')], notifyButtons: [...refs.notifyGroup!.querySelectorAll<HTMLButtonElement>('[data-notify]')], numberCurrent: refs.numberCurrent, numberButtons: [...refs.numberGroup!.querySelectorAll<HTMLButtonElement>('[data-number-format]')] }; mountSaveIo(view); if (__DEV_TOOLS__) devPanelMount(view); return ctx; }, update(state: GameState, ctx: any) { ctx.buttons.forEach((button: HTMLButtonElement) => setClass(button, 'active', Number(button.dataset.scale) === state.settings.fontScale)); ctx.notifyButtons.forEach((button: HTMLButtonElement) => setClass(button, 'active', (button.dataset.notify === '1') === !!state.settings.notify)); setText(ctx.current, `当前：${getFontScale(state).label}`);
     const format = getNumberFormat(state);
     ctx.numberButtons.forEach((button: HTMLButtonElement) => setClass(button, 'active', Number(button.dataset.numberFormat) === format.id));
     setText(ctx.numberCurrent, `当前：${format.label} —— ${format.hint}`); if (__DEV_TOOLS__) devPanelSync(); } };

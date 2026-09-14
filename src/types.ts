@@ -1,5 +1,6 @@
-export type ItemCategory = 'resource' | 'equipment' | 'consumable';
-/** 稀有度下标：0 普通 / 1 精良 / 2 稀有 / 3 史诗（顺序见 config/items.ts 的 RARITY_DEFS）。 */
+export type ItemCategory = 'resource' | 'equipment' | 'consumable' | 'quest';
+/** 稀有度下标（顺序见 config/rarity.ts 的 RARITY_DEFS）：**只影响物品名的显示颜色**，
+    不参与任何数值计算。目前用到 gray(0) / white(1) / blue(2) / amber(15) 四档。 */
 export type ItemRarity = number;
 export type LogType = 'battle' | 'drop' | 'progress' | 'system' | 'defeat';
 
@@ -29,7 +30,9 @@ export interface Item {
   equip?: { attack?: number; hp?: number; defense?: number };
   /** 使用行为。需要玩家点选目标的道具，在 instanceId 为 -1 时返回 pick-equipment。 */
   use?: UseHandler;
-  /** 卡片上「使用效果」那一行的文案，纯展示，不参与逻辑。 */
+  /** 卡片上「使用效果」那一行的文案，纯展示，不参与逻辑。
+      它是**拼进 HTML** 的（见 pages/inventory.ts 的 statLine），所以可以内嵌 span 给局部上色 ——
+      清洗剂就是靠这个把「进攻 / 生存 / 功能」按类别着色（见 config/items.ts 的 solventText）。 */
   useText?: string;
   /** 纯展示：这道具会给装备附加哪条词条（下标），用来在详情里列出首次 / 重复强化的效果。 */
   grantsAffix?: number;
@@ -43,7 +46,7 @@ export interface DropEntry { itemId: number; chance: number; min: number; max: n
 /** art 是战斗卡片与图鉴里用的单字图标。defense 减免玩家造成的伤害，缺省按 0 处理。 */
 export interface Enemy { art: string; name: string; description: string; maxHp: number; attack: number; defense?: number; attackInterval: number; gold: number; dropTable: DropEntry[]; }
 /** enemyIds 是敌人表下标。icon 是区域在界面上的图标（区域引用、图鉴里用）。 */
-export interface Zone { name: string; icon: string; description: string; enemyIds: number[]; /** 进入所需的主线进度：mainlineIndex 达到这个值才算解锁。 */ unlockIndex: number; /** 这个区域掉落的装备自带的精炼等级，缺省 0。越早的区域给得越高：早期装备靠喂太慢，直接送一档起步。 */ dropRefine?: number; }
+export interface Zone { name: string; icon: string; description: string; enemyIds: number[]; /** 进入所需的主线进度：mainlineIndex 达到这个值才算解锁。 */ unlockIndex: number; /** 这个区域掉落的装备自带的精炼等级，缺省 0。越早的区域给得越高：早期装备靠喂太慢，直接送一档起步。 */ dropRefine?: number; /** 这个区域的「任务物品」物品下标（研究基地的委托要它）。非战斗区域没有，缺省 -1。 */ questItem?: number; }
 export interface LogEntry { time: string; message: string; type: LogType; }
 /** zoneId / enemyId 都是各自表的下标。spawnTimer 是距离下一个敌人出现的剩余秒数，0 表示场上已有敌人。
     attackCount 是累计出手次数，词条赋予的技能按它决定第几次触发。 */
@@ -79,7 +82,7 @@ export interface CampBattleState { kind: number; id: number; name: string; icon:
 export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; /** 已经看过的新手指引 id（见 guide.ts 的 GUIDES）。 */ guides: string[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
   devOverrides: number[];
   /** 研究基地：研究点数、当前委托（itemId 为 -1 表示尚未发布）、各研究项等级。 */
-  researchPoints: number; /** 当前选择的委托难度（1 ~ 已解锁战斗区域数），只影响下一份委托。 */ researchDifficulty: number; researchTask: ResearchTaskState; researchLevels: number[]; /** 自动进食：研究项「自动进食」解锁后生效。 */ autoEat: AutoEatState; /** 曾经精炼到 100 级（【极致】）的物品下标。喂掉那件之后依然保留 —— 这是「达成过」的记录，不是持有状态。 */ perfectItems: number[]; }
+  researchPoints: number; /** 当前委托已经刷新过几次：刷新费用按它递增，交委托后归零。 */ researchRefreshCount: number; researchTask: ResearchTaskState; researchLevels: number[]; /** 自动进食：研究项「自动进食」解锁后生效。 */ autoEat: AutoEatState; /** 曾经精炼到 100 级（【极致】）的物品下标。喂掉那件之后依然保留 —— 这是「达成过」的记录，不是持有状态。 */ perfectItems: number[]; }
 /* ——— 道具的使用行为 ———
    use 是函数而不是数据：不同道具要做的事差别太大（回血、加词条、按品阶移除词条…），
    而且以后还要加更多「点击使用后选目标」的道具。配置表里的 use 只通过 UseContext 操作状态，
@@ -124,8 +127,10 @@ export interface AutoEatState {
     否则界面上不会带 icon 与类型色，也点不开图鉴。
     这份文案不进存档（每次由 text() 现算），所以直接用 markup；日志那种要进存档的文本才用 xxxTag 标记。 */
 export interface MainlineRequirement { text: (state: GameState) => string; done: (state: GameState) => boolean; }
-/** 研究基地发布的资源收集委托：要交 itemId 这种掉落物 need 个。 */
-export interface ResearchTaskState { itemId: number; /** 目标区域：委托要的物品在这里掉落。 */ zoneId: number; /** 发布时的难度：奖励倍率按它算，事后改难度不影响已接的委托。 */ difficulty: number; need: number; }
+/** 研究基地发布的收集委托：要交 zoneId 这个区域的**任务物品**（itemId）need 个。
+    任务物品由该区域所有怪物统一 10% 掉落，所以委托的诉求是「去那个区域刷」而不是「挑某只怪刷」。
+    itemId 为 -1 表示还没有委托。 */
+export interface ResearchTaskState { itemId: number; /** 目标区域：任务物品由这个区域的怪物掉落。 */ zoneId: number; need: number; }
 /** condition 由 requirements 推导（全部 done），两处条件不会写歪。 */
 export interface MainlineQuest { title: string; description: string; condition: (state: GameState) => boolean; reward: string; requirements: MainlineRequirement[]; }
 /** 成就：约定俗成的三段式——解锁条件（hint）+ 解锁后（reward）。

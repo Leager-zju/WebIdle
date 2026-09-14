@@ -364,20 +364,30 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | `--muted` | `#91a09f` | 次要文字 / 标签 / 禁用 / 未达成 |
 | `--accent` | `#8bf5c9` | 主色：玩家方 / 正向 / 可交互强调 / 成功 |
 | `--accent-dim` | `#235b4b` | 主色暗版：图标框、卡片边框 |
-| `--warm` | `#ffb86b` | 成本 / 倒计时 / 待响应 / 稀有度 rare |
+| `--warm` | `#ffb86b` | 成本 / 倒计时 / 待响应 / 【极致】 |
 | `--red` | `#ff8e7b` | 敌方 / 失败 / 材料不足 / 破坏性操作 |
-| `--blue` | `#9ac8ff` | 信息 / 战斗日志 / 稀有度 uncommon |
+| `--blue` | `#9ac8ff` | 信息 / 战斗日志 |
 
 ### 4.2 稀有度（`--rarity-color`，R17）
 
-| 类 | 名称 | 值 |
-| --- | --- | --- |
-| `.rarity-common` | 普通 | `--text` |
-| `.rarity-uncommon` | 精良 | `--blue` |
-| `.rarity-rare` | 稀有 | `--warm` |
-| `.rarity-epic` | 史诗 | `#d69dff` |
+**稀有度只影响物品名的显示颜色，不参与任何数值计算** —— 掉率在 `dropTable` 里写死、装备数值在 `equip` 里写死，稀有度不参与其中。它粗略体现「价值与获取难度」，参考泰拉瑞亚的做法。
 
-用法：元素写 `color: var(--rarity-color, inherit)`；类名用 `` `rarity-${rarities[item.rarity].className}` `` 拼。**必须着色**的元素：`.codex-ref-name`（图鉴引用，首选）、`.item-name`（散文里的裸物品名）、`.item-affix-name`、`.equip-slot-name`、`.equip-stat-source`、`.item-detail-name`。边框着色只加卡片（`.item-card.rarity-*`）。
+色板一次备足 **16 档**（`--rarity-0` ~ `--rarity-15`，见 `:root`），类名由 `rarityClass()` 从 `config/rarity.ts` 的 `className` 生成。**目前只用到 4 档**：
+
+| id | 类 | 名称 | 令牌 | 分配给 |
+| --- | --- | --- | --- | --- |
+| 0 | `.rarity-gray` | 灰色 | `--rarity-0` | 废弃边境 |
+| 1 | `.rarity-white` | 白色 | `--rarity-1` | 余烬矿脉 |
+| 2 | `.rarity-blue` | 蓝色 | `--rarity-2` | 核心深井 |
+| 15 | `.rarity-amber` | 琥珀色 | `--rarity-15` | 任务物品（跨区域，单独占最高档） |
+
+3~14 档（绿 / 橙 / 浅红 / 粉红 / 浅紫 / 青柠 / 黄 / 青 / 红 / 紫 / 彩虹 / 火红）是留给后续区域的空位，颜色已经在 `:root` 里备好 —— **加区域时往上取一档即可，不用回来改 CSS**。分配规则因此只有一条：**越后期能拿到的物品，档位越高**。
+
+用法：元素写 `color: var(--rarity-color, inherit)`；类名一律走 `rarityClass(rarity)`，不要手拼。**必须着色**的元素：`.codex-ref-name`（图鉴引用，首选）、`.item-name`（散文里的裸物品名）、`.equip-slot-name`、`.equip-stat-source`、`.item-detail-name`。边框着色只加卡片（`.item-card.rarity-*`）。
+
+⚠️ **`.item-affix-name` 不再走稀有度**：词条改用类别色（§4.6），通道是 `--affix-color`。
+
+**不显示稀有度的名字。** 物品卡片与 wiki 物品页都只给颜色，不写「灰色 / 白色 / 蓝色 / 琥珀色」这类文字 —— 颜色本身就是这个信息，再写一遍是冗余，而且把颜色名念出来反而让人分神去对照色板。稀有度名字（`rarities[].name`）现在**没有任何界面在用**，只在 `config/rarity.ts` 里作为档位的可读标识保留。
 
 怪物 / 区域没有稀有度，走另一条通道 `--codex-color`（`.codex-enemy` 红 / `.codex-zone` 主色 / `.codex-zone-camp` 暖色）。图鉴引用统一读 `var(--codex-color, var(--rarity-color, inherit))`，两条通道都能接住。
 
@@ -414,6 +424,18 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 面板阴影 | `0 18px 42px rgba(0,0,0,.14)` |
 | 浮层阴影 | `0 16px 34px rgba(0,0,0,.4)` ~ `0 24px 60px rgba(0,0,0,.55)` |
 | 过渡 | 交互 `.16s ease`；进度条 `.25s–.3s`；浮层 `opacity .14s` |
+
+### 4.6 词条类别色（`--affix-color`）
+
+词条按**类别**着色，和稀有度是两条独立通道 —— 一件装备的名字按稀有度着色，它身上的词条按类别着色，两者可能同时出现在一段文本里，所以变量名不共用。`.equip-stat-source` 同时读两条：`var(--affix-color, var(--rarity-color, inherit))`。
+
+| 类 | 类别 | 值 | 说明 |
+| --- | --- | --- | --- |
+| `.affix-offense` | 进攻 | `--red` | 直接提升输出：锋锐、余烬爆裂 |
+| `.affix-survival` | 生存 | `--rarity-3`（绿） | 提升承伤能力：坚韧、铁壁 |
+| `.affix-utility` | 功能 | `--rarity-2`（蓝） | 增益营地系统、不参与战斗：勤务 |
+
+类名由 `affixCategoryClass(category)` 生成，别手拼。**类别不只是颜色**：它还决定哪个清洗剂能洗掉这条词条（一类一瓶，见 §7.12 旁边的道具说明）。
 
 ---
 
@@ -573,7 +595,7 @@ addLog(state, `远征队进入${zoneTag(zoneId)}，…`);                     //
 | 物品 / 怪物 / 区域 / 事件名 | `itemRefMarkup` / `enemyRefMarkup` / `zoneRefMarkup` / `eventRefMarkup` | 拼 `item.name`、`enemy.art` |
 | 指代一整类内容 | `pageRefMarkup(page, label)` | 编一个不存在的条目引用 |
 | 取条目的 icon / 名称 / 颜色类 | `codexEntry(kind, id)` | 各处分别取 `items[id].icon` + 拼类名 |
-| 掉落表的一行 | `dropEntryMarkup(drop, discovered)` | 各页面自己拼「概率 · 数量」 |
+| 掉落表的一格 | `dropCellMarkup(drop, discovered)`（**wiki.ts 内部**，别处没有掉落表） | 各页面自己拼「概率 · 数量」 |
 | 稀有度 CSS 类名 | `rarityClass(rarity)` | `` `rarity-${rarities[x].className}` `` |
 | 怪物属于哪个区域 | `zoneOfEnemy(enemyId)` | `zones.find(...)` |
 | 秒数 / 速率 | `formatSeconds` / `formatPerSecond` | `toFixed(1) + ' 秒'` |
@@ -621,7 +643,7 @@ addLog(state, `远征队进入${zoneTag(zoneId)}，…`);                     //
 - 三种关闭方式：`×` 按钮、点遮罩、`Esc`（R12）。
 - 标题栏按条目的 icon / 名称 / 类型色渲染（kicker：`CODEX` / `CODEX / INDEX` / `CODEX / MONSTER` …）。
 - ⚠️ 类型色类**挂在 `.wiki-head` 上，不要挂在 `.wiki` 上**：挂在窗口上会顺着继承把列表格子的稀有度色压掉（`--codex-color` 优先于 `--rarity-color`）。
-- 列表页只列已解锁 / 已遭遇的内容（§6.11）；条目页的掉落沿用「逐条揭示」，未发现的不剧透。
+- 列表页**列全**：格子的数量是固定的，没见到 / 没解锁的换成 `lockedCellMarkup()` 占位（§6.11），不静默藏掉。条目页的掉落沿用「逐条揭示」，未发现的不剧透（`dropCellMarkup` / `dropSourceMarkup` 都只给占位格）。
 - 点击委托由 `startCodexWiki()` 在**捕获阶段**注册，并 `stopPropagation()` —— 点名字不该触发页面自己的 `root.onclick`。
 
 **事件条目（`src/config/events.ts`）**：名字 / 图标 / 描述 / 应对建议是静态的，放 config 里让 `codex-ref` 与 wiki 都能读；强度与奖励随存档现算，wiki 从 `getCampEventInfo()` 取。`campEventEntries` 的下标即事件条目 id，`campEventEntryId(kind, index)` 做反向查找。
@@ -657,7 +679,19 @@ function statusLine(text: string, done: boolean): string {
 }
 ```
 
-和主线条件（`story` 页的 `.requirement`）共用同一套样式与语义。凡是「已收录 / 已开放 / 已凑齐 / 已极致 / 已确认掉落」这类进度都用它，**不要自己拼文字或另造样式**。掉落表那种逐行列表（`.codex-drops li`）也带 `status-dot`：已发现点亮、未发现灰。
+和主线条件（`story` 页的 `.requirement`）共用同一套样式与语义。凡是「已穿 / 已极致」这类进度都用它，**不要自己拼文字或另造样式**。
+
+**wiki 内部一律用格子，不用行内引用。** `itemRefMarkup` / `enemyRefMarkup` / `zoneRefMarkup` / `codexRefMarkup` 那一套（`.codex-ref`，icon + 名字的行内文本链接）是给**页面正文**用的 —— 主线条件、研究委托、日志这些地方，名字夹在一句话中间，行内引用才合适。弹窗里则相反：条目一行行排开，格子（`wiki-cell`）比行内引用好扫得多，也能顺带挂角注（概率、`3 / 5`）。
+
+所以 `wiki.ts` 从 `codex-ref` 只导入 `codexEntry`（取数）和 `onWikiUnlockChange`（订阅），**不导入任何 `xxxRefMarkup`**。新增小节时用 `cellGridMarkup([entryCellMarkup(kind, id)])` 而不是 `refsMarkup([xxxRefMarkup(id)])`。
+
+**列表页不汇总进度。** 五个列表页（物品 / 套装 / 怪物 / 区域 / 事件）现在都只有格子本身，没有任何「已收录 N / M」式的汇总行。原因分两种：物品与套装的逐条角注已经写明进度（每套卡上的「3 / 5」），汇总行只是把同一份数据再算一遍；怪物与区域的格子数量本身就是进度，玩家数得出来。
+
+`statusLine` 现在只出现在**条目页的小节内部** —— 套装页的「凑齐效果 / 极致效果」，标的是这一条自己在某个维度上的完成度，和下面那段效果说明配对。那是有用的信息，不要跟着列表页的汇总行一起删掉。
+
+**物品条目页的「掉落来源」不用 `statusLine`**（`dropSourceMarkup()`）：一行汇总（「已在 N 种怪物身上确认到」）会把逐条揭示的信息压缩成一个数字，而玩家真正要的是「哪几只知道」。改成 **`wiki-cell` 格子**（`wiki-grid` + `entryCellMarkup('enemy', id)`，和列表页同一套骨架）—— 已经真的从它身上掉出来过的给可点格子，遭遇过但还没掉过的给 `lockedCellMarkup()` 占位，一条都没确认到时也留一个占位格而不是整段隐藏。边界仍是「已遭遇过的怪物」，没见过的怪不参与，不剧透还有几处来源。
+
+**占位一律走 `lockedCellMarkup()`**（wiki.ts）：骨架与真格子相同，只是虚线边框 + 压暗 + 不带 `data-codex`，所以点不开、也没有悬停反馈。用 `<span>` 而不是 `disabled` 的 `<button>` —— 它本来就不是能操作的东西，别让 Tab 键在格子里停一堆按不动的按钮。
 
 ### 6.12 解锁与渐进披露（R29 / R30）
 
@@ -694,8 +728,9 @@ if (ctx.signature !== signature) {
 | --- | --- | --- |
 | 导航栏按钮 | 置灰 + `❓未解锁` + `disabled` | 需求明确排除；导航要一直占位 |
 | 成就卡片 | `❓` 占位卡 | 需求明确排除；未解锁数量本身是收集目标 |
-| 未遭遇的怪物 | wiki 的怪物列表里不出现 | 这是「发现」不是「解锁」，由 `isEncountered` 过滤 |
-| 未发现的掉落 | `??? 待发现` | 同上 |
+| 未发现的物品 / 掉落 | `❓待发现` 占位格（`lockedCellMarkup`） | 条目位置固定，藏掉会让人以为「这一类就这些」；占位反而告诉玩家还有没见过的 |
+| 未遭遇的怪物 / 未开放的套装、区域 | 同上 | 列表页一律列全，只是把没见到的换成占位 |
+| 未确认的掉落来源 | 同上 | 边界是「已遭遇过的怪物」，只标这一条没确认，不剧透总数 |
 | 未完成的主线节点 | `未解锁记录` / `??? 待恢复` | 剧情进度，占位表达「还有内容」 |
 | 营地随机事件计时块 | `setHidden` | 单个元素，隐藏与不渲染等效 |
 
@@ -903,7 +938,7 @@ enemyAttack → 扣血 → 血归零则撤回营地（return）→ tryAutoEat
 
 **存档**
 
-`state.autoEat = { itemId, threshold }`，`readAutoEat` 负责校验：`itemId` 必须仍然是食物（否则归 -1），`threshold` 夹进 `AUTO_EAT.minThreshold ~ maxThreshold`。委托需求区间调整过（90~110 → 20~40），`readResearchState` 会把旧存档的 `need` 一并压回 `RESEARCH.needMax`。
+`state.autoEat = { itemId, threshold }`，`readAutoEat` 负责校验：`itemId` 必须仍然是食物（否则归 -1），`threshold` 夹进 `AUTO_EAT.minThreshold ~ maxThreshold`。委托需求区间调整过两次（90~110 → 20~40 → 8~12），`readResearchState` 会把旧存档的 `need` 一并压回 `RESEARCH.needMax`。
 
 ### 7.9 套装（`config/sets.ts`）
 
@@ -1002,17 +1037,31 @@ export function refineWithFeeder(instanceId: number, feederId: number): boolean;
 
 卡片、装备槽、悬停浮层三处的名字侧显示必须一致（都走 `refineMarkup`）。满级两处都用暖色标【极致】。拖拽时目标卡片加 `.refine-target` 高亮。
 
-**「已装备」的边框要用内阴影加粗**
+**卡片描边 = `border` + `inset` 阴影，视觉粗细是两者之和**
 
 ```css
-.item-card.equipped { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.item-card { border: 1px solid var(--card-line, var(--line-soft)); box-shadow: inset 0 0 0 7px var(--card-line, var(--line-soft)); }
+.item-card[class*="rarity-"] { --card-line: color-mix(in srgb, var(--rarity-color) 30%, transparent); }
+.item-card.equipped { --card-line: var(--accent); box-shadow: inset 0 0 0 11px var(--accent); }
 ```
 
-视觉 2px。**不要**用 `border-width: 2px` —— 那会让卡片尺寸跳 1px，网格跟着抖。装备槽的 `.filled` 同理。
+| 状态 | 视觉粗细 | 阴影层 |
+| --- | --- | --- |
+| 普通卡片 | 8px | `inset 0 0 0 7px var(--card-line)` |
+| 已装备 | 12px | `inset 0 0 0 11px var(--accent)` |
+| 强化可选目标 / 精炼目标 | 2px | `inset 0 0 0 1px rgba(139, 245, 201, .45)` |
+
+加粗只动阴影那一层，`border` 永远是 1px。
+
+⚠️ **`--card-line` 必须从 `--rarity-color` 派生，不要手写每一档。** 曾经给 4 个稀有度类手写了 `--card-line`，结果清洗剂改用火红色（第 15 档）时描边掉回灰色 —— 两个变量要同步维护，加档位时必然漏。现在用 `color-mix` 从文字色派生一条 30% 透明度的描边，一条规则覆盖全部 16 档。
+
+⚠️ **不要用 `border-width` 加粗** —— 那会让卡片外廓变大，网格跟着抖。装备槽的 `.filled` 同理（它也是 `border` + `inset 1px`）。
 
 **【极致】**
 
 精炼到 `REFINE_MAX`（100）称为【极致】。达成时把物品 id 记进 `state.perfectItems` —— 这是**「达成过」的记录而不是持有状态**，把那件装备当素材喂掉之后依然保留，wiki 与套装奖励都看它。
+
+wiki 的物品条目页**不单开「极致」小节**：那只是一个是 / 否状态，占一节会把「掉落来源」这类真正有信息量的内容挤下去。改成物品名旁边的一个方框徽章（`.wiki-perfect`，`render()` 里按 `isPerfectItem(current.id)` 开关），标记常驻 DOM、靠 `hidden` 属性切换。徽章用 `align-self: stretch` 让上下边框贴着物品名的行高，比写死 `height` 稳 —— 物品名的行高会随根字号档位变。
 
 **套装【极致】奖励**
 
@@ -1031,6 +1080,116 @@ export function refineWithFeeder(instanceId: number, feederId: number): boolean;
 | 核心深井 | **1** |
 
 越早的区域给得越高 —— 早期装备靠一件件喂太慢，直接送一档起步；后期区域基本靠自己喂，所以只给 +1。新增区域不写就是 0。取值走 `zoneDropRefine(enemyId)`（按怪物反查区域），发放点是 `grantDrops` 与 `grantSetDrop`。
+
+### 7.11 存档格式与导入导出（`game-state.ts` + `pages/settings.ts`）
+
+**存档 = 编码后的信封 + `GameState`。** `localStorage` 里存的、导出成文本 / 文件的，都是同一段编码文本，只有一条格式定义。
+
+信封本身是四个字段：
+
+```json
+{ "format": "ember-expedition", "version": 7, "savedAt": 1757836800000, "state": { /* GameState */ } }
+```
+
+- `format` —— 解码后判断「这是不是本游戏的存档」。**没有它就没法拒绝一段无关的文本**。
+- `version` —— 比当前新就拒绝（提示先更新游戏），比当前旧就交给迁移表升级。
+- `savedAt` —— 备份时间，也用来生成文件名。
+
+**编码层（`encodeEnvelope` / `decodeEnvelope`）**：`JSON → UTF-8 字节 → 逐字节异或 → Base64 → 加 `EMBER7.` 前缀`。前缀用来一眼认出「这段文本是不是本游戏的存档」，不必先尝试解码；`7` 只是给人看的，解析时不读它。
+
+⚠️ **这不是加密，是混淆。** 密钥（`XOR_KEY`）就在产物里，会看代码的人都能还原。它的作用只是让存档「看起来不是能直接改的文本」，挡住随手改数值的念头。单机游戏里真正的防作弊做不到 —— 密钥必然在客户端 —— 所以不往那个方向投入，也不要把 `XOR_KEY` 当成安全边界。
+
+两个实现细节：走 `TextEncoder` / `TextDecoder` 而不是直接 `btoa(json)`，因为 `btoa` 只吃 Latin-1，存档里一旦出现非 ASCII 字符就会炸；逐字节拼 `binary` 而不是 `String.fromCharCode(...bytes)`，因为存档上千字节，展开成参数会爆栈。
+
+代价是体积约 **1.35x**（Base64 的固有开销，异或不改变长度）。几 KB 的存档多出几百字节，可以接受。
+
+`log` 与 `devOverrides` **都不入档**（见 `serialize()`）：`log` 占了全量 JSON 的绝大部分、刷新后重建成本极低；`devOverrides` 是开发者面板的临时覆盖值，带出去会让导入方的数值对不上。
+
+**版本规则（改动 `GameState` 时按这里走）**
+
+| 改动 | `SAVE_VERSION` | `MIGRATIONS` |
+| --- | --- | --- |
+| **新增字段** | 不动 | 不用加。`rebuildState` 以 `freshState()` 为底再覆盖（`{ ...initial, ...data }`），新字段自动拿到初始值 |
+| **改动已有字段**（改名 / 拆字段 / 换类型 / 枚举重排） | **+1** | 补一条「从旧版本升到新版本」的转换 |
+| **删除字段** | +1 | 可不写 —— `rebuildState` 会忽略多余字段 |
+
+这是「可扩展 + 旧档永远能读」的全部机制，两点都要守住：
+
+- **`parseSave()` 是唯一的解析入口**：解信封 → 按存档自己的版本依次跑 `MIGRATIONS` 升到当前版本 → `rebuildState()` 逐字段校验。读盘（`hydrate`）与导入（`importSaveText`）走的是同一条路，所以手改过的文件、旧版本的备份都能被同一套规则兜住。
+- **迁移项只做结构转换，不补默认值** —— 补默认值是 `rebuildState` 的活，两处都做会互相打架。
+
+**旧存档兼容**：`unwrapSave()` 认三种输入，这是「换格式不丢档」的全部保障：
+
+| 输入 | 来源 | 处理 |
+| --- | --- | --- |
+| 编码文本（带 `SAVE_PREFIX`） | 当前格式 | 解码 → 取信封 |
+| 明文信封对象（有 `format` 字段） | v7 的中间格式（当时 `state` 还是明文 JSON） | 直接用 |
+| 裸 `GameState` | v6 及更早（版本号在 localStorage 的 key 名里） | 按 `SAVE_VERSION - 1` 处理 |
+
+`readStoredSave()` 读不到新 key 时按 `LEGACY_SAVE_KEYS`（`ember-expedition-save-v6`）顺序兜底并**顺手搬到新 key**；`parseStored()` 对存量值先按 JSON 试、失败就当文本，所以 key 换了、格式换了都不会丢档。
+
+**API**
+
+| 入口 | 说明 |
+| --- | --- |
+| `exportSaveText()` | 返回编码后的存档文本。存成文件、复制粘贴、写进 localStorage 用的都是它，**只有一条编码路径** |
+| `importSaveText(text)` | 返回 `SaveIoResult`（`{ ok, message }`）。失败时**不动当前存档**；成功前弹一次 `window.confirm` |
+| `SaveIoResult` | `message` 直接就是给玩家看的一行话，UI 层不要再翻译一遍 |
+
+`importSaveText` 会先 `trim()` 并去掉所有空白（存档文本是一整段 Base64，内部没有空白，但粘贴时容易带进换行）；开头是 `{` 时按明文 JSON 解析，兼容 v7 中间格式的备份。
+
+**导入不补偿离线。** `importSaveText` 把 `lastTick` 直接对齐到当前时间，不走 `applyOfflineProgress` —— 否则「存一份备份、挂一周、再导入」就成了刷进度的捷径。导入的语义是「恢复进度」，不是「继续挂机」。
+
+**导入必须先校验、后落盘。** `parseSave()` 对**任何**输入都会「成功」（无关 JSON 会被补成一份初始存档），所以 `validateSave()` 要先挡一道：解不出信封 → 「这不是本游戏的存档」；`version` 比当前新 → 「请先更新游戏」。没有这道判断，导入一个无关的 JSON 文件会得到「导入成功但进度没了」。
+
+**四条通道，两种搬法**（`mountSaveIo()`）：导出为文本 / 从文本导入在 `textarea` 里贴文本，导出为文件 / 从文件导入走 `Blob` + 隐藏的 `<a download>` 与隐藏的 `input[type=file]`。两条通道的数据**完全一样**，区别只在「怎么搬」—— 换设备时文件更省事，手机上复制粘贴更方便。文本通道之所以成立，正是因为内容已经编码（见上）：一串 Base64 适合复制粘贴，明文 JSON 反而更适合存文件用编辑器看。
+
+反馈写在按钮下面那一行文字上（`.save-feedback` + `.ok` / `.error`），不另做 toast。
+
+### 7.12 词条与清洗剂（`config/affixes.ts` + `config/items.ts`）
+
+**词条按类别划分，清洗剂按类别移除**。类别在 `AFFIX_CATEGORY` 里定义（`offense` / `survival` / `utility`），它同时决定两件事：词条名的颜色（§4.6），以及**哪个清洗剂能洗掉它**。
+
+**清洗剂的效果文案带局部着色**：`useText` 是拼进 HTML 的（`statLine`），所以文案里可以内嵌 `<span class="affix-offense">` 之类把类别名染成对应的颜色 —— 「移除一条【<span>进攻</span>】词条」。文案由 `config/items.ts` 的 `solventText(category)` 统一生成，不要在物品表里手拼类名。
+
+**词条名在详细信息里加粗**（`.item-affix-name { font-weight: 700 }`）：它是「这条属性叫什么」，要和后面的数值区分开。这个类只在 `statLine` 里用，所以规则不会外溢。
+
+**词条带一句白话描述**（`AFFIX_DEFS[].desc`）：强化道具的详情里显示成「附加词条：锋锐 - 增加一定攻击力」，wiki 的「附加词条」小节也用它。**描述只讲作用方向、不写数值** —— 数值归下面三行「首次 / 重复 / 最高」管，两处都写会出现改了一处忘另一处的情况。改词条的实际效果时，`desc` 和 `summary` 要一起核对。
+
+| 类别 | 现有词条 | 强化道具 | 清洗剂 |
+| --- | --- | --- | --- |
+| 进攻 | 锋锐（攻击力 %）、余烬爆裂（技能） | 锐化油、余烬核心 | 卸刃剂 |
+| 生存 | 坚韧（生命上限 %）、铁壁（防御） | 生命之种、铁壁涂层 | 祛壳剂 |
+| 功能 | 勤务（工坊工时 %） | 勤务手册 | 解构剂 |
+
+**功能类不参与战斗**，只增益营地系统 —— 「勤务」加的是 `workshopRate`（每人每秒的工坊工时），在 `advanceLogistics` 里生效，不进任何战斗公式。后续这类「增益其他系统」的词条（研究速度、掉落加成…）都往这个类别加。
+
+`removeAffixHandler(category)` 按类别筛词条；同类有多条时返回 `pick-affix`，由 `pages/inventory.ts` 的词条选择窗口让玩家选。
+
+**清洗剂走独立的掉落通道**（`config/zones.ts` 的 `SOLVENT_DROP_CHANCE = .001`）：
+
+- **任何**怪物都可能掉，与区域、怪物种类无关 —— 所以它不写进任何 `dropTable`，也不占「同一只怪物最多 3 条掉落」的名额，更不需要给 15 只怪各写一条。
+- 掉哪一瓶随机，三种等概率（`SOLVENT_IDS`，见 `config/items.ts`）。
+- **0.1%** 是刻意压到极低的档：洗词条是「纠错」而不是「日常」，不该随手就能用。按这个掉率，一千次击杀大约出一瓶。
+- 稀有度统一**火红色**（14）—— 琥珀色（15）是任务物品专用的最高档，火红色是普通物品能到的最高一档。
+
+和任务物品一样，wiki 的物品页对清洗剂走另一条说明（`solventSourceMarkup`）：它不在任何 `dropTable` 里，用「掉落来源」那套只会得到一片占位。
+
+### 7.13 研究基地的委托（`game-state.ts` + `pages/research.ts`）
+
+**委托只索取「任务物品」**：每个战斗区域在 `config/zones.ts` 里声明一个 `questItem`（共 3 种，`category: 'quest'`，稀有度统一琥珀色），该区域**所有**怪物统一 `QUEST_DROP_CHANCE`（10%）掉落。
+
+这样改的理由：旧的委托要求「怪物的普通掉落物」，而一个物品常常只有 1~2 只怪会掉 —— 委托就变成了「挑某只怪刷」，玩家在区域里没有选择权。任务物品让诉求回到「去那个区域刷」，任何一只怪都可能带着它。
+
+**掉落不走 `dropTable`**：`grantQuestDrop()` 和套装掉落一样独立成一步，所以不占「同一只怪物最多 3 条掉落」的名额，也不需要给 15 只怪各写一条。图鉴的物品页对任务物品走另一条说明（`questSourceMarkup`）—— 它不在任何 `dropTable` 里，用「掉落来源」那套只会得到一片占位。
+
+**没有难度选择**：委托随机落在某个已解锁的战斗区域，奖励固定（`getResearchReward()` = 基础值 + 「信号放大」等级）。越深的区域靠怪物本身的金币与掉落拉开收益差，不需要再加一层倍率。研究项「任务需求降低 I」只压需求数量上限。
+
+**需求数量 `8~12`**：10% 掉率下约等于 80~120 次击杀，按一场战斗 20~30 秒算是半小时左右 —— 这是刻意选的「刷得久」档。
+
+**刷新**：`refreshResearchTask()` 花金币重抽一份，费用 = `refreshCostBase × (已刷新次数 + 1)`，交委托后归零。递增是为了让「反复刷到满意」有代价，而正常接单不受影响。
+
+**旧存档的委托会被自动换掉**：`getResearchTask()` 的校验里带「必须是这个区域的任务物品」，所以版本更新后老玩家不会背着一份再也交不上的委托（要交的东西已经不在任何掉落表里了）。
 
 ---
 
@@ -1106,7 +1265,7 @@ export function refineWithFeeder(instanceId: number, feederId: number): boolean;
 - [ ] 精炼走的是 `canRefineWith`（同名 + 素材未装备 + 素材等级够高），入口是拖拽而不是右键菜单
 - [ ] 精炼等级显示在装备名右边（`refineMarkup`），卡片 / 槽位 / 悬停三处一致
 - [ ] 会滚动 / 有状态的弹窗，`update()` 里重写 `innerHTML` 前先比签名（R22 陷阱）
-- [ ] wiki 里凡是「已收录 / 已开放 / 已凑齐 / 已极致」这类进度都走 `statusLine()`，没有自己拼文字
+- [ ] wiki 里凡是「已穿 / 已极致」这类进度都走 `statusLine()`，没有自己拼文字；列表页没有汇总进度行
 - [ ] 套装效果只写在套装页（`setBody`），装备条目页只放一个套装链接
 - [ ] 悬停元素支持 `:focus-visible` 且有 outline（R11）
 - [ ] 点击卡片不会让悬停浮层移动（`focusin` 已按键盘 / 鼠标来源区分，R28）
@@ -1165,3 +1324,6 @@ export function refineWithFeeder(instanceId: number, feederId: number): boolean;
 | 20 | `requireClick` 的步骤卡死，怎么点都不前进 | 引导层自身 `pointer-events: none`；放行元素要写进 `step.click`，或依赖 `requireClick` 时默认放行 `target` | 拦截层盖过头，会把该点的地方也挡上（R32） |
 | 21 | 本地重新构建后，`python server.py` 托管的页面里开发者面板消失了 | 本地验证一律用 `npm run build:devtools`（或直接重启 `python server.py`） | `npm run build` 按设计关闭开发者功能，会把 `dist/` 覆盖成纯净产物；`__DEV_TOOLS__` → `false` 后面板代码被摇树删掉，`Ctrl+F5` 无效 |
 | 22 | 弹窗内容滚不动，每次滚轮都弹回顶部 | 给弹窗内容算签名，**只在签名变化时**才重写 `innerHTML` | `update()` 每 500ms 跑一次，无条件重写 `innerHTML` 会把滚动位置一起重置（装备加成窗口踩过） |
+| 23 | 连续选同一个文件，`change` 不触发 | 读完文件立刻 `input.value = ''` | 值没变浏览器不派发 `change`（存档导入踩过） |
+| 24 | 导入一份无关的文本，提示「导入成功」但进度没了 | 先 `validateSave()` 挡一道，再 `parseSave()` | `parseSave` 对任何输入都会「成功」（补成初始存档），不校验就等于接受一切 |
+| 25 | 复制按钮点了没反应，也没提示 | `navigator.clipboard` 可能不存在（非 HTTPS / localhost），失败时退回「已选中，请手动 Ctrl+C」 | `writeText` 在非安全上下文不可用；静默失败会让玩家以为复制成功了 |

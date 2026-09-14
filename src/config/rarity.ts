@@ -1,14 +1,38 @@
 /* 稀有度表：对象字面量的键顺序就是 rarity id（0,1,2…），新增稀有度在末尾追加即可。
    下标即 id；name 是界面上的显示名，className 是 CSS 类名后缀（对应 style.css 里的 .rarity-*）。
-   物品表和词条表里都用 RARITY.rare 这类写法指代 id，和 EQUIP_TYPE.weapon 一个写法。
-   稀有度本身不进存档（物品表是静态配置，存档只记物品下标），这里用 id 表是为了和
-   EQUIP_TYPE 保持一致，并且以后要加「稀有度 → 掉落权重 / 颜色 / 排序」时直接往表里加字段。
+
+   参考泰拉瑞亚的设计：稀有度**只影响物品名的显示颜色**，粗略体现「价值与获取难度」，
+   不参与任何数值计算（掉率在 dropTable 里写死、装备数值在 equip 里写死）。
+   分配规则因此可以很简单：**越后期能拿到的物品，档位越高**。
+
+   色板一次备足 16 档，后续每加一个区域往上取一档，不用再回来改这里。
+   目前只用到 0 / 1 / 2 / 15 四档 —— 三个战斗区域各一档，加上任务物品专用的一档：
+
+     灰色（0）  废弃边境
+     白色（1）  余烬矿脉
+     蓝色（2）  核心深井
+     琥珀色（15）任务物品（跨区域，所以单独占最高一档，不和区域抢位置）
+
+   中间 3~14 档是留给后续区域的空位，现在没有物品使用，颜色已经在 style.css 里备好。
+
    单独成一个模块，是为了让 config/items.ts 和 config/affixes.ts 都能用它而不互相引用。 */
 const RARITY_DEFS = {
-  common: { name: '普通' },
-  uncommon: { name: '精良' },
-  rare: { name: '稀有' },
-  epic: { name: '史诗' }
+  gray: { name: '灰色' },
+  white: { name: '白色' },
+  blue: { name: '蓝色' },
+  green: { name: '绿色' },
+  orange: { name: '橙色' },
+  lightRed: { name: '浅红' },
+  pink: { name: '粉红' },
+  lightPurple: { name: '浅紫' },
+  lime: { name: '青柠' },
+  yellow: { name: '黄色' },
+  cyan: { name: '青色' },
+  red: { name: '红色' },
+  purple: { name: '紫色' },
+  rainbow: { name: '彩虹色' },
+  fireRed: { name: '火红色' },
+  amber: { name: '琥珀色' }
 } satisfies Record<string, { name: string }>;
 
 export const rarities = Object.entries(RARITY_DEFS).map(([className, definition]) => ({ ...definition, className }));
