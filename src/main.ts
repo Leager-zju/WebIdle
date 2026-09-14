@@ -2,7 +2,7 @@ import pageController from './page-controller';
 import { updateEventPrompt } from './event-prompt';
 import { startHoverTip } from './hover-tip';
 import { startUnlockToasts } from './unlock-toast';
-import { startCodexWiki } from './wiki';
+import { startCodexWiki, openWikiPage } from './wiki';
 import { initGuide, updateGuide, startGuide } from './guide';
 import { getState, currentZoneId, getFontScale, getNumberFormat, isWikiUnlocked, subscribe, startLoop, resetGame } from './game-state';
 import { setText, setClass, setHtml } from './dom';
@@ -30,9 +30,13 @@ function applyFontScale(state: ReturnType<typeof getState>): void { const next =
 let appliedNumberFormat = -1;
 function applyNumberFormat(state: ReturnType<typeof getState>): void { const id = getNumberFormat(state).id; if (id === appliedNumberFormat) return; appliedNumberFormat = id; setActiveNumberFormat(id); }
 /* 图鉴（wiki）解锁状态：同步给 codex-ref，决定引用渲染成可点链接还是纯文本。
+   右上角的 WIKI 按钮也看它 —— 图鉴没解锁就不该有入口。
    必须在页面渲染之前同步，否则本帧画出来的引用还是上一帧的形态。 */
 let appliedWikiUnlocked: boolean | null = null;
-function applyWikiUnlock(state: ReturnType<typeof getState>): void { const next = isWikiUnlocked(state); if (next === appliedWikiUnlocked) return; appliedWikiUnlocked = next; setWikiUnlocked(next); }
+const wikiButton = document.querySelector<HTMLButtonElement>('#wiki-open');
+function applyWikiUnlock(state: ReturnType<typeof getState>): void { const next = isWikiUnlocked(state); if (next === appliedWikiUnlocked) return; appliedWikiUnlocked = next; setWikiUnlocked(next); if (wikiButton) wikiButton.hidden = !next; }
+/* 右上角的 WIKI 按钮：直接打开图鉴主页（列表页里的条目照旧走引用点击）。 */
+wikiButton?.addEventListener('click', () => openWikiPage('home'));
 /* 导航项的原始图标与文字先记下来：未解锁时要换成「❓未解锁」，解锁后要能还原（重置存档会重新锁上）。 */
 navItems.forEach(item => { item.dataset.icon = item.querySelector('.nav-index')?.textContent || ''; item.dataset.label = item.querySelector('.sidebar-label')?.textContent || ''; });
 /* 未解锁的系统入口：置灰、换成「❓未解锁」、并 disabled（浏览器不会给 disabled 按钮派发 click，鼠标自然点不动）。

@@ -16,9 +16,17 @@ import type { Enemy, Zone } from '../types';
       「拾荒者短刃」还是锈蚀哨兵掉的，所以废弃边境每一只都必须在
       「攻击 12 / 防御 0 / 生命 100 / 回复 2」这套裸数值下打得赢。
 
-   怎么算：净损失 ≈ 击杀耗时 T ×（怪物 DPS − 玩家回复 2），T = 玩家出手次数 × 2.2 秒。
+   怎么算：净损失 ≈ 击杀耗时 T ×（怪物 DPS − 玩家回复），T = 玩家出手次数 × 出手间隔。
    所以「血厚 + 防高」的怪 T 天然更长，攻击必须相应压低，净损失才拉得平。
-   参考区间：废弃边境 21~23（100 生命可连打 4 只）、余烬矿脉 35~38、核心深井 48~60。
+
+   各区域的玩家基准（穿齐上一区域的套装 + 对应营火等级，见 config/sets.ts）：
+     废弃边境：攻 12 / 防 0 / 血 100 / 回复 2 / 间隔 2.2  —— 裸装
+     余烬矿脉：攻 30 / 防 6 / 血 240 / 回复 5.4 / 间隔 2.2 —— 拾荒者套装齐 + 营火 3
+     核心深井：攻 50 / 防 8 / 血 260 / 回复 6 / 间隔 2.1  —— 余烬套装齐 + 营火 5
+   参考区间（净损失占该区域玩家生命上限的比例）：
+     废弃边境 16~20%、余烬矿脉 27~33%、核心深井 31~38%（泰坦单独留高一档）。
+
+   金币按「每秒产出大致不变」折算：击杀变慢的区域，单只金币同步抬高。
 
    两条硬约束保持不变：
    - 每个战斗区域至少 5 种怪物（区域表在文件下方按 enemyIds 分组）；
@@ -33,20 +41,21 @@ const ENEMY_DEFS = {
   rustSentry: { art: '哨', name: '锈蚀哨兵', description: '仍在按旧指令巡逻的哨戒炮台，火力远超它的装甲厚度。', maxHp: 70, attack: 14, defense: 0, attackInterval: 4.4, gold: 22, dropTable: [{ itemId: ITEM.scrap, chance: 1, min: 3, max: 6 }, { itemId: ITEM.scavengedBlade, chance: .1, min: 1, max: 1 }, { itemId: ITEM.commonSolvent, chance: .14, min: 1, max: 1 }] },
 
   /* ——— 余烬矿脉（enemyId 5-9）：被结晶污染、仍在往外渗热量的旧矿井 ———
-     玩家此时大约「攻 22 / 防 2 / 血 120」（一两件装备 + 少量工坊研究加成），净损失压在 35~38。 */
-  emberMite: { art: '螨', name: '余烬螨虫', description: '成群啃食结晶碎屑的小型单位，单体弱，胜在数量与出手频率。', maxHp: 150, attack: 10, defense: 3, attackInterval: 2, gold: 48, dropTable: [{ itemId: ITEM.emberShard, chance: .5, min: 1, max: 2 }, { itemId: ITEM.scrap, chance: 1, min: 4, max: 7 }] },
-  ashCrawler: { art: '爬', name: '灰烬爬行者', description: '在矿道顶壁上爬行的多足机械，落下来时带着一身高热灰。', maxHp: 200, attack: 12, defense: 4, attackInterval: 3, gold: 62, dropTable: [{ itemId: ITEM.scrap, chance: 1, min: 5, max: 9 }, { itemId: ITEM.emberShard, chance: .34, min: 1, max: 1 }, { itemId: ITEM.platingGoo, chance: .18, min: 1, max: 1 }] },
-  veinWarden: { art: '卫', name: '矿脉守卫', description: '守着主矿脉的重甲单位，装甲板就是从它身上撬下来的标准件。', maxHp: 250, attack: 10, defense: 6, attackInterval: 2.6, gold: 88, dropTable: [{ itemId: ITEM.armorPlate, chance: .6, min: 1, max: 2 }, { itemId: ITEM.scrap, chance: 1, min: 8, max: 12 }, { itemId: ITEM.emberCore, chance: .12, min: 1, max: 1 }] },
-  emberLeech: { art: '蛭', name: '余烬水蛭', description: '吸附在结晶上取热的软体机械，被打散时会溅出灼热的体液。', maxHp: 170, attack: 16, defense: 2, attackInterval: 3.7, gold: 76, dropTable: [{ itemId: ITEM.emberShard, chance: .4, min: 1, max: 1 }, { itemId: ITEM.lifeSeed, chance: .2, min: 1, max: 1 }, { itemId: ITEM.scrap, chance: 1, min: 4, max: 8 }] },
-  moltenHound: { art: '熔', name: '熔渣猎犬', description: '关节处凝着熔渣的追猎单位，越打越烫。', maxHp: 190, attack: 13, defense: 4, attackInterval: 3.4, gold: 95, dropTable: [{ itemId: ITEM.scrap, chance: 1, min: 6, max: 10 }, { itemId: ITEM.emberCore, chance: .16, min: 1, max: 1 }, { itemId: ITEM.fineSolvent, chance: .18, min: 1, max: 1 }] },
+     玩家此时大约「攻 30 / 防 6 / 血 240 / 回复 5.4」（拾荒者套装齐 + 营火 3 级），净损失压在 65~78（27~33% 生命）。 */
+  emberMite: { art: '螨', name: '余烬螨虫', description: '成群啃食结晶碎屑的小型单位，单体弱，胜在数量与出手频率。', maxHp: 260, attack: 14, defense: 8, attackInterval: 1, gold: 70, dropTable: [{ itemId: ITEM.emberShard, chance: .5, min: 1, max: 2 }, { itemId: ITEM.scrap, chance: 1, min: 4, max: 7 }] },
+  ashCrawler: { art: '爬', name: '灰烬爬行者', description: '在矿道顶壁上爬行的多足机械，落下来时带着一身高热灰。', maxHp: 300, attack: 18, defense: 6, attackInterval: 1.5, gold: 65, dropTable: [{ itemId: ITEM.scrap, chance: 1, min: 5, max: 9 }, { itemId: ITEM.emberShard, chance: .34, min: 1, max: 1 }, { itemId: ITEM.platingGoo, chance: .18, min: 1, max: 1 }] },
+  veinWarden: { art: '卫', name: '矿脉守卫', description: '守着主矿脉的重甲单位，装甲板就是从它身上撬下来的标准件。', maxHp: 380, attack: 14, defense: 9, attackInterval: 1.1, gold: 105, dropTable: [{ itemId: ITEM.armorPlate, chance: .6, min: 1, max: 2 }, { itemId: ITEM.scrap, chance: 1, min: 8, max: 12 }, { itemId: ITEM.emberCore, chance: .12, min: 1, max: 1 }] },
+  emberLeech: { art: '蛭', name: '余烬水蛭', description: '吸附在结晶上取热的软体机械，被打散时会溅出灼热的体液。', maxHp: 280, attack: 26, defense: 6, attackInterval: 2.4, gold: 100, dropTable: [{ itemId: ITEM.emberShard, chance: .4, min: 1, max: 1 }, { itemId: ITEM.lifeSeed, chance: .2, min: 1, max: 1 }, { itemId: ITEM.scrap, chance: 1, min: 4, max: 8 }] },
+  moltenHound: { art: '熔', name: '熔渣猎犬', description: '关节处凝着熔渣的追猎单位，越打越烫。', maxHp: 300, attack: 20, defense: 8, attackInterval: 1.8, gold: 120, dropTable: [{ itemId: ITEM.scrap, chance: 1, min: 6, max: 10 }, { itemId: ITEM.emberCore, chance: .16, min: 1, max: 1 }, { itemId: ITEM.fineSolvent, chance: .18, min: 1, max: 1 }] },
 
   /* ——— 核心深井（enemyId 10-14）：信号最深处，井壁上全是结晶 ———
-     玩家此时大约「攻 34 / 防 6 / 血 170」，净损失 48~60；泰坦作为终点故意留高一档。 */
-  coreDrone: { art: '机', name: '核心无人机', description: '围绕井口盘旋的维护机，炮口对准一切还在动的东西。', maxHp: 260, attack: 16, defense: 5, attackInterval: 2.2, gold: 150, dropTable: [{ itemId: ITEM.scrap, chance: 1, min: 10, max: 16 }, { itemId: ITEM.emberCore, chance: .2, min: 1, max: 1 }] },
-  signalAdept: { art: '祭', name: '信号祭司', description: '把核心信号当祷文反复播放的人形单位，靠近时能听见自己的名字。', maxHp: 340, attack: 18, defense: 7, attackInterval: 3, gold: 190, dropTable: [{ itemId: ITEM.emberShard, chance: .6, min: 2, max: 3 }, { itemId: ITEM.deepSolvent, chance: .2, min: 1, max: 1 }, { itemId: ITEM.scrap, chance: 1, min: 8, max: 14 }] },
-  echoWraith: { art: '影', name: '回声残影', description: '一段没能散掉的旧信号，出手快得只留下一道残影。', maxHp: 240, attack: 12, defense: 5, attackInterval: 1.3, gold: 210, dropTable: [{ itemId: ITEM.emberCore, chance: .22, min: 1, max: 1 }, { itemId: ITEM.deepSolvent, chance: .16, min: 1, max: 1 }, { itemId: ITEM.emberShard, chance: .4, min: 1, max: 2 }] },
-  abyssBrute: { art: '渊', name: '深渊重装者', description: '井底的重载单位，每一块装甲都比远征队整支队伍还厚。', maxHp: 420, attack: 16, defense: 10, attackInterval: 2.9, gold: 240, dropTable: [{ itemId: ITEM.armorPlate, chance: 1, min: 2, max: 3 }, { itemId: ITEM.scrap, chance: 1, min: 12, max: 18 }, { itemId: ITEM.emberCore, chance: .25, min: 1, max: 1 }] },
-  coreTitan: { art: '坦', name: '核心泰坦', description: '井底那颗仍在搏动的核心本身。所有信号的源头。', maxHp: 480, attack: 28, defense: 12, attackInterval: 6.2, gold: 420, dropTable: [{ itemId: ITEM.emberCore, chance: .5, min: 1, max: 2 }, { itemId: ITEM.armorPlate, chance: 1, min: 3, max: 4 }, { itemId: ITEM.emberShard, chance: .8, min: 2, max: 3 }] }
+     玩家此时大约「攻 50 / 防 8 / 血 260 / 回复 6 / 间隔 2.1」（余烬套装齐 + 营火 5 级），
+     净损失压在 83~85；泰坦作为终点故意留高一档（112，约 43% 生命）。 */
+  coreDrone: { art: '机', name: '核心无人机', description: '围绕井口盘旋的维护机，炮口对准一切还在动的东西。', maxHp: 400, attack: 22, defense: 12, attackInterval: 1.4, gold: 175, dropTable: [{ itemId: ITEM.scrap, chance: 1, min: 10, max: 16 }, { itemId: ITEM.emberCore, chance: .2, min: 1, max: 1 }] },
+  signalAdept: { art: '祭', name: '信号祭司', description: '把核心信号当祷文反复播放的人形单位，靠近时能听见自己的名字。', maxHp: 520, attack: 25, defense: 14, attackInterval: 1.9, gold: 210, dropTable: [{ itemId: ITEM.emberShard, chance: .6, min: 2, max: 3 }, { itemId: ITEM.deepSolvent, chance: .2, min: 1, max: 1 }, { itemId: ITEM.scrap, chance: 1, min: 8, max: 14 }] },
+  echoWraith: { art: '影', name: '回声残影', description: '一段没能散掉的旧信号，出手快得只留下一道残影。', maxHp: 380, attack: 38, defense: 10, attackInterval: 2.8, gold: 225, dropTable: [{ itemId: ITEM.emberCore, chance: .22, min: 1, max: 1 }, { itemId: ITEM.deepSolvent, chance: .16, min: 1, max: 1 }, { itemId: ITEM.emberShard, chance: .4, min: 1, max: 2 }] },
+  abyssBrute: { art: '渊', name: '深渊重装者', description: '井底的重载单位，每一块装甲都比远征队整支队伍还厚。', maxHp: 620, attack: 24, defense: 18, attackInterval: 2, gold: 255, dropTable: [{ itemId: ITEM.armorPlate, chance: 1, min: 2, max: 3 }, { itemId: ITEM.scrap, chance: 1, min: 12, max: 18 }, { itemId: ITEM.emberCore, chance: .25, min: 1, max: 1 }] },
+  coreTitan: { art: '坦', name: '核心泰坦', description: '井底那颗仍在搏动的核心本身。所有信号的源头。', maxHp: 640, attack: 36, defense: 18, attackInterval: 3.2, gold: 365, dropTable: [{ itemId: ITEM.emberCore, chance: .5, min: 1, max: 2 }, { itemId: ITEM.armorPlate, chance: 1, min: 3, max: 4 }, { itemId: ITEM.emberShard, chance: .8, min: 2, max: 3 }] }
 } satisfies Record<string, Enemy>;
 
 export const enemyTable: Enemy[] = Object.values(ENEMY_DEFS);
@@ -59,9 +68,11 @@ export const ENEMY = Object.fromEntries(Object.keys(ENEMY_DEFS).map((name, id) =
    icon 是区域在界面上的图标：区域引用（icon + 名称）与图鉴标题栏都用它。 */
 const ZONE_DEFS = {
   camp: { name: '营地', icon: '🔥', description: '远征队的落脚点。营火不灭，这里不会遭遇敌人，生命恢复速度远高于野外。', enemyIds: [], unlockIndex: 0 },
-  wasteBorder: { name: '废弃边境', icon: '🏚️', description: '营火以北，失去联络的旧哨站。锈蚀的机械单位仍在街区与哨塔之间徘徊。', enemyIds: [ENEMY.scavenger, ENEMY.brute, ENEMY.wirehound, ENEMY.scrapGolem, ENEMY.rustSentry], unlockIndex: 0 },
-  emberVein: { name: '余烬矿脉', icon: '💠', description: '被结晶污染的旧矿井，渗出的热量让整条矿道都在发光。守卫这里的单位已经开始结晶化。', enemyIds: [ENEMY.emberMite, ENEMY.ashCrawler, ENEMY.veinWarden, ENEMY.emberLeech, ENEMY.moltenHound], unlockIndex: 5 },
-  coreDeep: { name: '核心深井', icon: '🕳️', description: '核心信号的源头。井壁上结满结晶，越往下信号越清晰，也越致命。', enemyIds: [ENEMY.coreDrone, ENEMY.signalAdept, ENEMY.echoWraith, ENEMY.abyssBrute, ENEMY.coreTitan], unlockIndex: 7 }
+  /* dropRefine：这个区域掉落的装备自带几级精炼。越早的区域给得越高 ——
+     早期装备靠一件件喂太慢，直接送一档起步；后期区域基本靠自己喂，所以只有 +1。 */
+  wasteBorder: { name: '废弃边境', icon: '🏚️', description: '营火以北，失去联络的旧哨站。锈蚀的机械单位仍在街区与哨塔之间徘徊。', enemyIds: [ENEMY.scavenger, ENEMY.brute, ENEMY.wirehound, ENEMY.scrapGolem, ENEMY.rustSentry], unlockIndex: 0, dropRefine: 10 },
+  emberVein: { name: '余烬矿脉', icon: '💠', description: '被结晶污染的旧矿井，渗出的热量让整条矿道都在发光。守卫这里的单位已经开始结晶化。', enemyIds: [ENEMY.emberMite, ENEMY.ashCrawler, ENEMY.veinWarden, ENEMY.emberLeech, ENEMY.moltenHound], unlockIndex: 5, dropRefine: 5 },
+  coreDeep: { name: '核心深井', icon: '🕳️', description: '核心信号的源头。井壁上结满结晶，越往下信号越清晰，也越致命。', enemyIds: [ENEMY.coreDrone, ENEMY.signalAdept, ENEMY.echoWraith, ENEMY.abyssBrute, ENEMY.coreTitan], unlockIndex: 7, dropRefine: 1 }
 } satisfies Record<string, Zone>;
 
 export const zones: Zone[] = Object.values(ZONE_DEFS);

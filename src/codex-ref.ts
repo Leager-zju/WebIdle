@@ -2,6 +2,7 @@ import { items } from './config/items';
 import { rarityClass } from './config/rarity';
 import { enemyTable, zones } from './config/zones';
 import { campEventDef, campEventEntries } from './config/events';
+import { setTable } from './config/sets';
 
 /* ——— 图鉴引用 ———
    界面上凡是「指名某个具体条目」的文本，都渲染成「icon + 名称」的一小段文本，
@@ -69,6 +70,10 @@ export function codexEntry(kind: string, id: number): CodexEntry | null {
     const def = campEventDef(entry.kind, entry.index);
     return { icon: def.icon, name: def.name, kicker: 'CODEX / EVENT', colorClass: 'codex-event', description: def.desc };
   }
+  if (kind === 'set') {
+    const entry = setTable[id];
+    return entry ? { icon: entry.icon, name: `${entry.name}套装`, kicker: 'CODEX / SET', colorClass: 'codex-set', description: entry.desc } : null;
+  }
   const item = items[id];
   return item ? { icon: item.icon, name: item.name, kicker: 'CODEX / ITEM', colorClass: rarityClass(item.rarity), description: item.description } : null;
 }
@@ -101,11 +106,12 @@ export function pageRefMarkup(page: string, label: string): string {
 }
 
 /** 掉落表的一行：物品引用 + 「概率 · 数量区间」。wiki 的怪物页用这一份格式。
-    discovered 为 false 时只给占位 —— 掉落逐条揭示，没拿到过的不剧透。 */
+    discovered 为 false 时只给占位 —— 掉落逐条揭示，没拿到过的不剧透。
+    两种状态都带 status-dot：和主线条件一样，「有没有达成」一眼可辨。 */
 export function dropEntryMarkup(drop: { itemId: number; chance: number; min: number; max: number }, discovered: boolean): string {
-  if (!discovered) return '<li class="codex-drop-locked"><span>??? 待发现</span></li>';
+  if (!discovered) return '<li class="codex-drop-locked"><span class="status-dot pending"></span><span>??? 待发现</span></li>';
   const item = items[drop.itemId];
-  return `<li class="${rarityClass(item.rarity)}">${itemRefMarkup(drop.itemId)}<span>${Math.round(drop.chance * 100)}% · ${drop.min}~${drop.max} 个</span></li>`;
+  return `<li class="${rarityClass(item.rarity)}"><span class="status-dot"></span>${itemRefMarkup(drop.itemId)}<span>${Math.round(drop.chance * 100)}% · ${drop.min}~${drop.max} 个</span></li>`;
 }
 
 /** 把纯文本里的图鉴标记渲染成引用。没有标记（或下标无效）时原样返回。 */

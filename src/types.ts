@@ -35,12 +35,15 @@ export interface Item {
   grantsAffix?: number;
 }
 
+/** 套装加成：凑齐全部部件后额外生效的属性。attackInterval 是「出手间隔减少的秒数」。 */
+export interface SetBonus { attack?: number; hp?: number; defense?: number; regen?: number; attackInterval?: number; }
+
 /** itemId 是物品表下标。 */
 export interface DropEntry { itemId: number; chance: number; min: number; max: number; }
 /** art 是战斗卡片与图鉴里用的单字图标。defense 减免玩家造成的伤害，缺省按 0 处理。 */
 export interface Enemy { art: string; name: string; description: string; maxHp: number; attack: number; defense?: number; attackInterval: number; gold: number; dropTable: DropEntry[]; }
 /** enemyIds 是敌人表下标。icon 是区域在界面上的图标（区域引用、图鉴里用）。 */
-export interface Zone { name: string; icon: string; description: string; enemyIds: number[]; /** 进入所需的主线进度：mainlineIndex 达到这个值才算解锁。 */ unlockIndex: number; }
+export interface Zone { name: string; icon: string; description: string; enemyIds: number[]; /** 进入所需的主线进度：mainlineIndex 达到这个值才算解锁。 */ unlockIndex: number; /** 这个区域掉落的装备自带的精炼等级，缺省 0。越早的区域给得越高：早期装备靠喂太慢，直接送一档起步。 */ dropRefine?: number; }
 export interface LogEntry { time: string; message: string; type: LogType; }
 /** zoneId / enemyId 都是各自表的下标。spawnTimer 是距离下一个敌人出现的剩余秒数，0 表示场上已有敌人。
     attackCount 是累计出手次数，词条赋予的技能按它决定第几次触发。 */
@@ -52,7 +55,7 @@ export interface Affix { id: number; value: number; }
 /** 装备实例：同一件装备可以有多个，每一件都是独立个体。
     装备槽里存的是实例 id 而不是物品 id，所以「哪一张卡片被装备」是确定的；
     词条也挂在这里，同名装备的每一件各带各的词条。 */
-export interface EquipmentInstance { id: number; itemId: number; affixes?: Affix[]; }
+export interface EquipmentInstance { id: number; itemId: number; affixes?: Affix[]; /** 精炼等级（0~REFINE_MAX）：每级让这件装备的自身属性 +1%。缺省按 0 处理。 */ refine?: number; }
 /** equipped[装备类型][槽位下标] = 装备实例 id，-1 表示该槽位为空。 */
 export type EquipmentState = number[][];
 /** notify：随机事件触发时是否弹窗提醒（超时未响应一律跳过，见 game-state 的 PENDING_EVENT_TIMEOUT）。 */
@@ -73,10 +76,10 @@ export interface CampBattleState { kind: number; id: number; name: string; icon:
     nextInstanceId 单调递增，删掉实例后不复用 id。
     encountered 的下标是敌人表下标，1 表示击杀过（图鉴收录条件）。
     discoveredDrops[enemyId] 是这只怪物已经实际掉落过（玩家拿到手）的物品下标列表，图鉴据此逐条揭示掉落表。 */
-export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; research: number; companions: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; /** 已经看过的新手指引 id（见 guide.ts 的 GUIDES）。 */ guides: string[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
+export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; /** 已经看过的新手指引 id（见 guide.ts 的 GUIDES）。 */ guides: string[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
   devOverrides: number[];
   /** 研究基地：研究点数、当前委托（itemId 为 -1 表示尚未发布）、各研究项等级。 */
-  researchPoints: number; /** 当前选择的委托难度（1 ~ 已解锁战斗区域数），只影响下一份委托。 */ researchDifficulty: number; researchTask: ResearchTaskState; researchLevels: number[]; }
+  researchPoints: number; /** 当前选择的委托难度（1 ~ 已解锁战斗区域数），只影响下一份委托。 */ researchDifficulty: number; researchTask: ResearchTaskState; researchLevels: number[]; /** 自动进食：研究项「自动进食」解锁后生效。 */ autoEat: AutoEatState; /** 曾经精炼到 100 级（【极致】）的物品下标。喂掉那件之后依然保留 —— 这是「达成过」的记录，不是持有状态。 */ perfectItems: number[]; }
 /* ——— 道具的使用行为 ———
    use 是函数而不是数据：不同道具要做的事差别太大（回血、加词条、按品阶移除词条…），
    而且以后还要加更多「点击使用后选目标」的道具。配置表里的 use 只通过 UseContext 操作状态，
@@ -107,7 +110,14 @@ export type UseOutcome =
   | { kind: 'done' }                                                          // 已生效（或没有可做的），流程结束
   | { kind: 'pick-equipment' }                                                // 需要玩家点选一件装备
   | { kind: 'pick-affix'; instanceId: number; affixIndices: number[] };       // 有多条可移除的词条，需要玩家选一条
-export type UseHandler = (context: UseContext) => UseOutcome;
+/** 使用道具的行为。带 heal 标记的是「食物」—— 自动进食据此筛选，不用另维护一份 id 清单。 */
+export type UseHandler = ((context: UseContext) => UseOutcome) & { heal?: number };
+/** 自动进食：研究项「自动进食」解锁后生效。itemId 为 -1 表示还没指定食物。 */
+export interface AutoEatState {
+  itemId: number;
+  /** 触发阈值（百分比）：生命值低于上限的这个比例时自动吃一份。 */
+  threshold: number;
+}
 /** 主线节点的具体达成条件：text 是给玩家看的进度文案（如「收集旧电池 2/3 个」），done 决定状态点是否点亮。
     text 返回的字符串会当作 HTML 渲染（页面用 setHtml 输出），所以物品 / 怪物 / 区域名一律用
     itemRefMarkup / enemyRefMarkup / zoneRefMarkup 生成，不要直接拼名字字符串——

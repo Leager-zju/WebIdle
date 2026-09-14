@@ -2,8 +2,9 @@ import { items, rarities, itemCategories, equipTypes } from './config/items';
 import { affixes, affixCap } from './config/affixes';
 import { enemyTable, zones, zoneOfEnemy } from './config/zones';
 import { CAMP_EVENT, campEventDef, campEventEntries } from './config/events';
-import { codexEntry, dropEntryMarkup, enemyRefMarkup, zoneRefMarkup, onWikiUnlockChange } from './codex-ref';
-import { getState, isEncountered, isDropDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, mainline } from './game-state';
+import { codexEntry, codexRefMarkup, dropEntryMarkup, enemyRefMarkup, itemRefMarkup, zoneRefMarkup, onWikiUnlockChange } from './codex-ref';
+import { getState, isEncountered, isDropDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, mainline, setTable, setOfItem, getSetWorn, isPerfectItem, setBonusText, perfectBonusText, REFINE_MAX } from './game-state';
+import type { ItemCategory } from './types';
 
 /* ——— 内置 wiki：图鉴弹窗 ———
    页面上任何图鉴引用（见 codex-ref.ts）点击后都会打开它。两类页面：
@@ -19,11 +20,27 @@ import { getState, isEncountered, isDropDiscovered, isZoneUnlocked, isCampEventT
    和 hover-tip 一样挂在 body 上：wiki 层是 fixed 定位，而 #page-content 有 contain: layout，
    挂在页面里会被当成相对它定位（见 UI开发规范 §10-01）。 */
 
-/** 列表页的标题与图标；键同时也是页面 id。 */
-const LIST_TITLES: Record<string, string> = { items: '物品', enemies: '怪物', zones: '区域', events: '事件' };
-const LIST_ICONS: Record<string, string> = { items: '📦', enemies: '👾', zones: '🗺️', events: '⚡' };
-/** 条目页 → 它所属的列表页。 */
-const ENTRY_LISTS: Record<string, string> = { item: 'items', enemy: 'enemies', zone: 'zones', event: 'events' };
+/** 列表页的标题与图标；键同时也是页面 id。
+    items 下面还有一层分类页（items-equipment 等），层级靠 pathMarkup 拼出来。 */
+const LIST_TITLES: Record<string, string> = {
+  items: '物品', 'items-equipment': '装备', 'items-sets': '套装', 'items-resource': '资源', 'items-consumable': '消耗品',
+  enemies: '怪物', zones: '区域', events: '事件'
+};
+const LIST_ICONS: Record<string, string> = {
+  items: '📦', 'items-equipment': '⚔️', 'items-sets': '🧩', 'items-resource': '◆', 'items-consumable': '⚗️',
+  enemies: '👾', zones: '🗺️', events: '⚡'
+};
+/** 物品页下的分类页：物品类别 → 页面 id。套装单独一页（它的条目是「套」而不是「件」）。 */
+const ITEM_PAGE: Record<string, string> = { equipment: 'items-equipment', resource: 'items-resource', consumable: 'items-consumable' };
+/** 物品页下的分类页（含套装页），顺序即展示顺序。 */
+const ITEM_PAGES = ['items-equipment', 'items-sets', 'items-resource', 'items-consumable'];
+/** 条目页 → 它所属的列表页。物品按类别落到对应分类页，套装落到套装页。 */
+const ENTRY_LISTS: Record<string, string> = { enemy: 'enemies', zone: 'zones', event: 'events', set: 'items-sets' };
+/** 条目页的父级列表页：item 要看它自己的类别，其余查表。 */
+function entryListOf(kind: string, id: number): string {
+  if (kind !== 'item') return ENTRY_LISTS[kind] || 'items';
+  return ITEM_PAGE[items[id]?.category] || 'items';
+}
 
 let layer: HTMLElement | null = null;
 /** 当前页面：page 是页面 id，id 只对条目页有意义。 */
@@ -43,23 +60,30 @@ function entryCellMarkup(kind: string, id: number, note = ''): string {
 }
 /** 数值网格（.codex-stats：标签在左、数值在右的自适应格）。 */
 function factsMarkup(facts: string[]): string { return facts.length ? `<div class="codex-stats">${facts.join('')}</div>` : ''; }
+/** 「是否达成」统一用主线条件那一套样式：前面一个 status-dot，达成就点亮。 */
+function statusLine(text: string, done: boolean): string {
+  return `<div class="requirement ${done ? 'done' : ''}"><span class="status-dot ${done ? '' : 'pending'}"></span><span>${text}</span></div>`;
+}
 /** 一个小节：标题 + 内容。 */
 function sectionMarkup(title: string, body: string): string { return `<section class="wiki-section"><h4 class="wiki-section-title">${title}</h4>${body}</section>`; }
 /** 一排图鉴引用。 */
 function refsMarkup(refs: string[]): string { return `<div class="wiki-refs">${refs.join('')}</div>`; }
 
-/** 路径：主页 › 列表 › 条目。主页自己不带路径；列表名与「主页」加粗可点。 */
+/** 路径：主页 › 列表 › [分类] › 条目。主页自己不带路径；每一级可点，当前级是纯文本。 */
 function pathMarkup(page: string, name: string): string {
   if (page === 'home') return '';
-  const list = LIST_TITLES[page] ? page : ENTRY_LISTS[page];
-  const parts = [`<button class="wiki-path-link" type="button" data-codex="page:home">主页</button>`];
+  const sep = '<span class="wiki-path-sep" aria-hidden="true">›</span>';
+  const home = `<button class="wiki-path-link" type="button" data-codex="page:home">主页</button>`;
+  const itemsLink = `<button class="wiki-path-link" type="button" data-codex="page:items">${LIST_TITLES.items}</button>`;
   if (LIST_TITLES[page]) {
-    parts.push(`<span class="wiki-path-current">${LIST_TITLES[page]}</span>`);
-  } else {
-    parts.push(`<button class="wiki-path-link" type="button" data-codex="page:${list}">${LIST_TITLES[list]}</button>`);
-    parts.push(`<span class="wiki-path-current">${name}</span>`);
+    /* 物品下的分类页比别的列表多一级。 */
+    const under = page.startsWith('items-') ? [itemsLink] : [];
+    return `<nav class="wiki-path" aria-label="图鉴路径">${[home, ...under, `<span class="wiki-path-current">${LIST_TITLES[page]}</span>`].join(sep)}</nav>`;
   }
-  return `<nav class="wiki-path" aria-label="图鉴路径">${parts.join('<span class="wiki-path-sep" aria-hidden="true">›</span>')}</nav>`;
+  const list = entryListOf(page, current.id);
+  const under = list.startsWith('items-') ? [itemsLink] : [];
+  const parts = [home, ...under, `<button class="wiki-path-link" type="button" data-codex="page:${list}">${LIST_TITLES[list]}</button>`, `<span class="wiki-path-current">${name}</span>`];
+  return `<nav class="wiki-path" aria-label="图鉴路径">${parts.join(sep)}</nav>`;
 }
 
 /* ——— 列表页 ——— */
@@ -70,15 +94,49 @@ function homeBody(): string {
 }
 
 function itemsBody(): string {
-  return `<p class="wiki-lead">所有物品。名字的颜色代表稀有度，点开可以看它的效果与掉落来源。</p>
-    <div class="wiki-grid">${items.map((_, id) => entryCellMarkup('item', id)).join('')}</div>`;
+  return `<p class="wiki-lead">物品分四类。装备与套装是长期投入，资源与消耗品是沿途的补给。</p>
+    <div class="wiki-grid">${ITEM_PAGES.map(page => cellMarkup(`page:${page}`, LIST_ICONS[page], LIST_TITLES[page], 'codex-page')).join('')}</div>`;
+}
+
+/** 某个物品类别下的所有物品。 */
+function itemCategoryBody(category: ItemCategory): string {
+  const ids = items.map((item, id) => (item.category === category ? id : -1)).filter(id => id >= 0);
+  if (!ids.length) return '<p class="wiki-lead">这一类还没有收录任何东西。</p>';
+  return `<p class="wiki-lead">共 ${ids.length} 种。名字的颜色代表稀有度，点开可以看它的效果与掉落来源。</p>
+    <div class="wiki-grid">${ids.map(id => entryCellMarkup('item', id)).join('')}</div>`;
+}
+
+/** 套装列表：每套一张卡，角注是「已穿上的部件数 / 总部件数」。 */
+function setsBody(): string {
+  const state = getState();
+  const done = setTable.filter((entry, id) => getSetWorn(id, state) >= entry.pieces.length).length;
+  return `<p class="wiki-lead">每个战斗区域掉一整套装备。凑齐全部部件激活套装效果，全部精炼到 +${REFINE_MAX} 还会再给一次永久加成。</p>
+    ${statusLine(`已凑齐 ${done} / ${setTable.length} 套`, done >= setTable.length)}
+    <div class="wiki-grid">${setTable.map((entry, id) => entryCellMarkup('set', id, `${getSetWorn(id, state)} / ${entry.pieces.length}`)).join('')}</div>`;
+}
+
+/** 套装条目页：部件清单、凑齐效果、极致效果。装备条目页只链接到这里，不再重复这些内容。 */
+function setBody(id: number): string {
+  const entry = setTable[id];
+  const state = getState();
+  const total = entry.pieces.length;
+  const worn = getSetWorn(id, state);
+  const perfect = entry.pieces.filter(itemId => isPerfectItem(itemId, state)).length;
+  return [
+    `<p class="wiki-lead">${entry.desc}</p>`,
+    sectionMarkup('掉落区域', `<p class="wiki-note">${zoneRefMarkup(entry.zone)} · 每次击杀有 ${Math.round(entry.dropChance * 100)}% 概率掉落一件随机部件。</p>`),
+    sectionMarkup('部件', `<div class="wiki-refs">${entry.pieces.map(itemId => itemRefMarkup(itemId)).join('')}</div>`),
+    sectionMarkup('凑齐效果', `${statusLine(`已穿 ${worn} / ${total}`, worn >= total)}<p class="wiki-note">${setBonusText(entry.bonus)}</p>`),
+    sectionMarkup('极致效果', `${statusLine(`已极致 ${perfect} / ${total}`, perfect >= total)}<p class="wiki-note">全部部件精炼到 +${REFINE_MAX} 后永久获得：${perfectBonusText(entry.perfectBonus)}</p>`)
+  ].join('');
 }
 
 function enemiesBody(): string {
   const state = getState();
   const known = enemyTable.map((_, id) => id).filter(id => isEncountered(id, state));
   if (!known.length) return '<p class="wiki-lead">还没有遭遇过任何怪物。进入战斗区域后，遇到过的怪物会收录到这里。</p>';
-  return `<p class="wiki-lead">已经遭遇过的怪物，点开可以看它的属性与掉落。已收录 ${known.length} / ${enemyTable.length} 种。</p>
+  return `<p class="wiki-lead">已经遭遇过的怪物，点开可以看它的属性与掉落。</p>
+    ${statusLine(`已收录 ${known.length} / ${enemyTable.length} 种`, known.length >= enemyTable.length)}
     <div class="wiki-grid">${known.map(id => entryCellMarkup('enemy', id)).join('')}</div>`;
 }
 
@@ -86,6 +144,7 @@ function zonesBody(): string {
   const state = getState();
   const known = zones.map((_, id) => id).filter(id => isZoneUnlocked(id, state));
   return `<p class="wiki-lead">已经可以前往的区域，点开可以看那里会遇到的怪物。</p>
+    ${statusLine(`已开放 ${known.length} / ${zones.length} 处`, known.length >= zones.length)}
     <div class="wiki-grid">${known.map(id => entryCellMarkup('zone', id)).join('')}</div>`;
 }
 
@@ -126,9 +185,12 @@ function itemBody(id: number): string {
     lines.push(sectionMarkup('使用效果', `<p class="wiki-note">${item.useText}</p>`));
   }
   const sources = dropSourceIds(id);
-  lines.push(sectionMarkup('掉落来源', sources.length
-    ? refsMarkup(sources.map(enemyId => enemyRefMarkup(enemyId)))
-    : '<p class="wiki-note">还没有在遭遇过的怪物身上确认到它的掉落。</p>'));
+  lines.push(sectionMarkup('掉落来源', `${statusLine(sources.length ? `已在 ${sources.length} 种怪物身上确认到` : '还没有在遭遇过的怪物身上确认到', sources.length > 0)}${sources.length ? refsMarkup(sources.map(enemyId => enemyRefMarkup(enemyId))) : ''}`));
+  /* 套装部件只给一个链接：套装效果、部件清单、极致进度都写在套装页（见 setBody）。
+     一页只讲一件事，装备页不必重复整套的信息。 */
+  const setId = setOfItem(id);
+  if (setId >= 0) lines.push(sectionMarkup('套装', `${refsMarkup([codexRefMarkup('set', setId)])}<p class="wiki-note">套装效果与【极致】进度写在套装页。</p>`));
+  if (isPerfectItem(id)) lines.push(sectionMarkup('极致', `${statusLine(`已精炼到 +${REFINE_MAX}`, true)}<p class="wiki-note">这是一次性达成的记录，之后把它当素材喂掉也会保留。</p>`));
   return lines.join('');
 }
 
@@ -197,7 +259,11 @@ function eventBody(id: number): string {
 
 const BODIES: Record<string, (id: number) => string> = {
   home: homeBody, items: itemsBody, enemies: enemiesBody, zones: zonesBody, events: eventsBody,
-  item: itemBody, enemy: enemyBody, zone: zoneBody, event: eventBody
+  'items-equipment': () => itemCategoryBody('equipment'),
+  'items-resource': () => itemCategoryBody('resource'),
+  'items-consumable': () => itemCategoryBody('consumable'),
+  'items-sets': setsBody,
+  item: itemBody, enemy: enemyBody, zone: zoneBody, event: eventBody, set: setBody
 };
 
 function ensureLayer(): HTMLElement {

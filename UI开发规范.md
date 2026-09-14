@@ -22,6 +22,19 @@ SOURCE    本文件由现有代码反向整理，每条规则对应既有实现�
 | 字体 | 外部 Google Fonts：`Manrope`（正文）/ `DM Mono`（数值·标签） |
 | 状态 | 唯一数据源 `src/game-state.ts`，单向数据流 |
 
+### 本地验证构建
+
+| 命令 | 开发者面板 |
+| --- | --- |
+| `python server.py` | **开** —— 启动时自动跑 `build:devtools`，并校验产物里有没有 `dev-panel` |
+| `npm run build:devtools` | **开** |
+| `npm run build` | **关**（默认规则，防止含面板的产物被误部署到公网） |
+
+本地改完代码要重新构建时**必须**用 `build:devtools`。`npm run build` 会把 `dist/` 覆盖成纯净产物，
+页面里的开发者面板会直接消失 —— `__DEV_TOOLS__` 在构建期被替换成字面量 `false`，
+`if (__DEV_TOOLS__)` 包住的整段面板代码会被打包器当死代码摇掉。**这不是缓存问题**，
+`Ctrl+F5` 救不回来，只能重新用 `build:devtools` 构建。
+
 ### 文件地图
 
 | 路径 | 职责 | 代理可否修改 |
@@ -621,7 +634,32 @@ addLog(state, `远征队进入${zoneTag(zoneId)}，…`);                     //
 - 状态翻转回未解锁（如重置存档）时，`onWikiUnlockChange` 会通知 wiki 自己关掉弹窗。
 - 解锁条件就是成就「初次冒险」（`isWikiUnlocked`），成就的 `rewardUnlock` 会额外弹一条「解锁：系统「图鉴」」。
 
-### 6.11 解锁与渐进披露（R29 / R30）
+### 6.11 wiki 的页面层级与「是否达成」（`wiki.ts`）
+
+```
+主页
+└── 物品 ─┬─ 装备 ── 物品条目
+         ├─ 套装 ── 套装条目
+         ├─ 资源 ── 物品条目
+         └─ 消耗品 ─ 物品条目
+    怪物 / 区域 / 事件 ── 条目
+```
+
+**物品下面多一层分类。** 别的列表是两级，物品是三级 —— 层级由 `pathMarkup` 按 page id 拼出来，`items-` 前缀就是判据（`ITEM_PAGES` 定义分类页，`ITEM_PAGE` 把物品类别映射到页面 id）。
+
+**套装是独立条目类型**（`set:id`），与 `item:id` 平级。装备条目页**只放一个套装链接**（`codexRefMarkup('set', setId)`），套装效果、部件清单、极致进度全部写在套装页的 `setBody()` —— 一页只讲一件事，同一份数据不在两处维护。
+
+**「是否达成」统一用 `statusLine()`**
+
+```ts
+function statusLine(text: string, done: boolean): string {
+  return `<div class="requirement ${done ? 'done' : ''}"><span class="status-dot ${done ? '' : 'pending'}"></span><span>${text}</span></div>`;
+}
+```
+
+和主线条件（`story` 页的 `.requirement`）共用同一套样式与语义。凡是「已收录 / 已开放 / 已凑齐 / 已极致 / 已确认掉落」这类进度都用它，**不要自己拼文字或另造样式**。掉落表那种逐行列表（`.codex-drops li`）也带 `status-dot`：已发现点亮、未发现灰。
+
+### 6.12 解锁与渐进披露（R29 / R30）
 
 **凡是有解锁门槛的内容，未解锁时一律不渲染**——不占位、不置灰、不挂锁图标。解锁后由顶部 tips 告知，并把内容追加进列表。
 
@@ -661,7 +699,7 @@ if (ctx.signature !== signature) {
 | 未完成的主线节点 | `未解锁记录` / `??? 待恢复` | 剧情进度，占位表达「还有内容」 |
 | 营地随机事件计时块 | `setHidden` | 单个元素，隐藏与不渲染等效 |
 
-### 6.12 新手指引（R32）
+### 6.13 新手指引（R32）
 
 引擎在 `src/guide.ts`，步骤表是文件顶部的 `GUIDES` —— 键同时是存档标记（`state.guides`）和解锁事件的 id。
 
@@ -787,9 +825,20 @@ interface PageDefinition<Context = any> {
 | 偏科不同 | 强度拉平的前提下，攻击 / 出手间隔 / 血量 / 防御各偏一头（高攻慢手、低攻快攻、高血高防低攻…） |
 | 开局区域无装备可过 | 新档 `inventory` 全 0、`equipment` 为空，废弃边境每一只都必须在「攻 12 / 防 0 / 血 100 / 回复 2」下打得赢 |
 
-净损失 ≈ `T × (怪物 DPS − 玩家回复 2)`，`T = 玩家出手次数 × 2.2 秒`。
+净损失 ≈ `T × (怪物 DPS − 玩家回复)`，`T = 玩家出手次数 × 出手间隔`。
 「血厚 + 防高」的怪 `T` 天然更长，**攻击必须相应压低**，净损失才拉得平。
-参考区间：废弃边境 21~23（100 生命可连打 4 只）、余烬矿脉 35~38、核心深井 48~60。
+
+各区域的玩家基准（穿齐上一区域的套装 + 对应营火等级，见 §7.9）：
+
+| 区域 | 玩家基准 | 净损失区间（占生命上限） |
+| --- | --- | --- |
+| 废弃边境 | 攻 12 / 防 0 / 血 100 / 回复 2 / 间隔 2.2（**裸装**） | 16~20% |
+| 余烬矿脉 | 攻 30 / 防 6 / 血 240 / 回复 5.4（拾荒者套装齐 + 营火 3） | 27~33% |
+| 核心深井 | 攻 50 / 防 8 / 血 260 / 回复 6 / 间隔 2.1（余烬套装齐 + 营火 5） | 32~33%（泰坦 43%） |
+
+**金币按「每秒产出大致不变」折算**：击杀变慢的区域，单只金币同步抬高 —— 否则加强怪物会顺带砍掉经济。
+
+**改套装属性就要重算这里** —— 套装是玩家战力的主要来源，基准一漂，整张表的净损失全偏。
 
 ⚠️ **`ENEMY_DEFS` 的键顺序不能动** —— `enemyId` 就是下标，`state.encountered` / `state.discoveredDrops` / `adventure.enemyId` 全按下标存，重排会让旧存档整体错位。新增怪物追加到所属区域分组的末尾。
 
@@ -818,6 +867,170 @@ const tabLabel = (tab) => tab === ALL_TAB ? '全部' : itemCategories[tab].name;
 | 装备槽 | 装备槽不记装着谁，用 `getState().equipped[equipType][slot]` 反查 |
 
 空槽 / 可堆叠物品卡片 / 空白处都返回 `-1`，等同于「取消」。装备槽的可点状态由 CSS 给（`body.enhancing .equip-slot.filled`），JS 不重复判断。
+
+### 7.8 自动进食（`game-state.ts` + `pages/adventure.ts`）
+
+研究项「自动进食」解锁后，冒险页的远征队卡片下方出现一个栏位（未解锁时 `setClass(..., 'is-hidden', true)` 收起，不重建 DOM），可以指定一种**食物**与触发阈值；生命值低于阈值时自动吃一份。
+
+**「食物」怎么判定（不要维护 id 清单）**
+
+看道具 `use` 上有没有 `heal` 标记：
+
+```ts
+// config/items.ts —— 回血量同时挂在函数上
+const healHandler = (amount: number): UseHandler => {
+  const handler: UseHandler = context => { context.heal(amount); context.consume(); return { kind: 'done' }; };
+  handler.heal = amount;
+  return handler;
+};
+// game-state.ts —— 候选从这里来
+export function foodItemIds(): number[] {
+  return items.map((item, itemId) => (item.category === 'consumable' && item.use?.heal ? itemId : -1)).filter(id => id >= 0);
+}
+```
+
+新增回血道具时**不需要改任何地方** —— 在 `ITEM_DEFS` 里写 `use: healHandler(N)` 就会自动进候选。
+
+**触发点只有一个：`enemyAttack` 末尾**
+
+```
+enemyAttack → 扣血 → 血归零则撤回营地（return）→ tryAutoEat
+```
+
+- 挨打是**唯一会掉血**的时机，挂在这里最准。
+- **不能**挂在 `advanceAdventure` 外层：一次 tick 可能推进多秒（离线最多 8 小时），会出现「先死再吃」。
+- 吃一份后若仍低于阈值，下次挨打会再吃一份 —— 天然限流，不需要额外冷却。
+
+**存档**
+
+`state.autoEat = { itemId, threshold }`，`readAutoEat` 负责校验：`itemId` 必须仍然是食物（否则归 -1），`threshold` 夹进 `AUTO_EAT.minThreshold ~ maxThreshold`。委托需求区间调整过（90~110 → 20~40），`readResearchState` 会把旧存档的 `need` 一并压回 `RESEARCH.needMax`。
+
+### 7.9 套装（`config/sets.ts`）
+
+**部件清单只在套装表里**
+
+`sets.ts` 的 `pieces` 是唯一来源；**物品表不写 `setId`** —— 否则 `items ↔ sets` 会形成循环依赖（`sets` 需要用 `ITEM` 来引用部件）。
+
+```ts
+scavenger: { name: '拾荒者', icon: '🔧', zone: ZONE.wasteBorder, dropChance: .15,
+  pieces: [ITEM.rustHammer, ITEM.weldingMask, ITEM.patchedVest, ITEM.reinforcedGreaves, ITEM.nutCharm],
+  bonus: { hp: 50, defense: 3, regen: 1 },       // 凑齐部件
+  perfectBonus: { hpPct: 25 } }                  // 全部部件【极致】（见 §7.10）
+```
+
+`bonus` 与 `perfectBonus` 是两级奖励：前者凑齐部件就给，后者要求每个部件都精炼到 100 级。**越早的套装 `perfectBonus` 给得越重** —— 早期套装容易被后来的装备淘汰，百分比加成是唯一不会被淘汰的形式。
+
+**掉落不占 dropTable 的名额**
+
+`grantSetDrop()` 在 `defeatEnemy` 里独立调用：按 `setOfZone(zoneOfEnemy(enemyId))` 找到该区域的套装，按 `dropChance` 判定，随机给一个部位。它**不写进怪物的 `dropTable`**，所以不受「同一只怪物最多 3 条掉落」那条约束。
+
+**生效条件：全部部件都在身上**
+
+`getSetBonus()` 把已装备的实例按**物品 id 去重**后检查 `pieces.every(...)`：
+
+- 装两件同名装备不会重复计数；
+- **少一件就完全不生效**（不是按件数递增）。
+
+加成并入玩家派生属性：
+
+| 属性 | 汇入点 |
+| --- | --- |
+| `attack` / `hp` / `defense` | `getPlayerAttack` / `getPlayerMaxHp` / `getPlayerDefense`（排在 `getEquipBonus` 之后、词条百分比之前） |
+| `regen` | `getPlayerRegen` |
+| `attackInterval` | `getPlayerAttackInterval`（从 `PLAYER_ATTACK_INTERVAL` 2.2 秒里减，下限 0.9 秒） |
+
+**新增一套的步骤**：在 `SET_DEFS` 追加一条（`pieces` 用 `ITEM.xxx`）+ 在 `ITEM_DEFS` 追加那几件装备。两边都追加在**末尾**，`setId` 与 `itemId` 自动对齐，不会动到存档里的既有下标。
+
+**物品栏容量不含已装备的**
+
+`getInventoryUsed()` 会把穿在身上的实例排除掉。不这么做的话，凑齐一套（5 件）反而把物品栏挤爆 —— 装备越多越没地方放东西。
+
+### 7.10 精炼（`game-state.ts` + `pages/inventory.ts`）
+
+重复装备的出路：**同名装备可以喂给同一件，把它的自身属性顶上去**。
+
+```ts
+export const REFINE_MAX = 100;   // 每级 +1% 自身属性，满级 = 属性翻倍
+export function getRefine(instance: EquipmentInstance | undefined): number;
+export function canRefineWith(instanceId: number, feederId: number, target?): boolean;
+export function refineWithFeeder(instanceId: number, feederId: number): boolean;
+```
+
+**新等级 = `min(100, 目标等级 + 素材等级 + 1)`**
+
+等级是**相加**的，不是「取较高者」也不是「素材等级 + 1」：两件都要投进去，所以拖拽没有方向之分，结果也永远大于目标原等级。
+
+| 拖拽 | 结果 |
+| --- | --- |
+| +10 → +0 | **+11** |
+| +0 → +10 | **+11**（对称） |
+| +10 → +10 | **+21** |
+| +60 → +60 | 121 → 夹到 **+100** |
+
+攒够 100 级比一件件喂快得多，这是「掉落自带等级」这条设计的配套。
+
+**入口是拖拽，不是右键菜单**：把装备 A 拖到同名装备 B 上。物品栏的 `dragover` / `drop` 同时认两类目标——装备槽（换装）与同名装备卡片（精炼），都不匹配就不 `preventDefault`，浏览器会显示禁止光标。
+
+**只放大「装备自身属性」**
+
+`getInstanceBonus()` 里乘 `1 + refine / 100`，**词条与套装加成都不过这一层**：
+
+| 加成来源 | 受精炼影响 |
+| --- | --- |
+| `equip.attack / hp / defense`（装备自身） | **是** |
+| 词条（`instance.affixes`） | 否 |
+| 套装效果（`getSetBonus`） | 否 |
+
+所以 `getEquipBonus` / `getEquipBonusSources` / 悬停浮层都会自动反映精炼 —— 它们都走 `getInstanceBonus`。**任何地方都不要直接读 `items[id].equip`**，那会漏掉精炼。
+
+**素材规则（`canRefineWith`）**
+
+1. 同名；
+2. 素材没装在槽位上（已装备的不能当素材，否则玩家会把自己身上的装备喂掉）；
+3. 目标还没满级。
+
+**不要**加「素材等级必须比目标高」这类限制 —— 那会让低等级拖不到高等级上，方向不对称（踩过）。「不倒退」是相加公式天然的性质（`目标 + 素材 + 1` 恒大于目标），不需要在 `canRefineWith` 里额外判断。不满足条件时靠 `dragover` 不 `preventDefault` 体现（光标变禁止）。
+
+**UI**
+
+精炼等级显示在两处，**都要保留**：
+
+| 位置 | 写法 | 为什么 |
+| --- | --- | --- |
+| 装备名右边 | `refineMarkup(level)` → `名称+N`（含 `+0`） | 看单件时最清楚 |
+| 图标右下角 | `.item-refine` 角标 | 网格里一眼扫过去时，名字往往看不清，角标更快 |
+
+卡片、装备槽、悬停浮层三处的名字侧显示必须一致（都走 `refineMarkup`）。满级两处都用暖色标【极致】。拖拽时目标卡片加 `.refine-target` 高亮。
+
+**「已装备」的边框要用内阴影加粗**
+
+```css
+.item-card.equipped { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+```
+
+视觉 2px。**不要**用 `border-width: 2px` —— 那会让卡片尺寸跳 1px，网格跟着抖。装备槽的 `.filled` 同理。
+
+**【极致】**
+
+精炼到 `REFINE_MAX`（100）称为【极致】。达成时把物品 id 记进 `state.perfectItems` —— 这是**「达成过」的记录而不是持有状态**，把那件装备当素材喂掉之后依然保留，wiki 与套装奖励都看它。
+
+**套装【极致】奖励**
+
+一套的全部部件都进过 `perfectItems` 时，发放 `perfectBonus`（见 §7.9）—— **只给百分比**，因为越早的套装越容易被后来的装备淘汰，百分比是唯一不会被淘汰的形式。发放时只写一条日志，**不触发 unlock tips**（那套提示留给系统级解锁）。
+
+判定是「这套的每个部件都达成过极致」，不是「同时穿着」—— 玩家可以分批精炼，不必同时持有。
+
+**掉落自带的精炼等级（`ZONE_DEFS.dropRefine`）**
+
+区域表里的字段，缺省 0：这个区域掉落的装备（套装部件与 `dropTable` 里的装备都算）自带几级精炼。
+
+| 区域 | dropRefine |
+| --- | --- |
+| 废弃边境 | **10** |
+| 余烬矿脉 | **5** |
+| 核心深井 | **1** |
+
+越早的区域给得越高 —— 早期装备靠一件件喂太慢，直接送一档起步；后期区域基本靠自己喂，所以只给 +1。新增区域不写就是 0。取值走 `zoneDropRefine(enemyId)`（按怪物反查区域），发放点是 `grantDrops` 与 `grantSetDrop`。
 
 ---
 
@@ -885,6 +1098,16 @@ const tabLabel = (tab) => tab === ALL_TAB ? '全部' : itemCategories[tab].name;
 - [ ] 高亮框（虚线）与可点区（实线脉冲）视觉上能一眼区分（R32）
 - [ ] 等待型步骤的 `waitFor` 只读 `GameState` 的持久字段，不依赖 DOM 状态（刷新后仍能恢复）
 - [ ] 物品储藏的页签由 `STORAGE_TABS`（全部 + `categoryOrder`）生成，页面里没有手写的页签列表
+- [ ] 「食物」判定走 `use.heal` 标记，没有硬编码的 id 清单；新增回血道具只需写 `healHandler`
+- [ ] 自动进食的触发只在 `enemyAttack` 末尾，没有挂到 `advanceAdventure` 外层
+- [ ] 套装部件清单只写在 `config/sets.ts` 的 `pieces` 里，物品表没有 `setId`（避免循环依赖）
+- [ ] 新增套装时 `SET_DEFS` 与 `ITEM_DEFS` 都是**追加到末尾**，没有插队改到既有下标
+- [ ] 读装备属性一律走 `getInstanceBonus(instance)`，没有直接读 `items[id].equip`（会漏掉精炼）
+- [ ] 精炼走的是 `canRefineWith`（同名 + 素材未装备 + 素材等级够高），入口是拖拽而不是右键菜单
+- [ ] 精炼等级显示在装备名右边（`refineMarkup`），卡片 / 槽位 / 悬停三处一致
+- [ ] 会滚动 / 有状态的弹窗，`update()` 里重写 `innerHTML` 前先比签名（R22 陷阱）
+- [ ] wiki 里凡是「已收录 / 已开放 / 已凑齐 / 已极致」这类进度都走 `statusLine()`，没有自己拼文字
+- [ ] 套装效果只写在套装页（`setBody`），装备条目页只放一个套装链接
 - [ ] 悬停元素支持 `:focus-visible` 且有 outline（R11）
 - [ ] 点击卡片不会让悬停浮层移动（`focusin` 已按键盘 / 鼠标来源区分，R28）
 - [ ] 弹窗三种关闭方式齐全（按钮 / 遮罩 / Esc）（R12）
@@ -940,3 +1163,5 @@ const tabLabel = (tab) => tab === ALL_TAB ? '全部' : itemCategories[tab].name;
 | 18 | 未解锁的内容仍被自动流程处理（如后勤把未解锁的制造项造出来） | 动作入口加解锁判定，自动流程 `continue` 跳过 | 未解锁的内容不该参与逻辑（R30） |
 | 19 | 引导高亮某个面板时，面板里的按钮被误点 | 高亮区**默认整体不可点**，只有 `step.click` 的元素被让出来（靠 `.guide-block` 围洞） | 高亮区若直接敞开，玩家会点到正在被讲解的按钮（R32） |
 | 20 | `requireClick` 的步骤卡死，怎么点都不前进 | 引导层自身 `pointer-events: none`；放行元素要写进 `step.click`，或依赖 `requireClick` 时默认放行 `target` | 拦截层盖过头，会把该点的地方也挡上（R32） |
+| 21 | 本地重新构建后，`python server.py` 托管的页面里开发者面板消失了 | 本地验证一律用 `npm run build:devtools`（或直接重启 `python server.py`） | `npm run build` 按设计关闭开发者功能，会把 `dist/` 覆盖成纯净产物；`__DEV_TOOLS__` → `false` 后面板代码被摇树删掉，`Ctrl+F5` 无效 |
+| 22 | 弹窗内容滚不动，每次滚轮都弹回顶部 | 给弹窗内容算签名，**只在签名变化时**才重写 `innerHTML` | `update()` 每 500ms 跑一次，无条件重写 `innerHTML` 会把滚动位置一起重置（装备加成窗口踩过） |

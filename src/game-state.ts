@@ -1,4 +1,5 @@
-import { zones, enemyTable, ENEMY, ZONE } from './config/zones';
+import { zones, enemyTable, ENEMY, ZONE, zoneOfEnemy } from './config/zones';
+import { sets, setTable, SET, setOfZone, setOfItem } from './config/sets';
 import { items, ITEM, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY } from './config/items';
 import { affixes, AFFIX, affixCap, affixMarkup, skills, SKILL, AFFIX_MAX_MULTIPLIER } from './config/affixes';
 import { CAMP_EVENT, randomEventDefs, campEventDef } from './config/events';
@@ -8,7 +9,7 @@ import { CAMP_EVENT, randomEventDefs, campEventDef } from './config/events';
    - 不进存档（主线条件文案，每次都由 text() 现算）：直接用 itemRefMarkup 拼出 HTML。
    存档里不能存 HTML，所以日志那条路必须走标记。 */
 import { itemTag, itemRefMarkup, enemyTag, zoneTag, pageRefMarkup } from './codex-ref';
-import type { Achievement, AdventureState, CampBattleState, EquipmentInstance, GameState, LogType, MainlineQuest, MainlineRequirement, ResearchTaskState, UseOutcome } from './types';
+import type { Achievement, AdventureState, AutoEatState, CampBattleState, EquipmentInstance, GameState, LogType, MainlineQuest, MainlineRequirement, ResearchTaskState, SetBonus, UseOutcome } from './types';
 
 export const MAX_OFFLINE_SECONDS = 8 * 60 * 60;
 /* v6：强化等级换成词条——实例上存 affixes，道具的 use 变成函数。
@@ -29,7 +30,7 @@ function devOverride(index: number, target: GameState): number | null {
   const value = target.devOverrides?.[index];
   return typeof value === 'number' && value >= 0 ? value : null;
 }
-export { zones, enemyTable, items, ITEM, ENEMY, ZONE, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, affixes, AFFIX, affixCap, affixMarkup, skills, SKILL, AFFIX_MAX_MULTIPLIER, CAMP_EVENT, randomEventDefs };
+export { zones, enemyTable, items, ITEM, ENEMY, ZONE, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, affixes, AFFIX, affixCap, affixMarkup, skills, SKILL, AFFIX_MAX_MULTIPLIER, CAMP_EVENT, randomEventDefs, sets, setTable, SET, setOfItem, setOfZone };
 
 /** 初始区域：营地（不刷怪，只休整）。 */
 const CAMP_ZONE_ID = ZONE.camp;
@@ -107,7 +108,7 @@ export function isWorkshopItemUnlocked(id: number, target: GameState = state): b
    交齐指定掉落物换研究点数，研究点数用来提升研究项。 */
 export const RESEARCH = {
   /** 委托要求的数量区间：needMin ~ needMax，上限会被「任务难度降低」压低。 */
-  needMin: 90, needMax: 110,
+  needMin: 20, needMax: 40,
   /** 每份委托的研究点数奖励。 */
   reward: 10,
   /** 研究项升级消耗：costBase + costStep × 当前等级。 */
@@ -137,7 +138,7 @@ export function setResearchDifficulty(value: number): void {
   saveState(); notify();
 }
 /** 研究项：下标即 state.researchLevels 的下标，追加新项要放在末尾。 */
-export const RESEARCH_ITEM = { taskNeed: 0, reward: 1 };
+export const RESEARCH_ITEM = { taskNeed: 0, reward: 1, autoEat: 2 };
 export const researchItems = [
   {
     name: '任务难度降低 I', icon: '📉', maxLevel: 10, unlockIndex: 3,
@@ -149,6 +150,11 @@ export const researchItems = [
     name: '信号放大 I', icon: '📡', maxLevel: 10, unlockIndex: 5,
     desc: '把核心信号放大后再解析：同样的委托能换到更多研究点数。',
     effect: (level: number): string => level ? `每份委托的研究点数 +${level}` : '尚未研究：研究后每级让每份委托的研究点数 +1'
+  },
+  {
+    name: '自动进食', icon: '🍖', maxLevel: 1, unlockIndex: 3,
+    desc: '把口粮分发流程固化下来：远征队会在生命值过低时自己吃掉指定的食物。',
+    effect: (level: number): string => level ? '已解锁：在冒险页指定食物与触发阈值' : '尚未研究：研究后可在冒险页指定食物与触发阈值'
   }
 ];
 /** 研究项是否已解锁：主线进度不够时卡片锁着、点了也没反应。 */
@@ -161,6 +167,50 @@ export function getTaskReward(task: ResearchTaskState, target: GameState = state
 /** 以当前难度接下一份委托能拿多少点（界面预览用）。 */
 export function getResearchReward(target: GameState = state): number {
   return getTaskReward({ itemId: -1, zoneId: -1, difficulty: getResearchDifficulty(target), need: 0 }, target);
+}
+
+/* ——— 自动进食（研究项「自动进食」解锁）———
+   解锁后可以在冒险页指定一种「食物」，生命值掉到阈值以下时自动吃一份。
+   「食物」的判定不看 id 清单，而是看道具的 use 上有没有 heal 标记（见 config/items.ts 的 healHandler）——
+   以后新增回血道具会自动出现在候选里，不需要改这里。 */
+export const AUTO_EAT = {
+  /** 默认触发阈值（百分比）。 */
+  defaultThreshold: 30,
+  /** 可调范围：太低来不及救，太高会一直吃。 */
+  minThreshold: 10, maxThreshold: 90, thresholdStep: 5
+};
+/** 「自动进食」研究项是否已解锁。 */
+export function isAutoEatUnlocked(target: GameState = state): boolean { return getResearchLevel(RESEARCH_ITEM.autoEat, target) > 0; }
+/** 物品栏里所有的「食物」：使用后能回血的消耗品。 */
+export function foodItemIds(): number[] { return items.map((item, itemId) => (item.category === 'consumable' && item.use?.heal ? itemId : -1)).filter(itemId => itemId >= 0); }
+/** 当前指定的食物：没指定、或指定的东西已经不是食物都返回 -1。
+    数量为 0 时仍然返回它 —— 界面要显示「剩 0」，玩家才知道该去补货。 */
+export function getAutoEatItem(target: GameState = state): number { const itemId = target.autoEat?.itemId ?? -1; return itemId >= 0 && items[itemId]?.use?.heal ? itemId : -1; }
+export function getAutoEatThreshold(target: GameState = state): number { return Math.max(AUTO_EAT.minThreshold, Math.min(AUTO_EAT.maxThreshold, Math.floor(Number(target.autoEat?.threshold) || AUTO_EAT.defaultThreshold))); }
+/** 指定自动进食的食物；传 -1 表示关掉。未解锁、或传的不是食物时不生效。 */
+export function setAutoEatItem(itemId: number): void {
+  if (!isAutoEatUnlocked(state)) return;
+  if (itemId >= 0 && !items[itemId]?.use?.heal) return;
+  if (getAutoEatItem(state) === itemId) return;
+  state.autoEat.itemId = itemId;
+  addLog(state, itemId >= 0 ? `自动进食已指定：${itemTag(itemId)}。` : '自动进食已关闭。', 'system');
+  saveState(); notify();
+}
+/** 调整触发阈值（百分比），会夹进可调范围。 */
+export function setAutoEatThreshold(value: number): void {
+  const next = Math.max(AUTO_EAT.minThreshold, Math.min(AUTO_EAT.maxThreshold, Math.floor(Number(value) || 0)));
+  if (next === getAutoEatThreshold(state)) return;
+  state.autoEat.threshold = next;
+  saveState(); notify();
+}
+/** 自动进食：生命值掉到阈值以下就吃一份指定食物。
+    只在挨打之后调用 —— 那是唯一会掉血的时机，也保证一次 tick 推进多秒时不会「先死再吃」。 */
+function tryAutoEat(target: GameState): void {
+  if (!isAutoEatUnlocked(target)) return;
+  const itemId = getAutoEatItem(target);
+  if (itemId < 0 || !(target.inventory[itemId] > 0)) return;
+  if (target.adventure.playerHp > getPlayerMaxHp(target) * getAutoEatThreshold(target) / 100) return;
+  useItem(itemId);
 }
 
 /** 等级加成曲线：前 10 级按 perLevel 线性增长，之后每级只给一半收益（避免后期数值失控）。 */
@@ -203,8 +253,8 @@ export function assignLogistics(index: number, delta: number): void {
 function workshopBonus(target: GameState, key: 'perHp' | 'perAttack' | 'perDefense'): number {
   return workshopItems.reduce((total, item, id) => total + levelBonus(target.campWorkshop[id]?.level || 0, item[key]), 0);
 }
-export function getCampMaxHp(target: GameState = state): number { return Math.round(CAMP_BASE.hp + workshopBonus(target, 'perHp') + worksiteLevel(target) * WORKSITE_BONUS.hp + target.workshop * 20 + target.companions * 15); }
-export function getCampAttack(target: GameState = state): number { return Math.round(CAMP_BASE.attack + workshopBonus(target, 'perAttack') + worksiteLevel(target) * WORKSITE_BONUS.attack + target.workshop * 2 + target.research * 3 + target.companions * 2); }
+export function getCampMaxHp(target: GameState = state): number { return Math.round(CAMP_BASE.hp + workshopBonus(target, 'perHp') + worksiteLevel(target) * WORKSITE_BONUS.hp + target.workshop * 20); }
+export function getCampAttack(target: GameState = state): number { return Math.round(CAMP_BASE.attack + workshopBonus(target, 'perAttack') + worksiteLevel(target) * WORKSITE_BONUS.attack + target.workshop * 2); }
 export function getCampDefense(target: GameState = state): number { return Math.round(CAMP_BASE.defense + workshopBonus(target, 'perDefense') + worksiteLevel(target) * WORKSITE_BONUS.defense + target.workshop); }
 export function getCampRegen(target: GameState = state): number { return 1.5 + worksiteLevel(target) * .3; }
 export function getCampHp(target: GameState = state): number { return Math.max(0, Math.min(getCampMaxHp(target), target.camp.hp)); }
@@ -381,8 +431,8 @@ const freshAdventure = (): AdventureState => ({
 });
 const freshState = (): GameState => ({
   gold: 45, scrap: 24, essence: 0, totalWins: 0, mainlineIndex: 0,
-  workshop: 0, research: 0, companions: 0, researchPoints: 0, researchDifficulty: 1, researchTask: { itemId: -1, zoneId: -1, difficulty: 1, need: 0 }, researchLevels: researchItems.map(() => 0), equipped: equipTypes.map(type => new Array(type.baseSlots).fill(-1)), settings: { fontScale: 0, notify: true, numberFormat: 0 },
-  inventory: new Array(items.length).fill(0), equipment: [], nextInstanceId: 1, encountered: new Array(enemyTable.length).fill(0), discoveredDrops: enemyTable.map(() => []), adventure: freshAdventure(),
+  workshop: 0, researchPoints: 0, researchDifficulty: 1, researchTask: { itemId: -1, zoneId: -1, difficulty: 1, need: 0 }, researchLevels: researchItems.map(() => 0), autoEat: { itemId: -1, threshold: AUTO_EAT.defaultThreshold }, equipped: equipTypes.map(type => new Array(type.baseSlots).fill(-1)), settings: { fontScale: 0, notify: true, numberFormat: 0 },
+  inventory: new Array(items.length).fill(0), equipment: [], nextInstanceId: 1, encountered: new Array(enemyTable.length).fill(0), discoveredDrops: enemyTable.map(() => []), perfectItems: [], adventure: freshAdventure(),
   /* 后勤小队开局 1 人（全部待命）；工坊只有一个制造项，0 级且空闲；营地满血、随机事件从满间隔开始倒数。 */
   logistics: { assigned: logisticsTargets.map(() => 0) },
   campWorkshop: workshopItems.map(() => ({ level: 0, target: -1, work: 0 })),
@@ -418,21 +468,131 @@ export function getEquipmentInstance(instanceId: number, target: GameState = sta
 /** 实例 id → 物品 id；实例不存在时返回 -1。 */
 export function getInstanceItemId(instanceId: number, target: GameState = state): number { const instance = findEquipment(instanceId, target); return instance ? instance.itemId : -1; }
 /** 新增 count 个装备实例：每件都是独立个体，id 不复用。 */
-function addEquipment(target: GameState, itemId: number, count: number): void { for (let index = 0; index < count; index++) target.equipment.push({ id: target.nextInstanceId++, itemId }); }
+function addEquipment(target: GameState, itemId: number, count: number, refine = 0): void { const level = Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(refine) || 0))); for (let index = 0; index < count; index++) target.equipment.push({ id: target.nextInstanceId++, itemId, refine: level }); }
+/** 某个区域掉落的装备自带几级精炼（见 config/zones.ts 的 dropRefine）。 */
+function zoneDropRefine(enemyId: number): number { const zone = zones[zoneOfEnemy(enemyId)]; return Math.max(0, Math.floor(Number(zone?.dropRefine) || 0)); }
 /** 持有数量：可堆叠物品看数量，装备数实例个数。物品栏上限按「种类」算，用它判断是不是新种类。 */
 export function getOwnedCount(itemId: number, target: GameState = state): number { return items[itemId].stackable ? target.inventory[itemId] || 0 : target.equipment.reduce((total, instance) => (instance.itemId === itemId ? total + 1 : total), 0); }
 /** 把某个装备实例从所有槽位上摘掉。正常流程下一个实例只占一个槽位，这里逐槽扫描做兜底。 */
 function unequipEverywhere(target: GameState, instanceId: number): void { target.equipped.forEach(slots => { for (let index = 0; index < slots.length; index++) if (slots[index] === instanceId) slots[index] = -1; }); }
-/** 单个装备实例自身提供的属性（不含词条）。 */
+/** 精炼等级上限。每级让这件装备的自身属性 +1%，所以满级是「属性翻倍」。
+    提升靠把同名装备拖到它身上（见 refineWithFeeder），新等级取「素材等级 + 1」——
+    所以刷到一件高等级的掉落，比攒一堆 +0 快得多。 */
+export const REFINE_MAX = 100;
+/** 这件装备的精炼等级，越界与缺省都按 0 处理。 */
+export function getRefine(instance: EquipmentInstance | undefined): number { return instance ? Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(instance.refine) || 0))) : 0; }
+/** 单个装备实例自身提供的属性（不含词条）。精炼每级把这几项放大 1%。 */
 export function getInstanceBonus(instance: EquipmentInstance): { attack: number; hp: number; defense: number } {
   const base = items[instance.itemId].equip || {};
-  return { attack: base.attack || 0, hp: base.hp || 0, defense: base.defense || 0 };
+  const scale = 1 + getRefine(instance) / 100;
+  return { attack: Math.round((base.attack || 0) * scale), hp: Math.round((base.hp || 0) * scale), defense: Math.round((base.defense || 0) * scale) };
+}
+/** 能不能把 feederId 喂给 instanceId：同名、素材没装在槽位上、目标还没满级。
+    两个方向都允许 —— 低等级喂给高等级是合法操作，结果由 refineWithFeeder 保证不倒退。
+    已装备的不能当素材：不能让玩家把自己身上的装备喂掉。 */
+export function canRefineWith(instanceId: number, feederId: number, target: GameState = state): boolean {
+  if (instanceId === feederId || instanceId < 0 || feederId < 0) return false;
+  const instance = findEquipment(instanceId, target);
+  const feeder = findEquipment(feederId, target);
+  if (!instance || !feeder || feeder.itemId !== instance.itemId) return false;
+  if (isEquipped(feederId, target)) return false;
+  return getRefine(instance) < REFINE_MAX;
+}
+/** 精炼：消耗一件同名备用件，目标件的新等级 = 目标等级 + 素材等级 + 1（夹在 REFINE_MAX 以内）。
+    等级是「相加」而不是「取较高者」：两件都要投进去，所以拖拽没有方向之分，也永远大于原等级。
+    掉落的 +10 喂进 +0 是 +11；两件 +10 互喂是 +21；攒够 100 级比一件件喂快得多。 */
+export function refineWithFeeder(instanceId: number, feederId: number): boolean {
+  if (!canRefineWith(instanceId, feederId)) return false;
+  const instance = findEquipment(instanceId)!;
+  const feeder = findEquipment(feederId)!;
+  const from = getRefine(instance);
+  const feederLevel = getRefine(feeder);
+  state.equipment = state.equipment.filter(entry => entry.id !== feederId);
+  instance.refine = Math.min(REFINE_MAX, from + feederLevel + 1);
+  addLog(state, `精炼：${itemTag(instance.itemId)} +${from} → +${instance.refine}（消耗同名装备 +${feederLevel}）。`, 'progress');
+  /* 满级记为【极致】。这是「达成过」的记录，喂掉那件也保留（wiki 与套装奖励都看它）。
+     整套部件都极致时再发一次永久加成 —— 只记日志，不弹 tips：unlock 提示留给系统级解锁。 */
+  if (instance.refine >= REFINE_MAX && !state.perfectItems.includes(instance.itemId)) {
+    state.perfectItems.push(instance.itemId);
+    addLog(state, `${itemTag(instance.itemId)} 达成【极致】。`, 'progress');
+    const setId = setOfItem(instance.itemId);
+    const entry = setId >= 0 ? setTable[setId] : undefined;
+    if (entry && entry.pieces.every(itemId => state.perfectItems.includes(itemId))) {
+      addLog(state, `${entry.name}套装全部达成【极致】：永久获得 ${perfectBonusText(entry.perfectBonus)}。`, 'progress');
+    }
+  }
+  saveState(); notify();
+  return true;
+}
+/** 这件装备是否曾经精炼到 100 级（【极致】）。 */
+export function isPerfectItem(itemId: number, target: GameState = state): boolean { return !!target.perfectItems?.includes(itemId); }
+/** 套装加成（凑齐部件）的文案。 */
+export function setBonusText(bonus: SetBonus): string {
+  const parts: string[] = [];
+  if (bonus.attack) parts.push(`攻击 +${bonus.attack}`);
+  if (bonus.hp) parts.push(`生命 +${bonus.hp}`);
+  if (bonus.defense) parts.push(`防御 +${bonus.defense}`);
+  if (bonus.regen) parts.push(`生命恢复 +${bonus.regen}/秒`);
+  if (bonus.attackInterval) parts.push(`出手间隔 -${bonus.attackInterval} 秒`);
+  return parts.join(' · ');
+}
+/** 【极致】奖励的文案。 */
+export function perfectBonusText(bonus: { attackPct?: number; hpPct?: number }): string {
+  const parts: string[] = [];
+  if (bonus.attackPct) parts.push(`攻击 +${bonus.attackPct}%`);
+  if (bonus.hpPct) parts.push(`生命上限 +${bonus.hpPct}%`);
+  return parts.join(' · ');
+}
+/** 【极致】奖励：一套的全部部件都精炼到过 100 级时生效的永久百分比加成。
+    只给百分比 —— 越早的套装越容易被后来的装备淘汰，百分比是唯一不会被淘汰的形式。 */
+export function getPerfectBonus(target: GameState = state): { attackPct: number; hpPct: number } {
+  const totals = { attackPct: 0, hpPct: 0 };
+  const perfect = target.perfectItems || [];
+  if (!perfect.length) return totals;
+  for (const entry of setTable) {
+    if (!entry.pieces.length || !entry.pieces.every(itemId => perfect.includes(itemId))) continue;
+    totals.attackPct += entry.perfectBonus.attackPct || 0;
+    totals.hpPct += entry.perfectBonus.hpPct || 0;
+  }
+  return totals;
 }
 /** 已装备实例自身提供的全部加成（不含词条）。装备栏的加成面板和玩家的攻击/生命/防御都从这里取。 */
 export function getEquipBonus(target: GameState = state): { attack: number; hp: number; defense: number } {
   const bonus = { attack: 0, hp: 0, defense: 0 };
   for (const slots of target.equipped) for (const instanceId of slots) { const instance = instanceId >= 0 ? findEquipment(instanceId, target) : undefined; if (!instance) continue; const stats = getInstanceBonus(instance); bonus.attack += stats.attack; bonus.hp += stats.hp; bonus.defense += stats.defense; }
   return bonus;
+}
+/** 套装加成：一套的**全部**部件都装在身上才生效。
+    已装备的物品按 id 去重，所以装两件同名装备不会重复计数。 */
+export function getSetBonus(target: GameState = state): { attack: number; hp: number; defense: number; regen: number; attackInterval: number } {
+  const totals = { attack: 0, hp: 0, defense: 0, regen: 0, attackInterval: 0 };
+  const worn = new Set<number>();
+  for (const slots of target.equipped) for (const instanceId of slots) {
+    if (instanceId < 0) continue;
+    const instance = findEquipment(instanceId, target);
+    if (instance) worn.add(instance.itemId);
+  }
+  for (const entry of setTable) {
+    if (!entry.pieces.length || !entry.pieces.every(itemId => worn.has(itemId))) continue;
+    totals.attack += entry.bonus.attack || 0;
+    totals.hp += entry.bonus.hp || 0;
+    totals.defense += entry.bonus.defense || 0;
+    totals.regen += entry.bonus.regen || 0;
+    totals.attackInterval += entry.bonus.attackInterval || 0;
+  }
+  return totals;
+}
+/** 某套已经穿上几件（同名去重），界面用来显示套装进度。 */
+export function getSetWorn(setId: number, target: GameState = state): number {
+  const pieces = setTable[setId]?.pieces || [];
+  if (!pieces.length) return 0;
+  const worn = new Set<number>();
+  for (const slots of target.equipped) for (const instanceId of slots) {
+    if (instanceId < 0) continue;
+    const instance = findEquipment(instanceId, target);
+    if (instance) worn.add(instance.itemId);
+  }
+  return pieces.filter(itemId => worn.has(itemId)).length;
 }
 /** 已装备实例上所有词条的汇总。pct 是百分比（6 表示 +6%），在最后一步放大玩家的最终属性。 */
 export interface AffixTotals { attack: number; hp: number; defense: number; attackPct: number; hpPct: number; skills: { skill: number; value: number }[] }
@@ -479,29 +639,39 @@ export function getEquipBonusSources(key: EquipBonusKey, target: GameState = sta
   return sources;
 }
 /** 防御力：来自装备自身与词条，减免受到的伤害（见 enemyAttack）。 */
-export function getPlayerDefense(target: GameState = state): number { const override = devOverride(DEV_STAT.defense, target); if (override !== null) return override; return getEquipBonus(target).defense + getAffixTotals(target).defense; }
+export function getPlayerDefense(target: GameState = state): number { const override = devOverride(DEV_STAT.defense, target); if (override !== null) return override; return getEquipBonus(target).defense + getSetBonus(target).defense + getAffixTotals(target).defense; }
 /** 这个装备实例是否在某个槽位上。参数是实例 id 而不是物品 id——同名装备的各件互不影响。 */
 export function isEquipped(instanceId: number, target: GameState = state): boolean { return instanceId >= 0 && target.equipped.some(slots => slots.includes(instanceId)); }
-/** 生命上限：先加固定值（基础 + 工坊 + 伙伴 + 装备 + 固定词条），最后按百分比词条放大。 */
-export function getPlayerMaxHp(target: GameState = state): number { const override = devOverride(DEV_STAT.maxHp, target); if (override !== null) return override; const totals = getAffixTotals(target); const flat = 100 + target.workshop * 15 + target.companions * 25 + getEquipBonus(target).hp + totals.hp; return Math.round(flat * (1 + totals.hpPct / 100)); }
-export function getPlayerRegen(target: GameState = state): number { const override = devOverride(DEV_STAT.regen, target); if (override !== null) return override; return 2 + target.workshop * .8 + target.companions * 1.5; }
+/** 生命上限：先加固定值（基础 + 营火 + 装备 + 套装 + 固定词条），最后按百分比词条放大。 */
+export function getPlayerMaxHp(target: GameState = state): number { const override = devOverride(DEV_STAT.maxHp, target); if (override !== null) return override; const totals = getAffixTotals(target); const flat = 100 + target.workshop * 15 + getEquipBonus(target).hp + getSetBonus(target).hp + totals.hp; return Math.round(flat * (1 + (totals.hpPct + getPerfectBonus(target).hpPct) / 100)); }
+export function getPlayerRegen(target: GameState = state): number { const override = devOverride(DEV_STAT.regen, target); if (override !== null) return override; return 2 + target.workshop * .8 + getSetBonus(target).regen; }
 /** 进入战斗区域、以及击杀敌人之后，下一个敌人出现所需的刷新冷却（秒）。 */
 export const SPAWN_COOLDOWN = 3;
 /** 营地区域的基础回复倍率：在营地里生命回复速度 = 野外回复速度 × 这个值。 */
 export const CAMP_REGEN_MULTIPLIER = 5;
 /** 当前区域的回复倍率：营地用营地倍率，战斗区域为 1。 */
 export function getRegenMultiplier(target: GameState = state): number { return isCampZone(currentZoneId(target)) ? CAMP_REGEN_MULTIPLIER : 1; }
-/** 攻击力：先加固定值（基础 + 工坊 + 研究 + 伙伴 + 装备 + 固定词条），最后按百分比词条放大。 */
-export function getPlayerAttack(target: GameState = state): number { const override = devOverride(DEV_STAT.attack, target); if (override !== null) return override; const totals = getAffixTotals(target); const flat = 12 + target.workshop * 3 + target.research * 5 + target.companions * 4 + getEquipBonus(target).attack + totals.attack; return Math.round(flat * (1 + totals.attackPct / 100)); }
-/* 出手间隔下限 0.1 秒：覆盖值给到 0 会让战斗循环里 step 恒为 0，卡死主循环。 */
-export function getPlayerAttackInterval(target: GameState = state): number { const override = devOverride(DEV_STAT.attackInterval, target); if (override !== null) return Math.max(.1, override); return Math.max(.9, 2.2 - target.research * .08); }
+/** 攻击力：先加固定值（基础 + 工坊 + 装备 + 套装 + 固定词条），最后按百分比词条放大。 */
+export function getPlayerAttack(target: GameState = state): number { const override = devOverride(DEV_STAT.attack, target); if (override !== null) return override; const totals = getAffixTotals(target); const flat = 12 + target.workshop * 3 + getEquipBonus(target).attack + getSetBonus(target).attack + totals.attack; return Math.round(flat * (1 + (totals.attackPct + getPerfectBonus(target).attackPct) / 100)); }
+/* 出手间隔下限 0.1 秒：覆盖值给到 0 会让战斗循环里 step 恒为 0，卡死主循环。
+   基础值 2.2 秒，套装加成可以把它压低（下限 0.9 秒，防止堆到瞬发）。 */
+export const PLAYER_ATTACK_INTERVAL = 2.2;
+export function getPlayerAttackInterval(target: GameState = state): number { const override = devOverride(DEV_STAT.attackInterval, target); if (override !== null) return Math.max(.1, override); return Math.max(.9, PLAYER_ATTACK_INTERVAL - getSetBonus(target).attackInterval); }
 /** 刷怪间隔：击杀 / 进入区域后到下一个敌人出现的秒数（可被开发者面板覆盖，同样有 0.1 秒下限）。 */
 export function getSpawnCooldown(target: GameState = state): number { const override = devOverride(DEV_STAT.spawnCooldown, target); return override !== null ? Math.max(.1, override) : SPAWN_COOLDOWN; }
 /* 物品栏上限按「种类」算：同一种物品可以无限叠加，只有新种类才会占用空位。
    初始 20 格：开局不加工坊与伙伴也放得下三个区域的掉落种类，不会刚出门就被上限卡住。 */
-export function getInventoryCapacity(target: GameState = state): number { return 20 + target.workshop * 2 + target.companions; }
-/** 已占用格数：可堆叠物品按「种类」算一类一格；不可堆叠（装备）一件一格，同名的每一件都要各自占一格。 */
-export function getInventoryUsed(target: GameState = state): number { let kinds = 0; for (const quantity of target.inventory) if (quantity > 0) kinds += 1; return kinds + target.equipment.length; }
+export function getInventoryCapacity(target: GameState = state): number { return 20 + target.workshop * 2; }
+/** 已占用格数：可堆叠物品按「种类」算一类一格；不可堆叠（装备）一件一格，同名的每一件都要各自占一格。
+    例外：**已经穿在身上的装备不算占格** —— 穿戴本身就该腾出背包空间。
+    否则凑齐套装（5 件）反而会把物品栏挤爆，装备越多越没地方放东西。 */
+export function getInventoryUsed(target: GameState = state): number {
+  let kinds = 0;
+  for (const quantity of target.inventory) if (quantity > 0) kinds += 1;
+  const worn = new Set<number>();
+  for (const slots of target.equipped) for (const instanceId of slots) if (instanceId >= 0) worn.add(instanceId);
+  return kinds + target.equipment.filter(instance => !worn.has(instance.id)).length;
+}
 export function currentZoneId(target: GameState = state): number { return zones[target.adventure.zoneId] ? target.adventure.zoneId : CAMP_ZONE_ID; }
 export function currentZone(target: GameState = state) { return zones[currentZoneId(target)]; }
 /** 营地这类没有敌人的区域：不刷怪，只按倍率回复生命值。 */
@@ -527,13 +697,24 @@ function randomAmount(min: number, max: number): number { return min + Math.floo
 function revealDrop(target: GameState, enemyId: number, itemId: number): void { const list = target.discoveredDrops[enemyId] || (target.discoveredDrops[enemyId] = []); if (!list.includes(itemId)) list.push(itemId); }
 /* 只有真正进了包才算「获得」：被物品栏上限拒收的不揭示。 */
 function grantDrops(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; enemy.dropTable.forEach(drop => { if (Math.random() > drop.chance) return; const item = items[drop.itemId]; /* 可堆叠的进数量，装备每件都建成独立实例；拿完如果超出上限，就丢掉刚拿到的这一件。 */
-const amount = randomAmount(drop.min, drop.max); /* 装备每件都建成独立实例，可堆叠的进数量。 */ if (item.stackable) { target.inventory[drop.itemId] += amount; if (drop.itemId === ITEM.scrap) target.scrap += amount; if (drop.itemId === ITEM.emberShard) target.essence += amount; } else addEquipment(target, drop.itemId, amount); revealDrop(target, enemyId, drop.itemId); addLog(target, `掉落：${itemTag(drop.itemId)} ×${amount}`, 'drop'); /* 超上限就把刚拿到的这件丢掉，不动玩家原有的东西。 */ trimInventoryOverflow(target, drop.itemId); }); }
+const amount = randomAmount(drop.min, drop.max); /* 装备每件都建成独立实例，可堆叠的进数量。 */ if (item.stackable) { target.inventory[drop.itemId] += amount; if (drop.itemId === ITEM.scrap) target.scrap += amount; if (drop.itemId === ITEM.emberShard) target.essence += amount; } else addEquipment(target, drop.itemId, amount, zoneDropRefine(enemyId)); revealDrop(target, enemyId, drop.itemId); addLog(target, `掉落：${itemTag(drop.itemId)} ×${amount}`, 'drop'); /* 超上限就把刚拿到的这件丢掉，不动玩家原有的东西。 */ trimInventoryOverflow(target, drop.itemId); }); }
+/** 套装掉落：按怪物所在区域掉对应的套装部件，随机给其中一个部位。
+    与怪物的 dropTable 完全独立 —— 它不写进 dropTable，所以不占用「同一只怪物最多 3 条掉落」的名额。 */
+function grantSetDrop(target: GameState, enemyId: number): void {
+  const setId = setOfZone(zoneOfEnemy(enemyId));
+  const entry = setId >= 0 ? setTable[setId] : undefined;
+  if (!entry || !entry.pieces.length || Math.random() > entry.dropChance) return;
+  const itemId = entry.pieces[Math.floor(Math.random() * entry.pieces.length)];
+  addEquipment(target, itemId, 1, zoneDropRefine(enemyId));
+  addLog(target, `掉落：${itemTag(itemId)} ×1（${entry.name}套装）`, 'drop');
+  trimInventoryOverflow(target, itemId);
+}
 /* 击杀才记入图鉴：仅仅遇到（prepareEnemy）不算。 */
-function defeatEnemy(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; target.gold += enemy.gold; target.totalWins += 1; target.adventure.battleCount += 1; target.encountered[enemyId] = 1; addLog(target, `击败${enemyTag(enemyId)}，获得 ${enemy.gold} 金币。`, 'battle'); grantDrops(target, enemyId); updateMainline(target); startSpawnCooldown(target); }
+function defeatEnemy(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; target.gold += enemy.gold; target.totalWins += 1; target.adventure.battleCount += 1; target.encountered[enemyId] = 1; addLog(target, `击败${enemyTag(enemyId)}，获得 ${enemy.gold} 金币。`, 'battle'); grantDrops(target, enemyId); grantSetDrop(target, enemyId); updateMainline(target); startSpawnCooldown(target); }
 /* 伤害 = 攻击力 − 对方防御，至少 1 点：防御只能减免，不能完全免伤。
    词条赋予的技能按出手次数触发，额外叠一记倍率伤害（强度取词条数值的百分比）。 */
 function playerAttack(target: GameState): void { const enemy = currentEnemy(target); target.adventure.attackCount += 1; const attack = getPlayerAttack(target); let damage = Math.max(1, attack - (enemy.defense || 0)); const triggered = []; for (const entry of getAffixTotals(target).skills) { const skill = skills[entry.skill]; if (!skill || target.adventure.attackCount % skill.interval !== 0) continue; damage += Math.round(attack * skill.multiplier * entry.value / 100); triggered.push(skill.name); } target.adventure.enemyHp = Math.max(0, target.adventure.enemyHp - damage); addLog(target, `${triggered.length ? `${triggered.join('、')}触发！` : ''}你攻击${enemyTag(target.adventure.enemyId)}，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.enemyHp <= 0) defeatEnemy(target, target.adventure.enemyId); }
-function enemyAttack(target: GameState): void { const enemy = currentEnemy(target); const damage = Math.max(1, enemy.attack - getPlayerDefense(target)); target.adventure.playerHp = Math.max(0, target.adventure.playerHp - damage); addLog(target, `${enemyTag(target.adventure.enemyId)}反击，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.playerHp <= 0) { target.adventure.running = false; target.adventure.playerHp = getPlayerMaxHp(target); target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; target.adventure.spawnTimer = 0; target.adventure.zoneId = CAMP_ZONE_ID; addLog(target, '远征队生命值归零，已撤回营地并恢复状态。', 'defeat'); } }
+function enemyAttack(target: GameState): void { const enemy = currentEnemy(target); const damage = Math.max(1, enemy.attack - getPlayerDefense(target)); target.adventure.playerHp = Math.max(0, target.adventure.playerHp - damage); addLog(target, `${enemyTag(target.adventure.enemyId)}反击，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.playerHp <= 0) { target.adventure.running = false; target.adventure.playerHp = getPlayerMaxHp(target); target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; target.adventure.spawnTimer = 0; target.adventure.zoneId = CAMP_ZONE_ID; addLog(target, '远征队生命值归零，已撤回营地并恢复状态。', 'defeat'); return; } /* 挨完这一下才判断要不要自动进食：放在这里最准 —— 一次 tick 可能推进多秒，挂在外层会出现「先死再吃」。 */ tryAutoEat(target); }
 /** 按当前区域的回复倍率回血：营地是野外的 CAMP_REGEN_MULTIPLIER 倍。 */
 function applyRegen(target: GameState, seconds: number): void { if (!(seconds > 0)) return; target.adventure.playerHp = Math.min(getPlayerMaxHp(target), target.adventure.playerHp + getPlayerRegen(target) * getRegenMultiplier(target) * seconds); }
 function advanceAdventure(target: GameState, seconds: number): void { if (isCampZone(currentZoneId(target))) { applyRegen(target, seconds); return; } if (!target.adventure.running) return; let remaining = Math.max(0, seconds); while (remaining > 0 && target.adventure.running) { /* 刷怪冷却：场上没有敌人，只回复生命值。 */ if (target.adventure.spawnTimer > 0) { const wait = Math.min(remaining, target.adventure.spawnTimer); target.adventure.spawnTimer -= wait; applyRegen(target, wait); remaining -= wait; if (target.adventure.spawnTimer > 0) break; prepareEnemy(target); continue; } const enemy = currentEnemy(target); const playerInterval = getPlayerAttackInterval(target); const playerWait = Math.max(0, playerInterval - target.adventure.playerAttackTimer); const enemyWait = Math.max(0, enemy.attackInterval - target.adventure.enemyAttackTimer); const step = Math.min(remaining, playerWait, enemyWait); target.adventure.playerAttackTimer += step; target.adventure.enemyAttackTimer += step; applyRegen(target, step); remaining -= step; if (target.adventure.playerAttackTimer >= playerInterval - .0001) { target.adventure.playerAttackTimer = 0; playerAttack(target); } if (target.adventure.running && target.adventure.enemyAttackTimer >= enemy.attackInterval - .0001) { target.adventure.enemyAttackTimer = 0; enemyAttack(target); } if (step === 0 && target.adventure.running) { target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; } } }
@@ -626,7 +807,8 @@ function advanceCamp(target: GameState, seconds: number): void {
   target.camp.pendingKind = CAMP_EVENT.random; target.camp.pendingId = id; target.camp.pendingExpires = Date.now() + PENDING_EVENT_TIMEOUT * 1000;
   addLog(target, `营地收到警报：${randomEventDefs[id].name}。${PENDING_EVENT_TIMEOUT} 秒内决定是否应对。`, 'progress');
 }
-function hydrate(): void { const initial = freshState(); try { const saved = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (!saved) { state = initial; return; } /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id)); state = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: { ...initial.settings, ...saved.settings }, inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: { ...initial.camp, ...saved.camp, hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp) }, achievements: achievements.map((_, index) => (saved.achievements?.[index] ? 1 : 0)), notices: unlockNotices.map((_, index) => (saved.notices?.[index] ? 1 : 0)), devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)), ...readResearchState(saved), log: [] }; if (!zones[state.adventure.zoneId]) state.adventure.zoneId = CAMP_ZONE_ID; if (isCampZone(state.adventure.zoneId)) state.adventure.running = false; if (!Number.isFinite(state.adventure.spawnTimer)) state.adventure.spawnTimer = 0; if (state.adventure.spawnTimer <= 0 && (!enemyTable[state.adventure.enemyId] || !state.adventure.enemyHp)) prepareEnemy(state); const offlineSeconds = Math.min(MAX_OFFLINE_SECONDS, Math.max(0, (Date.now() - (saved.lastTick || Date.now())) / 1000)); if (offlineSeconds >= 3) { if (state.adventure.running) { const before = state.totalWins; advanceAdventure(state, offlineSeconds); addLog(state, `你离开了 ${formatDuration(offlineSeconds)}。远征队完成了 ${formatNumber(state.totalWins - before)} 场战斗。`, 'system'); } else if (isCampZone(currentZoneId(state))) { advanceAdventure(state, offlineSeconds); addLog(state, `你离开了 ${formatDuration(offlineSeconds)}。远征队在营地休整。`, 'system'); } } } catch { state = initial; }
+function hydrate(): void { const initial = freshState(); try { const saved = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (!saved) { state = initial; return; } /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id)); state = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: { ...initial.settings, ...saved.settings }, inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: { ...initial.camp, ...saved.camp, hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp) }, perfectItems: (Array.isArray(saved.perfectItems) ? saved.perfectItems : []).map((itemId: number) => Math.floor(Number(itemId) || -1)).filter((itemId: number) => itemId >= 0 && !!items[itemId]),
+achievements: achievements.map((_, index) => (saved.achievements?.[index] ? 1 : 0)), notices: unlockNotices.map((_, index) => (saved.notices?.[index] ? 1 : 0)), devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)), ...readResearchState(saved), autoEat: readAutoEat(saved), log: [] }; if (!zones[state.adventure.zoneId]) state.adventure.zoneId = CAMP_ZONE_ID; if (isCampZone(state.adventure.zoneId)) state.adventure.running = false; if (!Number.isFinite(state.adventure.spawnTimer)) state.adventure.spawnTimer = 0; if (state.adventure.spawnTimer <= 0 && (!enemyTable[state.adventure.enemyId] || !state.adventure.enemyHp)) prepareEnemy(state); const offlineSeconds = Math.min(MAX_OFFLINE_SECONDS, Math.max(0, (Date.now() - (saved.lastTick || Date.now())) / 1000)); if (offlineSeconds >= 3) { if (state.adventure.running) { const before = state.totalWins; advanceAdventure(state, offlineSeconds); addLog(state, `你离开了 ${formatDuration(offlineSeconds)}。远征队完成了 ${formatNumber(state.totalWins - before)} 场战斗。`, 'system'); } else if (isCampZone(currentZoneId(state))) { advanceAdventure(state, offlineSeconds); addLog(state, `你离开了 ${formatDuration(offlineSeconds)}。远征队在营地休整。`, 'system'); } } } catch { state = initial; }
   /* 离线期间后勤小队与营地也要继续走：营垒 / 工坊进度、营地回血、随机事件计时与待响应事件的超时。
      state.lastTick 此刻还是存档里的旧时间戳（{ ...initial, ...saved } 覆盖而来）。 */
   const offlineForCamp = Math.min(MAX_OFFLINE_SECONDS, Math.max(0, (Date.now() - state.lastTick) / 1000));
@@ -649,9 +831,20 @@ function readResearchState(saved: any): { researchPoints: number; researchDiffic
   const task = saved?.researchTask;
   return {
     researchPoints: Math.max(0, Math.floor(Number(saved?.researchPoints) || 0)),
-    researchTask: { itemId: Number.isFinite(task?.itemId) ? Math.floor(task.itemId) : -1, zoneId: Number.isFinite(task?.zoneId) ? Math.floor(task.zoneId) : -1, difficulty: Math.max(1, Math.floor(Number(task?.difficulty) || 1)), need: Math.max(0, Math.floor(Number(task?.need) || 0)) },
+    /* 需求区间调整过（90~110 → 20~40）：旧存档里的委托需求一并压回新区间，
+       不然老玩家会背着一份要交 100 个的委托。已攒的数量不浪费，压完可能立刻就能交。 */
+    researchTask: { itemId: Number.isFinite(task?.itemId) ? Math.floor(task.itemId) : -1, zoneId: Number.isFinite(task?.zoneId) ? Math.floor(task.zoneId) : -1, difficulty: Math.max(1, Math.floor(Number(task?.difficulty) || 1)), need: Math.min(RESEARCH.needMax, Math.max(0, Math.floor(Number(task?.need) || 0))) },
     researchDifficulty: Math.max(1, Math.floor(Number(saved?.researchDifficulty) || 1)),
     researchLevels: researchItems.map((entry, id) => Math.min(entry.maxLevel, Math.max(0, Math.floor(Number(saved?.researchLevels?.[id]) || 0))))
+  };
+}
+/** 自动进食的存档校验：指定的东西必须仍然存在且确实是食物，阈值夹进可调范围。 */
+function readAutoEat(saved: any): AutoEatState {
+  const itemId = Number.isFinite(saved?.autoEat?.itemId) ? Math.floor(saved.autoEat.itemId) : -1;
+  const threshold = Math.floor(Number(saved?.autoEat?.threshold) || AUTO_EAT.defaultThreshold);
+  return {
+    itemId: items[itemId]?.use?.heal ? itemId : -1,
+    threshold: Math.max(AUTO_EAT.minThreshold, Math.min(AUTO_EAT.maxThreshold, threshold))
   };
 }
 /** 委托物品池：已解锁区域里的怪物会掉的、可堆叠的物品（装备一件一格，不适合当收集目标）。 */
@@ -829,8 +1022,7 @@ export const devStats = [
   { name: '累计胜场', get: (target: GameState) => target.totalWins, set: (target: GameState, value: number) => { target.totalWins = value; } },
   { name: '主线进度', get: (target: GameState) => target.mainlineIndex, set: (target: GameState, value: number) => { target.mainlineIndex = Math.min(mainline.length, value); } },
   { name: '营火强化', get: (target: GameState) => target.workshop, set: (target: GameState, value: number) => { target.workshop = value; } },
-  { name: '研究', get: (target: GameState) => target.research, set: (target: GameState, value: number) => { target.research = value; } },
-  { name: '伙伴', get: (target: GameState) => target.companions, set: (target: GameState, value: number) => { target.companions = value; } },
+  { name: '研究点数', get: (target: GameState) => target.researchPoints, set: (target: GameState, value: number) => { target.researchPoints = value; } },
   { name: '营地生命', get: (target: GameState) => Math.floor(target.camp.hp), set: (target: GameState, value: number) => { target.camp.hp = Math.min(getCampMaxHp(target), value); } },
   { name: '营垒工时', get: (target: GameState) => Math.floor(target.camp.worksiteProgress), set: (target: GameState, value: number) => { target.camp.worksiteProgress = value; } },
   { name: '天灾通过', get: (target: GameState) => target.camp.disasterWins, set: (target: GameState, value: number) => { target.camp.disasterWins = value; } },
