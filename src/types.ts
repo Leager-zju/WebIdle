@@ -148,20 +148,21 @@ export interface Achievement {
       category 是它所在的页面 / 板块，用于提示文案里的「解锁：系统「图鉴」」。 */
   rewardUnlock?: { id: string; icon: string; category: string; name: string };
 }
-/** 一条更新记录，来自 git 提交历史：构建期由 vite.config.ts 跑 `git log` 抓取，
-    经 __CHANGELOG__ 内联进产物（见 changelog.ts）。字段名对应 git 的输出，不要随手改。 */
-export interface ChangelogEntry {
-  /** 提交短 hash。settings.changelogSeen 存的就是它，用来判断「这条玩家看过没有」。 */
-  version: string;
-  /** 提交时间，`YYYY-MM-DD HH:MM`（本地时区）。 */
+/** 更新公告的类型标签。文字与颜色由 changelog.ts 的 KIND_INFO 映射，不要在这里写中文。 */
+export type ChangelogKind = 'feat' | 'balance' | 'fix' | 'perf' | 'misc';
+
+/** 一条更新公告。**文案是写给玩家看的**，维护在 config/changelog.ts ——
+    不是 git 提交信息的搬运：提交信息里有函数名与内部字段，那些不该出现在公告里。 */
+export interface ChangelogNote {
+  /** 这条更新的标记，玩家存档里记的就是它（settings.changelogSeen）。
+      改文案不必动它，只有**新增一条**时才写一个新的。约定 `日期-序号`，如 '2026-09-14-3'。 */
+  id: string;
+  /** 更新日期，`YYYY-MM-DD`。 */
   date: string;
-  /** 类型标签的中文名，如「新内容」「修复」「平衡」「维护」。 */
-  kind: string;
-  /** 标签的颜色类（`.kind-feat` 等，见 style.css）。 */
-  kindClass: string;
-  /** 提交标题，已去掉 `feat:` 这类前缀。 */
+  kind: ChangelogKind;
+  /** 一句话概括这次更新。 */
   title: string;
-  /** 正文里的改动要点，没有正文时为空数组。 */
+  /** 具体改动，一条一句，讲「玩家能感觉到什么变了」。 */
   details: string[];
 }
 
