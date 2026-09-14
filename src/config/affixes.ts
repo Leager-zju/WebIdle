@@ -44,9 +44,9 @@ export function affixCategoryClass(category: number): string { return `affix-${(
    summary 是卡片与加成面板上的文案：{value} 替换成当前数值，{cap} 替换成上限（界面上用灰字显示）。
    unit 是数值单位，强化道具详情里的「首次 / 重复 / 最高」三行用它（百分比词条是 %，固定值词条为空）。 */
 const AFFIX_DEFS = {
-  keenEdge: { name: '锋锐', desc: '增加一定攻击力', category: AFFIX_CATEGORY.offense, base: 6, step: 2, unit: '%', effect: { attackPct: 1 }, summary: '攻击力 +{value}%/{cap}%' },
+  keenEdge: { name: '锋锐', desc: '增加一定攻击力', category: AFFIX_CATEGORY.offense, base: 2, step: 1, unit: '', effect: { attack: 1 }, summary: '攻击力 +{value}/{cap}' },
   emberBurst: { name: '余烬爆裂', desc: '出手时周期性打出一记爆发伤害', category: AFFIX_CATEGORY.offense, base: 100, step: 50, unit: '%', effect: { skill: SKILL.emberBurst }, summary: '赋予技能「余烬爆裂」（强度 {value}%/{cap}%）' },
-  vitality: { name: '坚韧', desc: '增加一定生命上限', category: AFFIX_CATEGORY.survival, base: 8, step: 4, unit: '%', effect: { hpPct: 1 }, summary: '生命上限 +{value}%/{cap}%' },
+  vitality: { name: '坚韧', desc: '增加一定生命上限', category: AFFIX_CATEGORY.survival, base: 12, step: 6, unit: '', effect: { hp: 1 }, summary: '生命上限 +{value}/{cap}' },
   bulwark: { name: '铁壁', desc: '增加一定防御力', category: AFFIX_CATEGORY.survival, base: 4, step: 2, unit: '', effect: { defense: 1 }, summary: '防御 +{value}/{cap}' },
   /* 功能类：不加战斗属性，而是给营地系统加速。后续这类「增益其他系统」的词条都可以往这里加
      （研究速度、掉落加成……），它们在战斗里没有直接收益，价值在于把整条生产线推快。 */
