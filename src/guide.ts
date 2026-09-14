@@ -95,6 +95,8 @@ let steps: GuideStep[] = [];
 let stepIndex = 0;
 /** 排队等待的引导：解锁事件可能连着来（例如同时解锁研究基地与研究项）。 */
 const queue: string[] = [];
+/** 引导放完之后要执行的回调（见 whenGuideIdle）。 */
+const idleCallbacks: Array<() => void> = [];
 
 function ensureLayer(): HTMLElement {
   if (layer?.isConnected) return layer;
@@ -251,6 +253,15 @@ function finish(): void {
   if (layer) layer.hidden = true;
   const queued = queue.shift();
   if (queued) startGuide(queued);
+  /* 引导全放完了：放行等着「不抢屏」的全局弹窗（见 whenGuideIdle）。 */
+  else if (idleCallbacks.length) idleCallbacks.splice(0).forEach(callback => callback());
+}
+
+/** 引导空闲时执行 callback：当前没有引导就立刻执行，否则等这一段（含排队中的）全部放完。
+    给「不抢屏」的全局弹窗用 —— 引导层在最上层，压着它弹出来只会被盖住（见 changelog.ts）。 */
+export function whenGuideIdle(callback: () => void): void {
+  if (!activeId) { callback(); return; }
+  idleCallbacks.push(callback);
 }
 
 /** 开始一段引导。正在放别的引导时排队，等它结束再放。 */

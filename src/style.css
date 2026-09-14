@@ -712,6 +712,31 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .codex-home, .codex-items, .codex-zones { --codex-color: var(--accent); }
 .codex-enemies { --codex-color: var(--red); }
 .codex-events { --codex-color: var(--warm); }
+/* ——— 版本更新日志：设置页入口 + 进入游戏时的更新公告 ———
+   条目按提交时间由新到旧排列；「本次新增」（比存档里记的已读版本更新的那些）
+   用左侧一条主色竖线标出来，滚下来一眼能看出公告讲到哪为止。
+   z-index 76：在随机事件弹窗（75）之上、内置 wiki（78）之下。 */
+.changelog-layer { position: fixed; inset: 0; z-index: 76; display: grid; place-items: center; padding: 24px; background: rgba(4, 9, 11, .55); backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px); }
+.changelog-layer[hidden] { display: none; }
+.changelog { width: min(620px, 100%); max-height: 84vh; overflow: auto; border: 1px solid var(--accent-dim); background: #131d21; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.changelog-head { display: flex; align-items: start; justify-content: space-between; gap: 14px; padding: 18px 20px 15px; border-bottom: 1px solid var(--line-soft); }
+.changelog-head h3 { margin: 0; }
+.changelog-close { flex: 0 0 auto; width: 28px; height: 28px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 1rem; line-height: 1; }
+.changelog-close:hover, .changelog-close:focus-visible { border-color: var(--accent); color: var(--accent); }
+.changelog-body { padding: 18px 20px 20px; }
+.changelog-entry + .changelog-entry { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.changelog-entry.is-new { padding-left: 12px; border-left: 2px solid var(--accent); }
+.changelog-meta { display: flex; align-items: center; gap: 9px; }
+.changelog-date { color: var(--muted); font: .64rem DM Mono, monospace; }
+/* 类型标签：颜色即语义（新内容 / 修复 / 平衡 / 其他），边框跟着 currentColor 走。 */
+.changelog-kind { padding: 2px 7px; border: 1px solid currentColor; font: .62rem DM Mono, monospace; }
+.kind-feat { color: var(--accent); }
+.kind-fix { color: var(--blue); }
+.kind-balance { color: var(--warm); }
+.kind-misc { color: var(--muted); }
+.changelog-title { margin: 9px 0 0; font-size: .88rem; line-height: 1.5; }
+.changelog-list { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: .76rem; line-height: 1.7; }
+.changelog-note { margin: 0; color: var(--muted); font-size: .78rem; }
 /* ——— 内置 wiki：图鉴弹窗，背景虚化 ——— */
 .wiki-layer { position: fixed; inset: 0; z-index: 78; display: grid; place-items: center; padding: 24px; background: rgba(4, 9, 11, .55); backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px); }
 .wiki-layer[hidden] { display: none; }

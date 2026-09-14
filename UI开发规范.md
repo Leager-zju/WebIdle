@@ -51,6 +51,7 @@ SOURCE    本文件由现有代码反向整理，每条规则对应既有实现�
 | `src/event-prompt.ts` | 随机事件弹窗 | 一般不改 |
 | `src/codex-ref.ts` | 图鉴引用：物品 / 怪物 / 区域 / 事件 / 页面的 icon + 名称 + 类型色 + 可点开 wiki；wiki 未解锁时降级为纯文本 | 是（加引用类型） |
 | `src/wiki.ts` | 内置 wiki 弹窗：首页 / 列表页 / 条目页 + 路径导航 | 是（往里填内容） |
+| `src/changelog.ts` | 版本更新日志弹窗 + 进入游戏时的更新公告；数据来自构建期注入的 `__CHANGELOG__` | 是 |
 | `src/guide.ts` | 新手指引：四块遮罩挖孔 + 气泡 + 跳过 / 重置；步骤表在文件顶部 `GUIDES` | 是（往 `GUIDES` 加步骤） |
 | `src/types.ts` | 类型定义 | 是 |
 | `src/globals.d.ts` | 构建期常量声明 | 新增常量时改 |
@@ -139,6 +140,7 @@ game-state 变更 → notify() → main.ts subscribe 回调
 | 65 | `.enhance-hint` 底部提示条 |
 | 70 | 遮罩类弹窗（`.stats-layer` / `.dev-modal-layer` / `.affix-picker-layer`） |
 | 75 | `.event-prompt-layer` |
+| 76 | `.changelog-layer` 版本更新日志 / 更新公告 |
 | 78 | `.wiki-layer` 内置 wiki（图鉴：物品 / 怪物 / 区域） |
 | 80 | `.unlock-toast-layer` |
 
@@ -338,6 +340,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 新增新手指引 | §6.12 §1-R32 | `src/guide.ts`（`GUIDES` 表，键要和解锁事件 id 对上） |
 | 调整怪物数值 | §7.6 | `src/config/zones.ts`（**键顺序不能动**） |
 | 新增弹窗 | §2.5 §1-R12 | `src/pages/*.ts`、`style.css` |
+| 改更新日志 / 更新公告 | §7.14 §1-R25 | `vite.config.ts`、`src/changelog.ts`、`src/globals.d.ts` |
 | 新增悬停详情 | §2.6 §1-R10 R11 | `src/pages/*.ts`、`style.css`、`hover-tip.ts` 选择器 |
 | 新增进度条 / 倒计时 | §6.4 §1-R22 | `style.css`、`src/pages/*.ts` |
 | 新增颜色 / 稀有度 | §4.1 §4.2 §1-R16 R17 | `:root`、`config/rarity.ts`（仅末尾） |
@@ -1190,6 +1193,33 @@ wiki 的物品条目页**不单开「极致」小节**：那只是一个是 / �
 **刷新**：`refreshResearchTask()` 花金币重抽一份，费用 = `refreshCostBase × (已刷新次数 + 1)`，交委托后归零。递增是为了让「反复刷到满意」有代价，而正常接单不受影响。
 
 **旧存档的委托会被自动换掉**：`getResearchTask()` 的校验里带「必须是这个区域的任务物品」，所以版本更新后老玩家不会背着一份再也交不上的委托（要交的东西已经不在任何掉落表里了）。
+
+### 7.14 更新日志与更新公告（`vite.config.ts` + `src/changelog.ts`）
+
+**数据在构建期从 git 提交历史里抓一次**：游戏是纯前端产物，运行时读不到 `.git`。`vite.config.ts` 在解析配置时跑一次
+`git log --no-merges --date=format:%Y-%m-%d %H:%M`，把结果经 `define` 内联成构建期常量 `__CHANGELOG__`（字符串字面量，代码里 `JSON.parse` 取回）——做法与 `__DEV_TOOLS__` 完全一致，所以**新增这个常量必须同步 `src/globals.d.ts`**（R25）。
+
+| 项 | 值 / 规则 |
+| --- | --- |
+| 条数上限 | `CHANGELOG_LIMIT = 60`（内联的是全量文本，历史变长后要有上限） |
+| 抓取失败 | 不是 git 仓库 / 没装 git → `'[]'`，界面退化成「这份构建没有带更新记录」，**不让构建失败** |
+| 刷新时机 | 配置只在启动时读一次：**新提交要重启 dev server / 重新构建才会进日志** |
+| 类型标签 | `feat`→新内容、`fix`→修复、`balance`/`perf`→平衡、`chore`/`docs`/`refactor`/`style`/`test`/`build`→维护，其余→其他；颜色类 `.kind-*` 见 `style.css` |
+| 改动要点 | 正文有 `-` 列表就按列表取（缩进的续行并进上一条），没有列表就按行取 |
+
+**已读版本存进存档**（`settings.changelogSeen`），不是 localStorage：它随存档走，换设备导入备份后不会重复弹，重置存档则会再弹一次。
+新增字段不动 `SAVE_VERSION`，但设置项在 `rebuildState` 里走的是 `readSettings()`（逐字段校验）——**不要退回 `{ ...initial.settings, ...saved.settings }`**，那样 `changelogSeen` 会拿到 `undefined`。
+
+| 入口 | 行为 |
+| --- | --- |
+| 设置页「版本更新日志」按钮（`data-action="changelog"`，在「存档操作」下方） | 全局点击委托（`main.ts`，与 `reset` 同一处）→ `openChangelog()`，列出全部记录 |
+| 启动时的更新公告 | `startChangelog()`，`main.ts` 在 `initGuide()` 之后调用一次 |
+
+**公告的两条豁免**（都不弹，并顺手把版本记成已读）：**没有任何存档**（新玩家不是「版本更新了」，而且新档还要放首次引导，两屏一起弹也看不过来，见 `hasExistingSave()`）；**首次引导还没放完**（引导层 `z-index: 90` 在最上层，压着它弹出来只会被盖住，走 `guide.ts` 的 `whenGuideIdle()` 等它结束）。
+
+**「本次新增」怎么标**：比 `settings.changelogSeen` 新的那些记录加 `.is-new`（左侧主色竖线）。查不到已读版本（首次带日志的版本、或那条记录已不在列表里）时只把最新一条当新内容。
+
+**展示层**：单例浮层挂 `body`（`#page-content` 有 `contain: layout`，见 §10-01），`z-index: 76`，三种关闭方式齐全（R12）。提交信息是纯文本却直接进 `innerHTML`，所以标题 / 时间 / 要点都过 `escapeHtml()`（历史提交里出现过 `≤3` 这类写法）。
 
 ---
 

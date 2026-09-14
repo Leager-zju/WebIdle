@@ -4,6 +4,7 @@ import { startHoverTip } from './hover-tip';
 import { startUnlockToasts } from './unlock-toast';
 import { startCodexWiki, openWikiPage } from './wiki';
 import { initGuide, updateGuide, startGuide } from './guide';
+import { startChangelog, openChangelog } from './changelog';
 import { getState, currentZoneId, getFontScale, getNumberFormat, isWikiUnlocked, subscribe, startLoop, resetGame } from './game-state';
 import { setText, setClass, setHtml } from './dom';
 import { zoneRefMarkup, setWikiUnlocked } from './codex-ref';
@@ -60,9 +61,9 @@ function updateNavLocks(state: ReturnType<typeof getState>): void {
 function updateSharedHeader(state: ReturnType<typeof getState>): void { status.classList.toggle('paused', !state.adventure.running); setHtml(statusText, state.adventure.running ? `远征中 · ${zoneRefMarkup(currentZoneId(state))}` : '营地待命'); updateNavLocks(state); navItems.forEach(item => item.classList.toggle('active', item.dataset.page === pageController.currentId)); }
 navToggle.addEventListener('click', () => { const collapsed = app.classList.toggle('nav-collapsed'); navToggle.setAttribute('aria-expanded', String(!collapsed)); });
 document.querySelector<HTMLElement>('#main-nav')!.addEventListener('click', event => { const button = (event.target as Element).closest<HTMLElement>('[data-page]'); if (!button) return; pageController.switchTo(button.dataset.page!); updateSharedHeader(getState()); });
-document.addEventListener('click', event => { const target = event.target as Element; const pageButton = target.closest<HTMLElement>('[data-page]'); if (pageButton && !pageButton.closest('#main-nav')) pageController.switchTo(pageButton.dataset.page!); if (target.closest('[data-action="reset"]')) { resetGame(); /* 重置存档等于开新档：把首次引导也重放一遍（guide 进度已随存档清空）。 */ startGuide('intro'); } });
+document.addEventListener('click', event => { const target = event.target as Element; const pageButton = target.closest<HTMLElement>('[data-page]'); if (pageButton && !pageButton.closest('#main-nav')) pageController.switchTo(pageButton.dataset.page!); if (target.closest('[data-action="reset"]')) { resetGame(); /* 重置存档等于开新档：把首次引导也重放一遍（guide 进度已随存档清空）。 */ startGuide('intro'); } /* 设置页的「查看更新日志」：和 reset 一样走全局委托，页面重挂后不必重新绑。 */ if (target.closest('[data-action="changelog"]')) openChangelog(); });
 navItems.forEach(item => { const prefetch = () => pageController.prefetch(item.dataset.page); ['mouseenter', 'focus', 'pointerdown'].forEach(type => item.addEventListener(type, prefetch, { once: true })); });
 subscribe(state => { updateSharedHeader(state); applyFontScale(state); applyNumberFormat(state); applyWikiUnlock(state); pageController.renderCurrent(); updateEventPrompt(); /* 页面重绘会换掉目标节点，引导每帧重新定位一次。 */ updateGuide(); });
-updateSharedHeader(getState()); applyFontScale(getState()); applyNumberFormat(getState()); applyWikiUnlock(getState()); pageController.switchTo('home'); pageController.prefetchAll(); startHoverTip(); startUnlockToasts(); startCodexWiki(); initGuide(); startLoop();
+updateSharedHeader(getState()); applyFontScale(getState()); applyNumberFormat(getState()); applyWikiUnlock(getState()); pageController.switchTo('home'); pageController.prefetchAll(); startHoverTip(); startUnlockToasts(); startCodexWiki(); initGuide(); startChangelog(); startLoop();
 /* 启动信号：index.html 的看门狗用它判断主模块是否真的跑起来了，未收到时才会输出错误日志。 */
 (window as any).__idleBooted = true;

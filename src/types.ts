@@ -65,8 +65,10 @@ export interface Affix { id: number; value: number; }
 export interface EquipmentInstance { id: number; itemId: number; affixes?: Affix[]; /** 精炼等级（0~REFINE_MAX）：每级让这件装备的自身属性 +1%。缺省按 0 处理。 */ refine?: number; }
 /** equipped[装备类型][槽位下标] = 装备实例 id，-1 表示该槽位为空。 */
 export type EquipmentState = number[][];
-/** notify：随机事件触发时是否弹窗提醒（超时未响应一律跳过，见 game-state 的 PENDING_EVENT_TIMEOUT）。 */
-export interface SettingsState { fontScale: FontScaleId; notify: boolean; numberFormat: NumberFormatId; }
+/** notify：随机事件触发时是否弹窗提醒（超时未响应一律跳过，见 game-state 的 PENDING_EVENT_TIMEOUT）。
+    changelogSeen：玩家已经看过的更新日志版本（最新一条的短 hash）。它和当前版本不一致时，
+    进入游戏会弹一次更新公告（见 changelog.ts）。存进存档是为了换设备导入后不重复弹。 */
+export interface SettingsState { fontScale: FontScaleId; notify: boolean; numberFormat: NumberFormatId; changelogSeen: string; }
 /** 后勤小队：assigned[i] 是分配给第 i 个后勤系统的人数（下标见 game-state 的 logisticsTargets）。
     总人数不存档，由主线进度与胜场换算（getLogisticsTotal），避免两处数据不同步。 */
 export interface LogisticsState { assigned: number[]; }
@@ -146,6 +148,23 @@ export interface Achievement {
       category 是它所在的页面 / 板块，用于提示文案里的「解锁：系统「图鉴」」。 */
   rewardUnlock?: { id: string; icon: string; category: string; name: string };
 }
+/** 一条更新记录，来自 git 提交历史：构建期由 vite.config.ts 跑 `git log` 抓取，
+    经 __CHANGELOG__ 内联进产物（见 changelog.ts）。字段名对应 git 的输出，不要随手改。 */
+export interface ChangelogEntry {
+  /** 提交短 hash。settings.changelogSeen 存的就是它，用来判断「这条玩家看过没有」。 */
+  version: string;
+  /** 提交时间，`YYYY-MM-DD HH:MM`（本地时区）。 */
+  date: string;
+  /** 类型标签的中文名，如「新内容」「修复」「平衡」「维护」。 */
+  kind: string;
+  /** 标签的颜色类（`.kind-feat` 等，见 style.css）。 */
+  kindClass: string;
+  /** 提交标题，已去掉 `feat:` 这类前缀。 */
+  title: string;
+  /** 正文里的改动要点，没有正文时为空数组。 */
+  details: string[];
+}
+
 /** locked 返回 true 时，导航栏里的入口会置灰、显示为「❓未解锁」且不可点击（见 main.ts 的 updateNavLocks）。
     没有声明 locked 的页面视为始终可用。 */
 export interface PageDefinition<Context = any> { id: string; template: string; mount(root: HTMLElement): Context; update(state: GameState, context: Context): void; locked?(state: GameState): boolean; }

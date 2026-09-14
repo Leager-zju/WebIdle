@@ -10,7 +10,7 @@ import { CAMP_EVENT, randomEventDefs, campEventDef } from './config/events';
    - 不进存档（主线条件文案，每次都由 text() 现算）：直接用 itemRefMarkup 拼出 HTML。
    存档里不能存 HTML，所以日志那条路必须走标记。 */
 import { itemTag, itemRefMarkup, enemyTag, zoneTag, pageRefMarkup } from './codex-ref';
-import type { Achievement, AdventureState, AutoEatState, CampBattleState, EquipmentInstance, GameState, LogType, MainlineQuest, MainlineRequirement, ResearchTaskState, SetBonus, UseOutcome } from './types';
+import type { Achievement, AdventureState, AutoEatState, CampBattleState, EquipmentInstance, GameState, LogType, MainlineQuest, MainlineRequirement, ResearchTaskState, SetBonus, SettingsState, UseOutcome } from './types';
 
 export const MAX_OFFLINE_SECONDS = 8 * 60 * 60;
 
@@ -403,6 +403,17 @@ export function answerPendingEvent(accept: boolean): void {
 /** 设置页的通知开关：决定随机事件是否弹窗提醒（不弹窗也能在营地页看到倒计时）。 */
 export function setNotify(enabled: boolean): void { state.settings.notify = !!enabled; addLog(state, enabled ? '随机事件将弹窗提醒。' : '随机事件不再弹窗提醒。', 'system'); saveState(); notify(); }
 
+/* ——— 更新日志（见 changelog.ts） ———
+   已读版本存进 settings 而不是 localStorage：它随存档走，换设备导入备份后不会重复弹公告；
+   重置存档会连它一起清掉，于是新档会再弹一次（重置本身就会重放新手指引，语义一致）。 */
+export function getChangelogSeen(target: GameState = state): string { return String(target.settings?.changelogSeen || ''); }
+/** 记下「这个版本玩家已经看过公告」。版本没变时什么都不做，避免无意义存盘。 */
+export function markChangelogSeen(version: string): void {
+  if (!version || getChangelogSeen() === version) return;
+  state.settings.changelogSeen = version;
+  saveState(); notify();
+}
+
 /* ——— 成就 ———
    条件一旦为真就自动解锁并记一条日志。目前只有「开始游戏」这一条。 */
 export const achievements: Achievement[] = [
@@ -506,7 +517,7 @@ const freshAdventure = (): AdventureState => ({
 });
 const freshState = (): GameState => ({
   gold: 45, scrap: 24, essence: 0, totalWins: 0, mainlineIndex: 0,
-  workshop: 0, researchPoints: 0, researchRefreshCount: 0, researchTask: { itemId: -1, zoneId: -1, need: 0 }, researchLevels: researchItems.map(() => 0), autoEat: { itemId: -1, threshold: AUTO_EAT.defaultThreshold }, equipped: equipTypes.map(type => new Array(type.baseSlots).fill(-1)), settings: { fontScale: 0, notify: true, numberFormat: 0 },
+  workshop: 0, researchPoints: 0, researchRefreshCount: 0, researchTask: { itemId: -1, zoneId: -1, need: 0 }, researchLevels: researchItems.map(() => 0), autoEat: { itemId: -1, threshold: AUTO_EAT.defaultThreshold }, equipped: equipTypes.map(type => new Array(type.baseSlots).fill(-1)), settings: { fontScale: 0, notify: true, numberFormat: 0, changelogSeen: '' },
   inventory: new Array(items.length).fill(0), equipment: [], nextInstanceId: 1, encountered: new Array(enemyTable.length).fill(0), discoveredDrops: enemyTable.map(() => []), perfectItems: [], adventure: freshAdventure(),
   /* 后勤小队开局 1 人（全部待命）；工坊只有一个制造项，0 级且空闲；营地满血、随机事件从满间隔开始倒数。 */
   logistics: { assigned: logisticsTargets.map(() => 0) },
@@ -924,12 +935,23 @@ function advanceCamp(target: GameState, seconds: number): void {
   target.camp.pendingKind = CAMP_EVENT.random; target.camp.pendingId = id; target.camp.pendingExpires = Date.now() + PENDING_EVENT_TIMEOUT * 1000;
   addLog(target, `营地收到警报：${randomEventDefs[id].name}。${PENDING_EVENT_TIMEOUT} 秒内决定是否应对。`, 'progress');
 }
+/** 设置项的存档校验：两个档位必须是已知下标，通知开关按布尔取（缺省开），
+    「更新日志已读版本」只认字符串 —— 旧存档没有这个字段，从空串开始。 */
+function readSettings(saved: any): SettingsState {
+  return {
+    fontScale: fontScales[saved?.fontScale] ? Math.floor(saved.fontScale) : 0,
+    notify: saved?.notify !== false,
+    numberFormat: numberFormats[saved?.numberFormat] ? Math.floor(saved.numberFormat) : 0,
+    changelogSeen: typeof saved?.changelogSeen === 'string' ? saved.changelogSeen : ''
+  };
+}
+
 /** 把一份（已经跑过迁移的）存档数据校验重建。每个字段都单独取默认值与上下限：
     存档可能来自旧版本、手改过的文件、或者被截断的文本，不能直接信。
     以 freshState() 为底再覆盖，所以新增字段会自动拿到初始值 —— 这就是「加字段不用改版本号」的原因。 */
 function rebuildState(saved: any): GameState {
   const initial = freshState();
-  /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id)); const rebuilt: GameState = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: { ...initial.settings, ...saved.settings }, inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: { ...initial.camp, ...saved.camp, hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp) }, perfectItems: (Array.isArray(saved.perfectItems) ? saved.perfectItems : []).map((itemId: number) => Math.floor(Number(itemId) || -1)).filter((itemId: number) => itemId >= 0 && !!items[itemId]),
+  /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id)); const rebuilt: GameState = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: readSettings(saved.settings), inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: { ...initial.camp, ...saved.camp, hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp) }, perfectItems: (Array.isArray(saved.perfectItems) ? saved.perfectItems : []).map((itemId: number) => Math.floor(Number(itemId) || -1)).filter((itemId: number) => itemId >= 0 && !!items[itemId]),
 achievements: achievements.map((_, index) => (saved.achievements?.[index] ? 1 : 0)), notices: unlockNotices.map((_, index) => (saved.notices?.[index] ? 1 : 0)), devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)), ...readResearchState(saved), autoEat: readAutoEat(saved), log: [] };
   /* 区域 / 敌人这类字段存的是配置表下标，配置删项后可能指向不存在的位置，进来先对齐一次。 */
   if (!zones[rebuilt.adventure.zoneId]) rebuilt.adventure.zoneId = CAMP_ZONE_ID;
@@ -1021,9 +1043,16 @@ function parseStored(raw: string): unknown {
   try { return JSON.parse(raw); } catch { return raw; }
 }
 
+/** 这次启动有没有读到存档。新玩家（没有任何存档）不弹更新公告 —— 那是「版本更新了」的提示，
+    不是新手欢迎语；而且新档还要放首次引导，两屏一起弹也看不过来。 */
+let hadSave = false;
+export function hasExistingSave(): boolean { return hadSave; }
+
 /** 启动时读盘。没有存档、或存档坏了，都退回全新状态。 */
 function hydrate(): void {
-  try { state = parseSave(readStoredSave()); } catch { state = freshState(); }
+  const stored = readStoredSave();
+  hadSave = stored !== null && stored !== undefined;
+  try { state = parseSave(stored); } catch { state = freshState(); hadSave = false; }
   applyOfflineProgress(state);
   state.lastTick = Date.now(); syncEquipSlots(state); syncLogistics(state); syncCamp(state); checkAchievements(state); checkUnlocks(state);
   /* 旧存档（或改过的存档）可能带着超过上限的负载：进来先压回上限。 */
