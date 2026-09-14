@@ -187,13 +187,18 @@ export function isWorkshopItemUnlocked(id: number, target: GameState = state): b
    难度选择也一并去掉：委托随机落在某个已解锁区域、奖励固定 —— 越深的区域任务物品一样难掉，
    但那里的怪本身更值钱，收益差已经体现在刷的过程中，不需要再加一层倍率。 */
 export const RESEARCH = {
-  /** 委托要求的数量区间：needMin ~ needMax，上限会被「任务需求降低」压低。
-      10% 掉率下 8~12 个约等于 80~120 次击杀，按一场战斗 20~30 秒算就是半小时左右。 */
-  needMin: 8, needMax: 12,
+  /** 委托要求的数量区间：needMin ~ needMax，上限会被「任务需求降低 I」压低。
+      **区间必须比那个研究项的 maxLevel 宽**，否则满级之前就会压到底，后面几级白点：
+      这里宽 10 档，研究项满级 10 级，刚好把上限从 60 一路压到 50，每一级都算数
+      （旧值 8~12 只有 4 档，点到第 4 级就压到底了）。改这两个数前先看 maxLevel。
+      10% 掉率下 50~60 个约等于 500~600 次击杀，按一场战斗 20~30 秒算是 3~5 小时。 */
+  needMin: 50, needMax: 60,
   /** 每份委托的研究点数奖励。 */
   reward: 10,
-  /** 研究项升级消耗：costBase + costStep × 当前等级。 */
-  costBase: 10, costStep: 5,
+  /** 研究项升级消耗：costBase + costStep × 当前等级。
+      **costStep 固定为 0** —— 每级消耗都一样，和第一级一致；点满一项的总花费 = costBase × maxLevel。
+      想改回「越升越贵」就把它调大，但要连带看一眼满级总花费（委托的产出很慢，见 needMin / needMax）。 */
+  costBase: 10, costStep: 0,
   /** 刷新委托的首次费用：之后每次多花一个基数（见 getResearchRefreshCost）。 */
   refreshCostBase: 100
 };
@@ -518,7 +523,16 @@ const freshAdventure = (): AdventureState => ({
 const freshState = (): GameState => ({
   gold: 45, scrap: 24, essence: 0, totalWins: 0, mainlineIndex: 0,
   workshop: 0, researchPoints: 0, researchRefreshCount: 0, researchTask: { itemId: -1, zoneId: -1, need: 0 }, researchLevels: researchItems.map(() => 0), autoEat: { itemId: -1, threshold: AUTO_EAT.defaultThreshold }, equipped: equipTypes.map(type => new Array(type.baseSlots).fill(-1)), settings: { fontScale: 0, notify: true, numberFormat: 0, changelogSeen: '' },
-  inventory: new Array(items.length).fill(0), equipment: [], nextInstanceId: 1, encountered: new Array(enemyTable.length).fill(0), discoveredDrops: enemyTable.map(() => []), perfectItems: [], adventure: freshAdventure(),
+  inventory: new Array(items.length).fill(0),
+  /* 开局送一把拾荒者短刃（+0，攻击 +6）。两处刻意的限制：
+     - **只放在包里、不预装**（equipped 仍是全空）—— 废弃边境的怪物数值是按裸装校准的
+       （见 UI开发规范 §7.6），要变强得玩家自己把它穿上；
+     - **只给全新存档** —— rebuildState 的 equipment / nextInstanceId 都取自存档，
+       老存档不会被补发（resetGame 走的是 freshState，所以重置后会重新拿到）。
+     这里直接写实例字面量而不是调 addEquipment：后者读 REFINE_MAX，而那个常量声明在
+     本函数之后，模块初始化时调用会踩暂时性死区。id 从 1 起，nextInstanceId 跟着写 2。 */
+  equipment: [{ id: 1, itemId: ITEM.scavengedBlade, refine: 0 }], nextInstanceId: 2,
+  encountered: new Array(enemyTable.length).fill(0), discoveredDrops: enemyTable.map(() => []), perfectItems: [], adventure: freshAdventure(),
   /* 后勤小队开局 1 人（全部待命）；工坊只有一个制造项，0 级且空闲；营地满血、随机事件从满间隔开始倒数。 */
   logistics: { assigned: logisticsTargets.map(() => 0) },
   campWorkshop: workshopItems.map(() => ({ level: 0, target: -1, work: 0 })),
@@ -1118,8 +1132,9 @@ export function importSaveText(text: string): SaveIoResult {
 export function selectZone(zoneId: number): void { const zone = zones[zoneId]; if (!zone || !isZoneUnlocked(zoneId)) return; state.adventure.zoneId = zoneId; state.adventure.playerAttackTimer = 0; state.adventure.enemyAttackTimer = 0; if (isCampZone(zoneId)) { state.adventure.running = false; state.adventure.spawnTimer = 0; addLog(state, `远征队回到${zoneTag(zoneId)}，开始休整。`, 'system'); } else { state.adventure.running = true; startSpawnCooldown(state); addLog(state, `远征队进入${zoneTag(zoneId)}，等待敌人出现。`, 'system'); } saveState(); notify(); }
 export function toggleAutoPush(): void { state.adventure.autoPush = !state.adventure.autoPush; saveState(); notify(); }
 /* ——— 研究基地 ———
-   委托只索取「已解锁区域里怪物会掉的、可堆叠的」物品，数量在 needMin ~ needMax 之间随机；
-   needMax 会被研究项「任务难度降低」压低。交齐即得研究点数，研究点数用来提升研究项。 */
+   委托只索取**任务物品**（每个战斗区域一种，见 config/zones.ts 的 questItem），
+   数量在 needMin ~ needMax 之间随机，上限会被研究项「任务需求降低 I」压低。
+   交齐即得研究点数，研究点数用来提升研究项。 */
 /** 由「分析异常电池」解锁（mainline 下标 2 完成后 mainlineIndex 变成 3）。 */
 export function isResearchUnlocked(target: GameState = state): boolean { return target.mainlineIndex >= RESEARCH_UNLOCK_INDEX; }
 /** 读档时把研究基地的字段规整成合法值：旧存档没有这些字段，越界的等级也要压回上限。 */
@@ -1127,8 +1142,9 @@ function readResearchState(saved: any): { researchPoints: number; researchRefres
   const task = saved?.researchTask;
   return {
     researchPoints: Math.max(0, Math.floor(Number(saved?.researchPoints) || 0)),
-    /* 需求区间调整过两次（90~110 → 20~40 → 8~12）：旧存档里的委托需求一并压回新区间，
-       不然老玩家会背着一份要交 100 个的委托。已攒的数量不浪费，压完可能立刻就能交。 */
+    /* 需求区间调整过三次（90~110 → 20~40 → 8~12 → 50~60）：这里只压**上限**，
+       不让旧存档背着一份要交上百个的委托。区间上调时不把旧值抬起来 ——
+       手上那份 8~12 的委托照旧能交（已攒的数量不浪费），交完重抽的就是新区间了。 */
     researchTask: { itemId: Number.isFinite(task?.itemId) ? Math.floor(task.itemId) : -1, zoneId: Number.isFinite(task?.zoneId) ? Math.floor(task.zoneId) : -1, need: Math.min(RESEARCH.needMax, Math.max(0, Math.floor(Number(task?.need) || 0))) },
     /* 刷新次数是 v8 新增字段，旧存档没有，从 0 开始。 */
     researchRefreshCount: Math.max(0, Math.floor(Number(saved?.researchRefreshCount) || 0)),
@@ -1193,7 +1209,8 @@ export function getResearchLevel(id: number, target: GameState = state): number 
   const entry = researchItems[id];
   return entry ? Math.min(entry.maxLevel, Math.max(0, Math.floor(target.researchLevels?.[id] || 0))) : 0;
 }
-/** 升级消耗：costBase + costStep × 当前等级。 */
+/** 升级消耗：costBase + costStep × 当前等级。costStep 是 0，所以每一级都是同一个数 ——
+    签名保留 target，和这里其他 getter（getResearchLevel / getResearchNeedMax）保持一致。 */
 export function getResearchCost(id: number, target: GameState = state): number { return RESEARCH.costBase + RESEARCH.costStep * getResearchLevel(id, target); }
 export function canUpgradeResearch(id: number, target: GameState = state): boolean {
   const entry = researchItems[id];

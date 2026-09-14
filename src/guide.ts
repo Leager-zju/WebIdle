@@ -1,6 +1,7 @@
 import pageController from './page-controller';
 import { hasSeenGuide, markGuideSeen, resetGuides, onUnlock, getState } from './game-state';
 import { zones, ZONE } from './config/zones';
+import { EQUIP_TYPE } from './config/items';
 import type { GameState } from './types';
 
 /* ——— 新手指引 ———
@@ -48,7 +49,7 @@ const GUIDES: Record<string, GuideStep[]> = {
   /* 首次进游戏：把当时已解锁的面板挨个认一遍。 */
   intro: [
     { title: '欢迎来到荒野', body: '这里是远征队的落脚点。花十几秒认一遍界面，随时可以跳过。' },
-    { target: '#home-hero', title: '远征状态', body: '当前区域、正在交战的敌人、已完成战斗次数都在这里。' },
+    { target: '#home-hero', title: '远征状态', body: '远征队当前在哪、什么水平（攻击与防御）、打了多少场、正在和谁交战 —— 都在这里。换了装备回这一屏就能看到战力变化。' },
     { target: '#home-resources', title: '资源', body: '金币、废料、精华是所有系统的通用资源：工坊制造、研究委托、装备强化都靠它们。' },
     { target: '#home-quest', title: '主线目标', body: '当前主线。完成它会解锁新系统 —— 每解锁一个都会再带你认一次。' },
     { target: '#home-log', title: '日志', body: '战斗、掉落与成长的记录。日志里带下划线的名字都能点开图鉴。' },
@@ -58,11 +59,16 @@ const GUIDES: Record<string, GuideStep[]> = {
     { target: '[data-page="adventure"]', requireClick: true, title: '然后是冒险', body: '点这里出发。' },
     { target: '#adventure-view', title: '冒险', body: '选一个目标区域，远征队会自动开打。打不动就换个区域，或者回营地休整。' },
     { target: '[data-page="inventory"]', requireClick: true, title: '物品栏', body: '点这里看战利品。' },
-    { target: '#inventory-view', title: '物品栏', body: '装备、材料与词条强化都在这里。悬停卡片看详细属性，右键出操作菜单。' },
+    { target: '#inventory-view', title: '物品栏', body: '装备、材料与词条强化都在这里。悬停卡片看详细属性，右键出操作菜单；左上角的「装备加成」能看身上这套一共给了多少。' },
+    /* 让玩家真的把开局送的短刃穿上：装备不会自己生效，这一步不亲手做一遍，武器槽大概率一直空着。
+       用 waitFor 而不是 requireClick —— 装备的两条路径（右键菜单、拖到槽位）都不是单纯左键点击，
+       而 requireClick 的放行判定只认 click。所以这里把整个物品栏让出来（click 与 target 同为该容器），
+       玩家怎么做都行，等「武器槽非空」成立才放行「下一步」。 */
+    { target: '#inventory-view', click: '#inventory-view', waitFor: state => state.equipped[EQUIP_TYPE.weapon].some(instanceId => instanceId >= 0), waitHint: '把物品储藏里的「拾荒者短刃」穿上：右键那张卡片选「装备」，或者把它拖到左边的武器槽。', title: '先穿上武器', body: '开局送的那把拾荒者短刃还在包里 —— 装备不会自己生效。攻击力直接决定每一下的伤害，穿上之后回主界面就能看到「攻击」涨了。' },
     { target: '[data-page="story"]', requireClick: true, title: '远征档案', body: '点这里翻记录。' },
     { target: '#story-view', title: '远征档案', body: '主线进度、成就与解锁记录。有些成就会解锁新系统。' },
     { target: '[data-page="settings"]', requireClick: true, title: '最后是设置', body: '点这里。' },
-    { target: '#settings-view', title: '设置', body: '字体大小、数字格式与通知开关。想重看这份指引，底部有「重置新手指引」。' },
+    { target: '#settings-view', title: '设置', body: '字体大小、数字格式与通知开关，还能导出存档备份。想重看这份指引，点「重置新手指引」；「查看更新日志」里写着历次更新都改了什么。' },
     /* 认完面板，直接带玩家把第一条主线做掉：打赢一场。 */
     { target: '[data-page="adventure"]', requireClick: true, title: '做第一件事', body: '主线在等你：打赢一场。点这里回冒险。' },
     { target: '[data-action="zone-toggle"]', requireClick: true, title: '选择目标区域', body: '点这里挑一个要去的地方。' },

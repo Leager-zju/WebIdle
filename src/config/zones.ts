@@ -84,7 +84,9 @@ export const zones: Zone[] = Object.values(ZONE_DEFS);
 export const ZONE = Object.fromEntries(Object.keys(ZONE_DEFS).map((name, id) => [name, id])) as { [K in keyof typeof ZONE_DEFS]: number };
 
 /** 任务物品的掉率：区域内所有怪物统一，和各自的 dropTable 无关。
-    10% 是「刷得久」档 —— 按一场战斗约 20~30 秒算，一个委托（8~12 个）大约半小时。 */
+    10% 是「刷得久」档 —— 按一场战斗约 20~30 秒算，一个委托（50~60 个）要 3~5 小时。
+    委托的区间取这么宽，是为了让研究项「任务需求降低 I」的 10 级每一级都算数
+    （见 game-state 的 RESEARCH.needMin / needMax）。 */
 export const QUEST_DROP_CHANCE = .1;
 /** 清洗剂的掉率：**任何**怪物统一，和各自的 dropTable 无关，掉哪一瓶随机（三选一）。
     0.1% 是刻意压到极低的档 —— 洗词条是「纠错」而不是「日常」，不该随手就能用。
