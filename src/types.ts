@@ -30,6 +30,10 @@ export interface Item {
   equip?: { attack?: number; hp?: number; defense?: number };
   /** 使用行为。需要玩家点选目标的道具，在 instanceId 为 -1 时返回 pick-equipment。 */
   use?: UseHandler;
+  /** 这道具要**点选一件装备**才能用（强化 / 清洗类）。界面据此允许把它拖到装备上 ——
+      拖放和「右键 → 使用 → 点装备」走的是同一条 useItem 路径，只是换了个更直接的入口。
+      必须显式标注：use 是函数，界面没法在渲染时看出它要不要目标（真调一次会有副作用）。 */
+  targetsEquipment?: boolean;
   /** 卡片上「使用效果」那一行的文案，纯展示，不参与逻辑。
       它是**拼进 HTML** 的（见 pages/inventory.ts 的 statLine），所以可以内嵌 span 给局部上色 ——
       清洗剂就是靠这个把「进攻 / 生存 / 功能」按类别着色（见 config/items.ts 的 solventText）。 */

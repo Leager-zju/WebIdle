@@ -678,6 +678,8 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .item-refine.perfect { border-color: var(--warm); color: var(--warm); }
 /* 拖拽同名装备到卡片上做精炼时的目标高亮。 */
 .item-card.refine-target { --card-line: var(--accent); box-shadow: inset 0 0 0 1px rgba(139, 245, 201, .45); }
+/* 把强化 / 清洗道具拖到装备卡片上：和「精炼目标」用同一套高亮，语义都是「拖到它身上生效」。 */
+.item-card.drop-target { --card-line: var(--accent); box-shadow: inset 0 0 0 1px rgba(139, 245, 201, .45); }
 /* ——— 图鉴引用：icon + 名称，颜色按条目类型，点击打开内置 wiki（见 codex-ref.ts） ———
    像超链接那样用虚线底边示意可点，hover / 聚焦时变实线并压一层淡底。
    颜色有两个通道，都挂在引用元素自身上，所以在任何容器里都能自己着色，

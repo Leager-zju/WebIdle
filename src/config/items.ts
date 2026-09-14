@@ -55,17 +55,17 @@ const ITEM_DEFS = {
   emberShard: { name: '余烬碎片', type: '材料', category: 'resource', stackable: true, rarity: RARITY.white, icon: '✦', description: '污染核心凝结出的异常晶体。' },
   scavengedBlade: { name: '拾荒者短刃', type: '武器', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.weapon, rarity: RARITY.gray, icon: '†', description: '从锈蚀单位手里夺来的短刃，刃口还留着干涸的油污。', equip: { attack: 6 } },
   fieldRation: { name: '应急口粮', type: '补给', category: 'consumable', stackable: true, rarity: RARITY.gray, icon: '◈', description: '压缩口粮与消毒水的组合，能让远征队立刻恢复状态。', use: healHandler(60), useText: '恢复 60 生命' },
-  whetOil: { name: '锐化油', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.gray, icon: '⚗', description: '一罐发苦的磨料。使用后点选一件装备，为它刻上「锋锐」。', use: grantAffixHandler(AFFIX.keenEdge), useText: '附加词条「锋锐」', grantsAffix: AFFIX.keenEdge },
-  lifeSeed: { name: '生命之种', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.white, icon: '❖', description: '还在缓慢搏动的种荚。使用后点选一件装备，为它刻上「坚韧」。', use: grantAffixHandler(AFFIX.vitality), useText: '附加词条「坚韧」', grantsAffix: AFFIX.vitality },
-  platingGoo: { name: '铁壁涂层', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.gray, icon: '▩', description: '冷却后会变硬的重浆。使用后点选一件装备，为它刻上「铁壁」。', use: grantAffixHandler(AFFIX.bulwark), useText: '附加词条「铁壁」', grantsAffix: AFFIX.bulwark },
-  emberCore: { name: '余烬核心', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.blue, icon: '◉', description: '仍在燃烧的核心。使用后点选一件装备，赋予它「余烬爆裂」——装到槽位上就会在战斗中触发。', use: grantAffixHandler(AFFIX.emberBurst), useText: '附加词条「余烬爆裂」', grantsAffix: AFFIX.emberBurst },
+  whetOil: { name: '锐化油', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.gray, icon: '⚗', description: '一罐发苦的磨料。使用后点选一件装备，为它刻上「锋锐」。', targetsEquipment: true, use: grantAffixHandler(AFFIX.keenEdge), useText: '附加词条「锋锐」', grantsAffix: AFFIX.keenEdge },
+  lifeSeed: { name: '生命之种', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.white, icon: '❖', description: '还在缓慢搏动的种荚。使用后点选一件装备，为它刻上「坚韧」。', targetsEquipment: true, use: grantAffixHandler(AFFIX.vitality), useText: '附加词条「坚韧」', grantsAffix: AFFIX.vitality },
+  platingGoo: { name: '铁壁涂层', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.gray, icon: '▩', description: '冷却后会变硬的重浆。使用后点选一件装备，为它刻上「铁壁」。', targetsEquipment: true, use: grantAffixHandler(AFFIX.bulwark), useText: '附加词条「铁壁」', grantsAffix: AFFIX.bulwark },
+  emberCore: { name: '余烬核心', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.blue, icon: '◉', description: '仍在燃烧的核心。使用后点选一件装备，赋予它「余烬爆裂」——装到槽位上就会在战斗中触发。', targetsEquipment: true, use: grantAffixHandler(AFFIX.emberBurst), useText: '附加词条「余烬爆裂」', grantsAffix: AFFIX.emberBurst },
   /* ——— 清洗剂：一类词条一瓶，按类别移除 ———
      走独立的掉落通道（见 config/zones.ts 的 SOLVENT_DROP_CHANCE）：任何怪物都有极低概率掉一瓶，
      三选一，且不占「同一只怪物最多 3 条掉落」的名额。
      稀有度统一火红色（14）—— 琥珀色（15）是任务物品专用的最高档，火红色是普通物品能到的最高一档。 */
-  offenseSolvent: { name: '卸刃剂', type: '清洗', category: 'consumable', stackable: true, rarity: RARITY.fireRed, icon: '◦', description: '专攻刃口与击发结构。使用后点选一件装备，移除一条进攻词条。', use: removeAffixHandler(AFFIX_CATEGORY.offense), useText: solventText(AFFIX_CATEGORY.offense) },
-  survivalSolvent: { name: '祛壳剂', type: '清洗', category: 'consumable', stackable: true, rarity: RARITY.fireRed, icon: '◦', description: '能渗进装甲缝隙把硬化层整片揭下来。使用后点选一件装备，移除一条生存词条。', use: removeAffixHandler(AFFIX_CATEGORY.survival), useText: solventText(AFFIX_CATEGORY.survival) },
-  utilitySolvent: { name: '解构剂', type: '清洗', category: 'consumable', stackable: true, rarity: RARITY.fireRed, icon: '◦', description: '把刻痕拆回成不含信息的粉末。使用后点选一件装备，移除一条功能词条。', use: removeAffixHandler(AFFIX_CATEGORY.utility), useText: solventText(AFFIX_CATEGORY.utility) },
+  offenseSolvent: { name: '卸刃剂', type: '清洗', category: 'consumable', stackable: true, rarity: RARITY.fireRed, icon: '◦', description: '专攻刃口与击发结构。使用后点选一件装备，移除一条进攻词条。', targetsEquipment: true, use: removeAffixHandler(AFFIX_CATEGORY.offense), useText: solventText(AFFIX_CATEGORY.offense) },
+  survivalSolvent: { name: '祛壳剂', type: '清洗', category: 'consumable', stackable: true, rarity: RARITY.fireRed, icon: '◦', description: '能渗进装甲缝隙把硬化层整片揭下来。使用后点选一件装备，移除一条生存词条。', targetsEquipment: true, use: removeAffixHandler(AFFIX_CATEGORY.survival), useText: solventText(AFFIX_CATEGORY.survival) },
+  utilitySolvent: { name: '解构剂', type: '清洗', category: 'consumable', stackable: true, rarity: RARITY.fireRed, icon: '◦', description: '把刻痕拆回成不含信息的粉末。使用后点选一件装备，移除一条功能词条。', targetsEquipment: true, use: removeAffixHandler(AFFIX_CATEGORY.utility), useText: solventText(AFFIX_CATEGORY.utility) },
 
   /* ——— 拾荒者套装（废弃边境掉落，见 config/sets.ts）———
      风格：拼凑的废铁，单件平庸、整套耐打。 */
@@ -99,7 +99,7 @@ const ITEM_DEFS = {
   borderTag: { name: '废弃编号牌', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '▤', description: '从边境残骸里翻出的身份牌，上面的编号已经认不出属于谁。基地需要它来核对失踪名单。' },
   /* 强化道具「勤务手册」放在最后：它原本插在 emberCore 之后，那会让后面所有物品下标 +1，
      而存档按下标存物品 —— 违反「只能末尾追加」的硬约束（见 UI开发规范 R24）。 */
-  logisticsManual: { name: '勤务手册', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.blue, icon: '✎', description: '旧时代的排班与工时记录。使用后点选一件装备，为它刻上「勤务」——让后勤小队推进得更快。', use: grantAffixHandler(AFFIX.logistics), useText: '附加词条「勤务」', grantsAffix: AFFIX.logistics },
+  logisticsManual: { name: '勤务手册', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.blue, icon: '✎', description: '旧时代的排班与工时记录。使用后点选一件装备，为它刻上「勤务」——让后勤小队推进得更快。', targetsEquipment: true, use: grantAffixHandler(AFFIX.logistics), useText: '附加词条「勤务」', grantsAffix: AFFIX.logistics },
   crystalSample: { name: '结晶样本', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '⬢', description: '用铅盒封住的一小块矿脉结晶。离开矿道后还在缓慢生长，基地想弄清它在长什么。' },
   coreReading: { name: '核心读数', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '⧗', description: '从井壁记录仪上抄下的原始读数。基地认为把这几十秒的信号拼起来，就能定位信号的源头。' }
 } satisfies Record<string, Item>;
