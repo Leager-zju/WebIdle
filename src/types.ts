@@ -134,7 +134,8 @@ export interface AutoEatState {
     这份文案不进存档（每次由 text() 现算），所以直接用 markup；日志那种要进存档的文本才用 xxxTag 标记。 */
 export interface MainlineRequirement { text: (state: GameState) => string; done: (state: GameState) => boolean; }
 /** 研究基地发布的收集委托：要交 zoneId 这个区域的**任务物品**（itemId）need 个。
-    任务物品由该区域所有怪物统一 10% 掉落，所以委托的诉求是「去那个区域刷」而不是「挑某只怪刷」。
+    任务物品只在**当前委托正指向该区域**时由这里的怪物统一 10% 掉落（攒够了也照掉），
+    所以委托的诉求是「去那个区域刷」而不是「挑某只怪刷」。
     itemId 为 -1 表示还没有委托。 */
 export interface ResearchTaskState { itemId: number; /** 目标区域：任务物品由这个区域的怪物掉落。 */ zoneId: number; need: number; }
 /** condition 由 requirements 推导（全部 done），两处条件不会写歪。 */

@@ -1,9 +1,9 @@
 import { items, equipTypes } from './config/items';
 import { affixes, affixCap } from './config/affixes';
-import { enemyTable, zones, zoneOfEnemy, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
+import { enemyTable, zones, zoneOfEnemy, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
 import { CAMP_EVENT, campEventDef, campEventEntries } from './config/events';
 import { codexEntry, onWikiUnlockChange } from './codex-ref';
-import { getState, isEncountered, isDropDiscovered, isItemDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, mainline, setTable, setOfItem, getSetWorn, isPerfectItem, setBonusText, perfectBonusText, REFINE_MAX } from './game-state';
+import { getState, isEncountered, isDropDiscovered, isItemDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, mainline, setTable, setOfItem, setOfZone, getSetWorn, isPerfectItem, setBonusEntries, perfectBonusEntries } from './game-state';
 import type { ItemCategory } from './types';
 
 /* ——— 内置 wiki：图鉴弹窗 ———
@@ -71,17 +71,40 @@ function lockedCellMarkup(): string {
 }
 /** 数值网格（.codex-stats：标签在左、数值在右的自适应格）。 */
 function factsMarkup(facts: string[]): string { return facts.length ? `<div class="codex-stats">${facts.join('')}</div>` : ''; }
+/** 属性增益的数值网格：装备的属性描述、套装页的凑齐 / 极致效果共用一套 ——
+    「标签 + 数值」的条目来自 game-state 的 setBonusEntries / perfectBonusEntries。 */
+function bonusFactsMarkup(entries: { label: string; value: string }[]): string {
+  return factsMarkup(entries.map(entry => factMarkup(entry.label, entry.value)));
+}
 /** 「是否达成」统一用主线条件那一套样式：前面一个 status-dot，达成就点亮。 */
 function statusLine(text: string, done: boolean): string {
   return `<div class="requirement ${done ? 'done' : ''}"><span class="status-dot ${done ? '' : 'pending'}"></span><span>${text}</span></div>`;
 }
 /** 一个小节：标题 + 内容。 */
 function sectionMarkup(title: string, body: string): string { return `<section class="wiki-section"><h4 class="wiki-section-title">${title}</h4>${body}</section>`; }
-/** 一排格子。列表页与条目页的小节统一走它，不要再各自拼 `wiki-grid`。 */
-function cellGridMarkup(cells: string[]): string { return `<div class="wiki-grid">${cells.join('')}</div>`; }
+/** 一排格子。列表页与条目页的小节统一走它，不要再各自拼 `wiki-grid`。
+    extraClass 目前只有 'is-stacked'（单列，每条占满一整行，见怪物页的掉落表）。 */
+function cellGridMarkup(cells: string[], extraClass = ''): string { return `<div class="wiki-grid${extraClass ? ` ${extraClass}` : ''}">${cells.join('')}</div>`; }
 /** 掉落表的一格：物品格 + 角注写概率与数量区间。没拿到过的不剧透，只给占位格。 */
 function dropCellMarkup(drop: { itemId: number; chance: number; min: number; max: number }, discovered: boolean): string {
   return discovered ? entryCellMarkup('item', drop.itemId, `${Math.round(drop.chance * 100)}% · ${drop.min}~${drop.max} 个`) : lockedCellMarkup();
+}
+
+/** 区域掉落：不在任何怪物的 dropTable 里，而是这一区**所有**怪物统一走的通道
+    （套装部件见 grantSetDrop，任务物品见 grantQuestDrop）。
+    这里一律揭示，不走「逐条揭示」—— 它们是区域级情报（套装页与物品页本来就写着），
+    而且这两条通道都不记 discoveredDrops，做逐条揭示只会永远显示成占位格。
+    没有区域掉落时返回空数组，调用处据此整段不渲染。 */
+function zoneDropCells(zoneId: number): string[] {
+  const cells: string[] = [];
+  const setId = setOfZone(zoneId);
+  if (setId >= 0) {
+    const entry = setTable[setId];
+    cells.push(entryCellMarkup('set', setId, `${Math.round(entry.dropChance * 100)}% · ${entry.pieces.length} 件随机`));
+  }
+  const questItem = questItemOf(zoneId);
+  if (questItem >= 0) cells.push(entryCellMarkup('item', questItem, `${Math.round(QUEST_DROP_CHANCE * 100)}% · 需委托`));
+  return cells;
 }
 
 /** 路径：主页 › 列表 › [分类] › 条目。主页自己不带路径；每一级可点，当前级是纯文本。 */
@@ -135,14 +158,17 @@ function setBody(id: number): string {
   const entry = setTable[id];
   const state = getState();
   const total = entry.pieces.length;
-  const worn = getSetWorn(id, state);
   const perfect = entry.pieces.filter(itemId => isPerfectItem(itemId, state)).length;
+  /* 两个小节的属性增益都走 .codex-stats 数值网格，和装备条目页的属性描述同一套样式 ——
+     属性增益就该长得像属性表，而不是主线那种打勾的条件行。
+     凑齐效果的进度（已穿 N / M）不在这里重复：套装列表的角注就是它。
+     极致效果的进度没有别处可看，所以附在收益下面一条（间距见 .codex-stats + .requirement）。 */
   return [
     `<p class="wiki-desc">${entry.desc}</p>`,
     sectionMarkup('掉落区域', `${cellGridMarkup([entryCellMarkup('zone', entry.zone)])}<p class="wiki-note">每次击杀有 ${Math.round(entry.dropChance * 100)}% 概率掉落一件随机部件。</p>`),
     sectionMarkup('部件', cellGridMarkup(entry.pieces.map(itemId => (isItemDiscovered(itemId, state) ? entryCellMarkup('item', itemId) : lockedCellMarkup())))),
-    sectionMarkup('凑齐效果', `${statusLine(`已穿 ${worn} / ${total}`, worn >= total)}<p class="wiki-note">${setBonusText(entry.bonus)}</p>`),
-    sectionMarkup('极致效果', `${statusLine(`已极致 ${perfect} / ${total}`, perfect >= total)}<p class="wiki-note">全部部件精炼到 +${REFINE_MAX} 后永久获得：${perfectBonusText(entry.perfectBonus)}</p>`)
+    sectionMarkup('凑齐效果', bonusFactsMarkup(setBonusEntries(entry.bonus))),
+    sectionMarkup('极致效果', `${bonusFactsMarkup(perfectBonusEntries(entry.perfectBonus))}${statusLine(`当前进度：${perfect} / ${total}`, perfect >= total)}`)
   ].join('');
 }
 
@@ -181,18 +207,28 @@ function dropSourceMarkup(itemId: number): string {
   return cellGridMarkup(sources.map(entry => (isDropDiscovered(entry.enemyId, itemId, state) ? entryCellMarkup('enemy', entry.enemyId) : lockedCellMarkup())));
 }
 
-/** 任务物品的获取说明。它不在任何怪物的 dropTable 里 —— 由所在区域的**所有**怪物统一掉落，
-    所以这里给的是「去哪个区域刷」，而不是一份来源清单。 */
+/** 任务物品的获取说明。它不在任何怪物的 dropTable 里 —— 委托指向这个区域时，由这里的
+    **所有**怪物统一掉落，所以这里给的是「去哪个区域刷」，而不是一份来源清单。 */
 function questSourceMarkup(itemId: number): string {
   const zoneId = zones.findIndex(zone => zone.questItem === itemId);
   if (zoneId < 0) return '<p class="wiki-note">暂时没有已知的获取途径。</p>';
-  return `${cellGridMarkup([entryCellMarkup('zone', zoneId)])}<p class="wiki-note">在${zones[zoneId].name}狩猎时，这里的每一只怪物都有 ${Math.round(QUEST_DROP_CHANCE * 100)}% 概率掉落。</p>`;
+  return `${cellGridMarkup([entryCellMarkup('zone', zoneId)])}<p class="wiki-note">研究基地的委托指向这个区域时，在这里狩猎的每一只怪物都有 ${Math.round(QUEST_DROP_CHANCE * 100)}% 概率掉落；委托指向别处时不会掉。攒够了也照掉，多出来的留在包里。</p>`;
 }
 
 /** 清洗剂的获取说明。它也不在任何怪物的 dropTable 里 —— 任何怪物都有极低概率掉一瓶，三选一。
     所以这里给的是「掉率多少、和什么无关」，而不是一份来源清单。 */
 function solventSourceMarkup(): string {
   return `<p class="wiki-note">任何怪物都有 ${(SOLVENT_DROP_CHANCE * 100).toFixed(1)}% 的概率掉落一瓶清洗剂，三种随机出一种。掉率与区域、怪物种类都无关。</p>`;
+}
+
+/** 套装部件的获取说明。它**不在任何怪物的 dropTable 里** —— 走的是套装掉落通道
+    （见 game-state 的 grantSetDrop）：按怪物所在区域判定，随机给一个部位。
+    所以这里给的是「去哪个区域刷、多大几率掉一件」，而不是一份来源清单 ——
+    照「掉落来源」那套写只会得到一片占位（拾荒者套装曾经就是这么显示成「待发现」的）。 */
+function setSourceMarkup(setId: number): string {
+  const entry = setTable[setId];
+  if (!entry) return '<p class="wiki-note">暂时没有已知的获取途径。</p>';
+  return `${cellGridMarkup([entryCellMarkup('zone', entry.zone)])}<p class="wiki-note">在${zones[entry.zone].name}狩猎时，每次击杀有 ${Math.round(entry.dropChance * 100)}% 概率掉落一件随机部件（${entry.pieces.length} 个部位等概率）。这一区的所有怪物都一样。</p>`;
 }
 
 function itemBody(id: number): string {
@@ -213,13 +249,14 @@ function itemBody(id: number): string {
   } else if (item.useText) {
     lines.push(sectionMarkup('使用效果', `<p class="wiki-note">${item.useText}</p>`));
   }
-  /* 任务物品与清洗剂都不在 dropTable 里，用「掉落来源」那套只会得到一片占位，各走自己的说明。 */
+  const setId = setOfItem(id);
+  /* 任务物品、清洗剂、套装部件都不在 dropTable 里，用「掉落来源」那套只会得到一片占位，各走自己的说明。 */
   if (item.category === 'quest') lines.push(sectionMarkup('获取方式', questSourceMarkup(id)));
   else if (item.type === '清洗') lines.push(sectionMarkup('获取方式', solventSourceMarkup()));
+  else if (setId >= 0) lines.push(sectionMarkup('获取方式', setSourceMarkup(setId)));
   else lines.push(sectionMarkup('掉落来源', dropSourceMarkup(id)));
   /* 套装部件只给一个链接：套装效果、部件清单、极致进度都写在套装页（见 setBody）。
      一页只讲一件事，装备页不必重复整套的信息。 */
-  const setId = setOfItem(id);
   if (setId >= 0) lines.push(sectionMarkup('套装', cellGridMarkup([entryCellMarkup('set', setId)])));
   return lines.join('');
 }
@@ -234,13 +271,19 @@ function enemyBody(id: number): string {
     factMarkup('攻击间隔', formatSeconds(enemy.attackInterval)),
     factMarkup('金币', formatNumber(enemy.gold))
   ];
-  /* 掉落逐条揭示：只有玩家真的从这只怪物身上拿到过该物品，才显示名称、概率与数量区间。 */
+  /* 掉落分三段，对应三条互不影响的通道：
+     专属 —— 这只怪物自己的 dropTable，逐条揭示（真的从它身上拿到过才显示名称与概率）；
+     区域 —— 这一区所有怪物共有的（套装部件 + 任务物品），一律揭示；
+     通用 —— 清洗剂，任何怪物都可能掉，与区域和种类都无关。 */
   const drops = enemy.dropTable.map(drop => dropCellMarkup(drop, isDropDiscovered(id, drop.itemId, state)));
   const zoneId = zoneOfEnemy(id);
+  const zoneDrops = zoneId >= 0 ? zoneDropCells(zoneId) : [];
   return [
     `<p class="wiki-desc">${enemy.description}</p>`,
     factsMarkup(facts),
-    sectionMarkup('掉落', cellGridMarkup(drops)),
+    sectionMarkup('专属掉落', cellGridMarkup(drops, 'is-stacked')),
+    zoneDrops.length ? sectionMarkup('区域掉落', `${cellGridMarkup(zoneDrops, 'is-stacked')}<p class="wiki-note">${zones[zoneId].name}的所有怪物共用这几项，和各自的掉落表互不影响。任务物品只在研究基地的委托指向这一区时才会掉。</p>`) : '',
+    sectionMarkup('通用掉落', `<p class="wiki-note">任何怪物都有 ${(SOLVENT_DROP_CHANCE * 100).toFixed(1)}% 的概率掉一瓶清洗剂，三种随机出一种 —— 与区域、怪物种类都无关。</p>`),
     sectionMarkup('出现区域', zoneId >= 0 ? cellGridMarkup([entryCellMarkup('zone', zoneId)]) : '<p class="wiki-note">暂未确认。</p>')
   ].join('');
 }

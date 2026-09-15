@@ -106,6 +106,10 @@ h3 { margin-bottom: 5px; font-size: 1rem; }
 .home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .home-grid > .panel { padding: 22px; }
 .hero-copy { max-width: 650px; margin: 19px 0; color: var(--muted); line-height: 1.65; }
+/* 「当前生命值」另起一行：它是每 500ms 都在变的独立一段，跟上面的区域 / 敌人描述分开更好扫。
+   用块级而不是在文本里塞 \n —— setText 写的是 textContent，行首的 \n 会被 HTML 当空白折叠掉。
+   这一行没有内容时（营地 / 待命）整块高度为 0，不会留出空行。 */
+.hero-copy-hp { display: block; }
 /* 与资源条同理：按实际子项数量等分，避免删掉一项后右侧空一格。 */
 .hero-stats { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; margin: 18px 0; }
 .mini-stat { padding: 12px; border: 1px solid var(--line-soft); background: var(--surface-2); }
@@ -159,6 +163,10 @@ h3 { margin-bottom: 5px; font-size: 1rem; }
 /* 物品名字按稀有度着色（--rarity-color 由 .rarity-* 提供，没有稀有度类时继承原色）。 */
 .item-card .item-copy b { color: var(--rarity-color, inherit); }
 .field-label { display: grid; gap: 7px; color: var(--muted); font: .67rem DM Mono, monospace; }
+/* 目标区域下面那行委托提示：任务物品只在委托指向的区域掉落（未解锁 / 没有委托时整行不渲染）。
+   站在目标区域里时转主色 —— 玩家最想知道的就是「我刷对地方了吗」。 */
+.task-hint { margin: 0; color: var(--muted); font-size: .72rem; line-height: 1.6; }
+.task-hint.on-target { color: var(--accent); }
 select { min-width: 240px; padding: 10px 12px; border: 1px solid var(--line); outline: none; background: var(--surface-2); color: var(--text); }
 select:focus { border-color: var(--accent); }
 .battle-state { display: flex; align-items: center; gap: 10px; color: var(--accent); font: .68rem DM Mono, monospace; }
@@ -558,7 +566,12 @@ select:focus { border-color: var(--accent); }
 .equip-group-count { color: var(--muted); font: .62rem DM Mono, monospace; }
 .equip-slots { display: grid; gap: 6px; }
 /* 空槽位是虚线框，装上东西后变实线；拖拽经过匹配类型时高亮。 */
-.equip-slot { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border: 1px dashed var(--line); background: rgba(11, 18, 20, .5); color: var(--muted); text-align: left; font-size: .72rem; }
+.equip-slot { position: relative; display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border: 1px dashed var(--line); background: rgba(11, 18, 20, .5); color: var(--muted); text-align: left; font-size: .72rem; cursor: help; }
+/* 装着东西的槽也能悬停看详情：浮层复用物品卡片的 .item-detail，内容由 detailMarkup() 生成，
+   所以两处显示的信息天然一致。z-index 7 是「悬停宿主」的取号（见 UI开发规范 §1）。 */
+.equip-slot:hover, .equip-slot:focus-visible { z-index: 7; }
+.equip-slot:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.equip-slot:hover .item-detail, .equip-slot:focus-visible .item-detail { opacity: 1; visibility: visible; }
 .equip-slot.filled { border-style: solid; border-color: var(--accent-dim); background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent-dim); }
 .equip-slot.drop-target { border-style: solid; border-color: var(--accent); background: rgba(139, 245, 201, .12); color: var(--accent); }
 .equip-slot-icon { flex: 0 0 auto; display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--line); color: var(--accent); font-size: .8rem; }
@@ -656,8 +669,11 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .affix-picker-text { color: var(--muted); font: .7rem DM Mono, monospace; }
 .item-detail { z-index: 6; padding: 12px 13px; border: 1px solid var(--accent-dim); background: #101a1d; box-shadow: 0 16px 34px rgba(0, 0, 0, .4); opacity: 0; visibility: hidden; pointer-events: none; }
 .item-card:hover .item-detail, .item-card:focus-visible .item-detail { opacity: 1; visibility: visible; }
-.item-detail p { margin: 8px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.55; }
-.item-stats { margin-top: 9px; color: var(--accent); font: .65rem DM Mono, monospace; }
+/* .item-detail p 留给研究基地的研究项卡片（它自己写的 <p>）；物品浮层的描述用 .item-desc（span）。 */
+.item-detail p, .item-desc { margin: 8px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.55; }
+.item-desc { display: block; }
+/* display: block 是必需的：这些行现在是 <span>（要能放进装备槽的 <button> 浮层里，不能用块级元素）。 */
+.item-stats { display: block; margin-top: 9px; color: var(--accent); font: .65rem DM Mono, monospace; }
 .item-context-menu { position: fixed; z-index: 60; min-width: 152px; padding: 6px; border: 1px solid var(--line); background: #131d21; box-shadow: 0 18px 40px rgba(0, 0, 0, .5); }
 .item-context-menu[hidden] { display: none; }
 .context-menu-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 7px 9px 9px; border-bottom: 1px solid var(--line-soft); }
@@ -768,14 +784,19 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .wiki-note { margin: 0; color: var(--muted); font-size: .74rem; line-height: 1.7; }
 .wiki-section { margin-top: 18px; }
 .wiki-section-title { margin: 0 0 9px; color: var(--muted); font: .64rem DM Mono, monospace; letter-spacing: .08em; }
-/* 小节里「格子 → 说明文字」的间距（掉落区域、出现区域这类：先一格，后面跟一段补充）。 */
-.wiki-body .wiki-grid + .wiki-note { margin-top: 12px; }
+/* 小节里「格子 → 说明文字」的间距（掉落区域、出现区域这类：先一格，后面跟一段补充）。
+   套装页的极致效果同理：上面是数值网格，下面跟一条进度条。 */
+.wiki-body .wiki-grid + .wiki-note, .wiki-body .codex-stats + .requirement { margin-top: 12px; }
 /* 未发现 / 未确认的条目占位格：和真格子同一套骨架，虚线边框 + 压暗，一眼看出是待揭示而不是内容。 */
 .wiki-cell-locked { border-style: dashed; color: var(--muted); }
 /* 占位格不是按钮，不该有可点的悬停反馈（它没有 data-codex，点了也没反应）。 */
 .wiki-cell-locked:hover, .wiki-cell-locked:focus-visible { border-color: var(--line-soft); background: var(--surface-2); }
 /* 列表页的格子：图标 + 名称，颜色跟着条目类型（--codex-color / --rarity-color）。 */
 .wiki-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 8px; }
+/* 单列：每条占满一整行（怪物页的掉落表）。掉落条目数不固定、名字又长，
+   auto-fill 的多列网格会把它们挤成一行行窄条。格子本身已经是「图标 · 名称 ……… 角注」的横向 flex，
+   占满一行后正好排成清单。 */
+.wiki-grid.is-stacked { grid-template-columns: 1fr; }
 .wiki-cell { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 10px 11px; border: 1px solid var(--line-soft); background: var(--surface-2); color: var(--codex-color, var(--rarity-color, var(--text))); text-align: left; }
 .wiki-cell:hover, .wiki-cell:focus-visible { border-color: var(--accent); background: rgba(139, 245, 201, .08); }
 .wiki-cell:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }

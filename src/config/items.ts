@@ -92,7 +92,8 @@ const ITEM_DEFS = {
   pulsingCore: { name: '搏动核心', type: '饰品', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.accessory, rarity: RARITY.blue, icon: '❂', description: '一小块仍在搏动的核心碎片，戴久了心跳会和它同步。', equip: { attack: 6, hp: 20 } },
 
   /* ——— 任务物品（研究基地的委托专用）———
-     一个战斗区域一种，该区域**所有**怪物统一 10% 掉落（见 config/zones.ts 的 QUEST_DROP_CHANCE），
+     一个战斗区域一种，**只有当前委托正指向这个区域时**这里的怪物才按 10% 掉它
+     （见 config/zones.ts 的 QUEST_DROP_CHANCE 与 game-state 的 grantQuestDrop），
      不走各自的 dropTable —— 委托要的是「去那个区域刷」，不是「挑某只怪刷」。
      稀有度统一琥珀色（15），跨区域所以不和任何一个区域抢档位。
      不能使用、不能装备、没有 equip 字段；除了交委托没有别的用途。 */

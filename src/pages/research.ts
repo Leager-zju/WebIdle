@@ -9,8 +9,8 @@ import { itemRefMarkup, zoneRefMarkup } from '../codex-ref';
 import type { GameState, PageDefinition } from '../types';
 
 /* ——— 左栏：当前委托（UI 参考远征档案的章节详情：一句话描述 + 达成条件 + 提交按钮）———
-   委托要的是「某个区域的任务物品」—— 该区域所有怪物统一 10% 掉落，所以诉求是
-   「去那个区域刷」而不是「挑某只怪刷」。不满意这份委托可以花钱刷新，费用递增。 */
+   委托要的是「某个区域的任务物品」—— 只在这份委托正指向那个区域时，该区域的怪物才按 10% 掉它，
+   所以诉求是「去那个区域刷」而不是「挑某只怪刷」。不满意这份委托可以花钱刷新，费用递增。 */
 const taskMarkup = `<div class="panel-heading"><div><span class="panel-kicker">CONTRACT</span><h3>当前委托</h3></div></div>
   <p class="task-desc" data-ref="desc"></p>
   <div class="task-requirement" data-ref="requirement"></div>

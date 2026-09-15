@@ -183,7 +183,7 @@ export function isWorkshopItemUnlocked(id: number, target: GameState = state): b
    交齐换研究点数，研究点数用来提升研究项。
 
    委托不再要求「怪物的普通掉落物」—— 那种委托逼玩家挑怪刷（一个物品常常只有 1~2 只怪会掉），
-   而任务物品是区域内**所有**怪物统一 10% 掉落，委托的诉求因此变成「去那个区域刷」。
+   而任务物品只在**当前委托指向该区域**时由这里的怪物统一 10% 掉落，诉求因此变成「去那个区域刷」。
    难度选择也一并去掉：委托随机落在某个已解锁区域、奖励固定 —— 越深的区域任务物品一样难掉，
    但那里的怪本身更值钱，收益差已经体现在刷的过程中，不需要再加一层倍率。 */
 export const RESEARCH = {
@@ -618,7 +618,7 @@ export function refineWithFeeder(instanceId: number, feederId: number): boolean 
     const setId = setOfItem(instance.itemId);
     const entry = setId >= 0 ? setTable[setId] : undefined;
     if (entry && entry.pieces.every(itemId => state.perfectItems.includes(itemId))) {
-      addLog(state, `${entry.name}套装全部达成【极致】：永久获得 ${perfectBonusText(entry.perfectBonus)}。`, 'progress');
+      addLog(state, `${entry.name}套装全部达成【极致】：永久获得${perfectBonusText(entry.perfectBonus)}。`, 'progress');
     }
   }
   saveState(); notify();
@@ -626,22 +626,35 @@ export function refineWithFeeder(instanceId: number, feederId: number): boolean 
 }
 /** 这件装备是否曾经精炼到 100 级（【极致】）。 */
 export function isPerfectItem(itemId: number, target: GameState = state): boolean { return !!target.perfectItems?.includes(itemId); }
-/** 套装加成（凑齐部件）的文案。 */
-export function setBonusText(bonus: SetBonus): string {
-  const parts: string[] = [];
-  if (bonus.attack) parts.push(`攻击 +${bonus.attack}`);
-  if (bonus.hp) parts.push(`生命 +${bonus.hp}`);
-  if (bonus.defense) parts.push(`防御 +${bonus.defense}`);
-  if (bonus.regen) parts.push(`生命恢复 +${bonus.regen}/秒`);
-  if (bonus.attackInterval) parts.push(`出手间隔 -${bonus.attackInterval} 秒`);
-  return parts.join(' · ');
+/** 套装加成（凑齐部件）的「标签 + 数值」条目。
+    标签跟装备条目页的属性描述保持同一套词（攻击力 / 生命上限 / 防御力），
+    图鉴的凑齐效果直接拿它铺数值网格，不要再另写一份标签。 */
+export function setBonusEntries(bonus: SetBonus): { label: string; value: string }[] {
+  const entries: { label: string; value: string }[] = [];
+  if (bonus.attack) entries.push({ label: '攻击力', value: `+${bonus.attack}` });
+  if (bonus.hp) entries.push({ label: '生命上限', value: `+${bonus.hp}` });
+  if (bonus.defense) entries.push({ label: '防御力', value: `+${bonus.defense}` });
+  if (bonus.regen) entries.push({ label: '生命恢复', value: `+${bonus.regen}/秒` });
+  if (bonus.attackInterval) entries.push({ label: '出手间隔', value: `-${bonus.attackInterval} 秒` });
+  return entries;
 }
-/** 【极致】奖励的文案。 */
+/** 套装加成的单行文案：装备加成面板这类只能放一行的位置用它，
+    内容由 setBonusEntries 拼出来，两边不会各说各的。 */
+export function setBonusText(bonus: SetBonus): string {
+  return setBonusEntries(bonus).map(entry => `${entry.label} ${entry.value}`).join(' · ');
+}
+/** 【极致】奖励的「标签 + 数值」条目。标签跟 setBonusEntries 同一套词（攻击力 / 生命上限）。 */
+export function perfectBonusEntries(bonus: { attackPct?: number; hpPct?: number }): { label: string; value: string }[] {
+  const entries: { label: string; value: string }[] = [];
+  if (bonus.attackPct) entries.push({ label: '攻击力', value: `+${bonus.attackPct}%` });
+  if (bonus.hpPct) entries.push({ label: '生命上限', value: `+${bonus.hpPct}%` });
+  return entries;
+}
+/** 【极致】奖励的单行文案：每一项单独用【】括起来（如【生命上限+25%】）。
+    它是「这套拿到手会多什么」的结论，不是夹在句子里的描述，所以不用「 · 」串，各括各的。
+    只给日志这类散文位置用 —— 图鉴里的极致效果是数值网格，走 perfectBonusEntries。 */
 export function perfectBonusText(bonus: { attackPct?: number; hpPct?: number }): string {
-  const parts: string[] = [];
-  if (bonus.attackPct) parts.push(`攻击 +${bonus.attackPct}%`);
-  if (bonus.hpPct) parts.push(`生命上限 +${bonus.hpPct}%`);
-  return parts.join(' · ');
+  return perfectBonusEntries(bonus).map(entry => `【${entry.label}${entry.value}】`).join('');
 }
 /** 【极致】奖励：一套的全部部件都精炼到过 100 级时生效的永久百分比加成。
     只给百分比 —— 越早的套装越容易被后来的装备淘汰，百分比是唯一不会被淘汰的形式。 */
@@ -814,12 +827,18 @@ function revealDrop(target: GameState, enemyId: number, itemId: number): void { 
 /* 只有真正进了包才算「获得」：被物品栏上限拒收的不揭示。 */
 function grantDrops(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; enemy.dropTable.forEach(drop => { if (Math.random() > drop.chance) return; const item = items[drop.itemId]; /* 可堆叠的进数量，装备每件都建成独立实例；拿完如果超出上限，就丢掉刚拿到的这一件。 */
 const amount = randomAmount(drop.min, drop.max); /* 装备每件都建成独立实例，可堆叠的进数量。 */ if (item.stackable) { target.inventory[drop.itemId] += amount; if (drop.itemId === ITEM.scrap) target.scrap += amount; if (drop.itemId === ITEM.emberShard) target.essence += amount; } else addEquipment(target, drop.itemId, amount, zoneDropRefine(enemyId)); revealDrop(target, enemyId, drop.itemId); addLog(target, `掉落：${itemTag(drop.itemId)} ×${amount}`, 'drop'); /* 超上限就把刚拿到的这件丢掉，不动玩家原有的东西。 */ trimInventoryOverflow(target, drop.itemId); }); }
-/** 任务物品掉落：区域内**所有**怪物统一 QUEST_DROP_CHANCE，与各自的 dropTable 无关。
-    和套装掉落一样独立成一步 —— 不占「同一只怪物最多 3 条掉落」的名额。
-    委托因此变成「去那个区域刷」，而不是「挑某只怪刷」。 */
+/** 任务物品掉落：**当且仅当这个区域正是当前委托的目标时**才判定，掉率区域内所有怪物统一
+    （QUEST_DROP_CHANCE），与各自的 dropTable 无关。和套装掉落一样独立成一步 ——
+    不占「同一只怪物最多 3 条掉落」的名额。
+    为什么加这道区域判定：任务物品除了交委托没有别的用途，在委托不指向的区域刷出来的只会
+    白占物品栏格数。研究基地还没解锁时没有委托，自然也不掉 —— 否则玩家会在完全不知道这物品
+    干什么用的阶段就开始攒它。
+    **不按 need 封顶**：攒够了照掉 —— 交委托只扣 need 个，多出来的留在包里。 */
 function grantQuestDrop(target: GameState, enemyId: number): void {
-  const itemId = questItemOf(zoneOfEnemy(enemyId));
+  const zoneId = zoneOfEnemy(enemyId);
+  const itemId = questItemOf(zoneId);
   if (itemId < 0 || Math.random() > QUEST_DROP_CHANCE) return;
+  if (!isResearchUnlocked(target) || getResearchTask(target).zoneId !== zoneId) return;
   target.inventory[itemId] += 1;
   revealDrop(target, enemyId, itemId);
   addLog(target, `掉落：${itemTag(itemId)} ×1`, 'drop');
@@ -1349,7 +1368,9 @@ export function devSetStat(index: number, value: number): void { const entry = d
 /** 一键解锁全部系统（等价于把主线推到底）。 */
 export function devUnlockSystems(): void { state.mainlineIndex = mainline.length; addLog(state, '[DEV] 已解锁全部系统。', 'progress'); saveState(); notify(); }
 
-export function resetGame(): void { if (!window.confirm('确定要删除当前远征存档吗？')) return; state = freshState(); addLog(state, '新的远征从一簇微弱的火星开始。', 'system'); saveState(); notify(); }
+/** 重置存档。返回**是否真的重置了** —— 玩家在 confirm 里点取消时返回 false，
+    调用方（main.ts）据此决定要不要重放首次引导：取消了就不该弹引导。 */
+export function resetGame(): boolean { if (!window.confirm('确定要删除当前远征存档吗？')) return false; state = freshState(); addLog(state, '新的远征从一簇微弱的火星开始。', 'system'); saveState(); notify(); return true; }
 export function startLoop(): void { let lastTick = Date.now(); setInterval(() => { const now = Date.now(); const seconds = (now - lastTick) / 1000; lastTick = now; advanceAdventure(state, seconds); advanceLogistics(state, seconds); advanceCamp(state, seconds); if (now - lastSave > 5000) { saveState(); lastSave = now; } notify(); }, 500); window.addEventListener('beforeunload', saveState); }
 
 hydrate();
