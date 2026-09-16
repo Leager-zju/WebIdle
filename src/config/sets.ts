@@ -54,6 +54,15 @@ const SET_DEFS = {
     pieces: [ITEM.signalCutter, ITEM.coreVisor, ITEM.abyssArmor, ITEM.regulatorLegs, ITEM.pulsingCore],
     bonus: { attack: 20, hp: 80, defense: 6 } satisfies SetBonus,
     perfectBonus: { attackPct: 12, hpPct: 12 }
+  },
+  /* 熔火裂谷：地热里淬出来的重装，攻防都比核心套再上一档。 */
+  magma: {
+    name: '熔火', icon: '🌋', zone: ZONE.magmaRift, dropChance: .1,
+    desc: '在裂谷的地热里反复淬过的整套行头。重量惊人，但站在岩浆边也不会软。',
+    pieces: [ITEM.magmaCleaver, ITEM.magmaVisor, ITEM.magmaPlate, ITEM.cinderLegs, ITEM.magmaCore],
+    bonus: { attack: 26, hp: 75, defense: 8, regen: 1 } satisfies SetBonus,
+    /* 越晚的套装【极致】奖励越轻：早期套装容易被淘汰，百分比留给它们补。 */
+    perfectBonus: { attackPct: 8, hpPct: 8 }
   }
 } satisfies Record<string, { name: string; icon: string; zone: number; dropChance: number; desc: string; pieces: number[]; bonus: SetBonus; perfectBonus: { attackPct?: number; hpPct?: number } }>;
 

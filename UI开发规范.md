@@ -55,7 +55,7 @@ SOURCE    本文件由现有代码反向整理，每条规则对应既有实现�
 | `src/guide.ts` | 新手指引：四块遮罩挖孔 + 气泡 + 跳过 / 重置；步骤表在文件顶部 `GUIDES` | 是（往 `GUIDES` 加步骤） |
 | `src/types.ts` | 类型定义 | 是 |
 | `src/globals.d.ts` | 构建期常量声明 | 新增常量时改 |
-| `src/config/*.ts` | 静态配置表（items / affixes / rarity / zones / events） | 仅末尾追加 |
+| `src/config/*.ts` | 静态配置表（items / affixes / rarity / zones / events / maps / unlock） | 仅末尾追加 |
 | `src/pages/*.ts` | 页面逻辑（8 个） | 是 |
 | `public/pages/*.html` | 页面静态骨架（fetch 加载） | 是 |
 
@@ -199,6 +199,10 @@ import xxxPage from './pages/xxx';
 ```
 
 ⚠️ 导航项数量变化时同步 `style.css` 的 900px 断点：`.main-nav { grid-template-columns: repeat(N, 1fr) }`（当前 N=8）。
+导航顺序由 `index.html` 决定，页面右侧的 `page-code` 编号（`HOME / 01` …）也要跟着顺延。
+
+⚠️ **新内容优先做成已有页面的页签，而不是新页面**：多一个导航项就要同步断点、`page-code` 与手机端列数。
+「勘探图」原来是自己一个页面，后来并进研究基地做成了页签（见 §7.17）—— 页签切换的写法抄 `pages/story.ts`。
 
 ### 2.4 卡片（两种形态，按信息量选）
 
@@ -333,8 +337,10 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 新增页面 | §2.1 §2.2 §2.3 §5 | `public/pages/*.html`、`src/pages/*.ts`、`main.ts`、`index.html`、`style.css` |
 | 新增卡片 / 网格 | §2.4 §6.5 | `src/pages/*.ts`、`style.css` |
 | 文案里要出现物品 / 怪物 / 区域名 | §6.10 §1-R26 R27 | `src/codex-ref.ts`（引用）、`src/pages/*.ts`、`src/game-state.ts`（日志） |
-| 新增区域（含图标） | §6.10 §4.2 | `src/config/zones.ts`（末尾追加，必须给 `icon`）、`src/types.ts` |
-| 新增有解锁门槛的内容 | §6.11 §1-R29 R30 | 配置表（给 `unlockIndex`）、`src/pages/*.ts`（列表同步）、`src/game-state.ts`（`unlockNotices` 会自动收录、动作函数加判定） |
+| 新增区域（含图标） | §6.10 §4.2 §7.17 | `src/config/zones.ts`（末尾追加，必须给 `icon` 与 `unlock`）、`src/types.ts` |
+| 新增区域解锁规则 | §7.17 | `src/config/unlock.ts`（`unlockBy`）、`src/config/zones.ts`（在 `unlock:` 里组合） |
+| 新增勘探图 / 地图残片 | §7.17 | `src/config/maps.ts`（追加到末尾）、`src/config/items.ts`（残片实物）、`src/pages/research.ts`（勘探图页签） |
+| 新增有解锁门槛的内容 | §6.11 §7.17 §1-R29 R30 | 制造项 / 研究项给 `unlockIndex`，**区域给 `unlock` 规则**（见 §7.17）；`src/pages/*.ts`（列表同步）；`src/game-state.ts`（`unlockNotices` 自动收录、动作函数加判定） |
 | 改内置 wiki 内容 | §6.10 | `src/wiki.ts`、`style.css` |
 | 新增事件（天灾 / 兽潮 / 随机事件） | §6.10 | `src/config/events.ts`（末尾追加；随机事件会自动进 `campEventEntries`） |
 | 新增新手指引 | §6.12 §1-R32 | `src/guide.ts`（`GUIDES` 表，键要和解锁事件 id 对上） |
@@ -376,16 +382,18 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 
 **稀有度只影响物品名的显示颜色，不参与任何数值计算** —— 掉率在 `dropTable` 里写死、装备数值在 `equip` 里写死，稀有度不参与其中。它粗略体现「价值与获取难度」，参考泰拉瑞亚的做法。
 
-色板一次备足 **16 档**（`--rarity-0` ~ `--rarity-15`，见 `:root`），类名由 `rarityClass()` 从 `config/rarity.ts` 的 `className` 生成。**目前只用到 4 档**：
+色板一次备足 **16 档**（`--rarity-0` ~ `--rarity-15`，见 `:root`），类名由 `rarityClass()` 从 `config/rarity.ts` 的 `className` 生成。**目前已用到 6 档**：
 
 | id | 类 | 名称 | 令牌 | 分配给 |
 | --- | --- | --- | --- | --- |
 | 0 | `.rarity-gray` | 灰色 | `--rarity-0` | 废弃边境 |
 | 1 | `.rarity-white` | 白色 | `--rarity-1` | 余烬矿脉 |
 | 2 | `.rarity-blue` | 蓝色 | `--rarity-2` | 核心深井 |
+| 3 | `.rarity-green` | 绿色 | `--rarity-3` | 熔火裂谷 |
+| 14 | `.rarity-fireRed` | 火红色 | `--rarity-14` | 特殊渠道物品（清洗剂、地图碎片） |
 | 15 | `.rarity-amber` | 琥珀色 | `--rarity-15` | 任务物品（跨区域，单独占最高档） |
 
-3~14 档（绿 / 橙 / 浅红 / 粉红 / 浅紫 / 青柠 / 黄 / 青 / 红 / 紫 / 彩虹 / 火红）是留给后续区域的空位，颜色已经在 `:root` 里备好 —— **加区域时往上取一档即可，不用回来改 CSS**。分配规则因此只有一条：**越后期能拿到的物品，档位越高**。
+4~13 档（橙 / 浅红 / 粉红 / 浅紫 / 青柠 / 黄 / 青 / 红 / 紫 / 彩虹）是留给后续区域的空位，颜色已经在 `:root` 里备好 —— **加区域时往上取一档即可，不用回来改 CSS**。分配规则因此只有一条：**越后期能拿到的物品，档位越高**。两档「特殊渠道」（14 / 15）不和区域抢位置：它们的物品不是按区域进度拿到的（走独立掉落通道），谁先拿到谁后拿到都一样。
 
 用法：元素写 `color: var(--rarity-color, inherit)`；类名一律走 `rarityClass(rarity)`，不要手拼。**必须着色**的元素：`.codex-ref-name`（图鉴引用，首选）、`.item-name`（散文里的裸物品名）、`.equip-slot-name`、`.equip-stat-source`、`.item-detail-name`。边框着色只加卡片（`.item-card.rarity-*`）。
 
@@ -423,6 +431,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 圆角 | **0**（R18） |
 | 面板内边距 | `22px`；块内 `--surface-2` 块 `18px` |
 | 卡片内边距 | `16px`；磁贴 `12px` |
+| 卡片描边 | 视觉 8px（`border` 1px + `inset 0 0 0 7px`），颜色由 `--card-line` 给（见 §6.5） |
 | 栅格间距 | 主布局 `18px`，网格内 `10–14px`，紧凑行 `6–8px` |
 | 边框 | 块 `1px solid var(--line)`；块内 `1px solid var(--line-soft)` |
 | 面板阴影 | `0 18px 42px rgba(0,0,0,.14)` |
@@ -469,7 +478,10 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | `.inventory-layout` | `212px minmax(0, 1fr)` + `align-items: start` | 物品栏 |
 | `.battle-arena` | `minmax(0, 1fr) 70px minmax(0, 1fr)` | 战斗（中间 VS） |
 | `.shop-grid` | `repeat(auto-fill, minmax(320px, 1fr))` | 工坊 |
-| `.item-grid` | `repeat(6, minmax(0, 1fr))` | 图鉴 / 磁贴 |
+| `.atlas-slots` | `repeat(3, minmax(0, 1fr))` | 勘探图的三格槽位（残片数由配置表给，见 §7.17） |
+| `.item-grid` | `repeat(6, minmax(0, 1fr))` | 磁贴（物品储藏 / 研究项） |
+| `.storage-grid` | 列数随断点降级（6 / 5 / 3），见 §5.3 | 图标磁贴：正方形，卡面只有图标 + 数量 |
+| `.storage-grid.research-grid` | `repeat(auto-fill, minmax(96px, 1fr))` | 研究项住在半宽栏里，6 列装不下（见 §10-27） |
 | `.achievement-grid` | `repeat(auto-fill, minmax(64px, 1fr))` | 成就 |
 | `.resource-strip` / `.hero-stats` / `.camp-event-track` | `grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr)` | 等分条（R21） |
 
@@ -477,10 +489,20 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 
 | 断点 | 行为 |
 | --- | --- |
-| `max-width: 900px` | 侧栏 → 顶部横向导航 `repeat(8, 1fr)`（导航项数量变化时同步 N）；`.home-grid` / `.inventory-layout` / `.archive-layout` / `.camp-layout` 单列；`.battle-arena` 中列 `44px` |
-| `max-width: 600px` | `.app-shell` 收边距；`.game-header` 纵向；导航 `repeat(4, 1fr)`；资源条 2 列（末项 `1 / -1`）；`.battle-arena` 单列；`.item-grid` 5 列；工具栏纵向 |
+| `max-width: 900px` | 侧栏 → 顶部横向导航 `repeat(8, 1fr)`（导航项数量变化时同步 N）；`.home-grid` / `.inventory-layout` / `.archive-layout` / `.camp-layout` 单列；`.storage-grid` 5 列；`.battle-arena` 中列 `44px` |
+| `max-width: 600px` | `.app-shell` 收边距；`.game-header` 纵向；导航 `repeat(4, 1fr)`；资源条 2 列（末项 `1 / -1`）；`.battle-arena` 单列；`.storage-grid` 3 列；`.atlas-slots` 单列（三格横排在手机上放不下残片名）；工具栏纵向 |
 
 新增多列布局**必须**在这两处给出降级规则。
+
+**磁贴格子的基线（§10-27）**：`.storage-grid` 的列数就是「格子有多大」的唯一来源，
+格子里**不能放写死尺寸的元素**。图标框写的是 `min(60px, calc(100% - 25px))`：
+
+- `100%` 只在卡片给出**一条宽度确定的轨道**（`grid-template-columns: minmax(0, 1fr)`）时才解析得出来；
+- 减掉的 25px 是**卡片竖向除图标之外的全部占位**（5px 间距 + 一行数量 + 余量）—— 格子是正方形，
+  少减这一截，有数量的卡片就会把图标顶出格子（见 §10-27）。
+
+改了列数、加了新的磁贴容器、或者给磁贴加了一行文字，都要照 §5.3 的断点重新算一遍：
+**格子内容宽（高）≥ 图标框 + 其余全部占位**。
 
 ---
 
@@ -534,7 +556,12 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 信息卡 | `.item-card` + `.item-detail` | 图标 + 名称 + 类型 + 描述 + 属性 |
 | 图标磁贴 | `.storage-grid .item-card`（`aspect-ratio: 1/1`） | 仅图标 + 数量，其余进浮层 |
 
-状态类：`.equipped`（accent 边框）/ `.selected` / `.locked`（虚线 + `cursor: default`）/ `.dragging` / `.drop-target` / `.busy` / `.maxed` / `.level-0`（虚线）。
+状态类：`.equipped`（accent 边框，视觉 12px）/ `.selected` / `.locked`（虚线 + `cursor: default`）/ `.dragging` / `.drop-target` / `.busy` / `.maxed`（**与 `.equipped` 同一套高亮**，见下面那条）/ `.level-0`（虚线）。
+
+⚠️ **`.item-icon` 不画边框**：卡面上的图标就是图标本身，唯一的边框是**卡片按稀有度派生的那一条**（`--card-line`）。
+曾经给图标框加过一圈 `--accent-dim` 绿边，在小格子里会被误当成「选中 / 高亮」状态，而且它把「这张卡是什么状态」这件事
+拆成了两个视觉通道（图标框 + 卡片描边）。**状态一律只用卡片描边表达**：普通（稀有度 30% 混透明）、
+`level-0`（虚线）、`equipped` 与 `.maxed`（主色 + 加粗到视觉 12px）。
 ⚠️ **带悬停浮层的卡片**（`.item-card` / `.shop-item` / `.achievement-card`）置灰**禁用 `opacity`**，改用 `border-style: dashed`（§10-02）；无浮层的置灰卡片（如 `.codex-card.locked`）可用 `opacity: .45`。
 
 ### 6.6 日志列表
@@ -852,9 +879,9 @@ interface PageDefinition<Context = any> {
 
 ### 7.4 状态与动作（`src/game-state.ts`）
 
-- **只读**：`getState()`、各 `getXxx(state)` 派生值、配置表 `items` / `zones` / `enemyTable` / `rarities` / `affixes` / `equipTypes` / `itemCategories` / `categoryOrder` / `equipBonusStats` / `fontScales` / `numberFormats` / `researchItems` / `workshopItems` / `logisticsTargets` / `campEventEntries` / `mainline` / `achievements`。
-- **配置表自带的查询函数**（不要在页面里重写遍历）：`rarityClass(rarity)`（`config/rarity`）、`zoneOfEnemy(enemyId)`（`config/zones`）、`campEventDef(kind, index)` / `campEventEntryId(kind, index)`（`config/events`）。
-- **动作（界面唯一允许的状态修改方式，R06）**：`selectZone` `equipItem` `equipToSlot` `discardItem` `discardEquipment` `useItem` `assignLogistics` `startWorkshopUpgrade` `startCampChallenge` `answerPendingEvent` `submitResearchTask` `upgradeResearchItem` `upgradeResearchItemToMax` `setResearchDifficulty` `setFontScale` `setNumberFormat` `setNotify` `resetGame` `devGrantItem` `devSetStat` `devUnlockSystems`。
+- **只读**：`getState()`、各 `getXxx(state)` 派生值、配置表 `items` / `zones` / `enemyTable` / `rarities` / `affixes` / `equipTypes` / `itemCategories` / `categoryOrder` / `equipBonusStats` / `fontScales` / `numberFormats` / `researchItems` / `workshopItems` / `logisticsTargets` / `campEventEntries` / `mapSets` / `MAP_STATE` / `EXPEDITION` / `mainline` / `achievements`。
+- **配置表自带的查询函数**（不要在页面里重写遍历）：`rarityClass(rarity)`（`config/rarity`）、`zoneOfEnemy(enemyId)` / `zoneOfMap(mapId)`（`config/zones`）、`campEventDef(kind, index)` / `campEventEntryId(kind, index)`（`config/events`）、`fragmentMapOf(itemId)` / `mapOfEventKind(kind)`（`config/maps`）。
+- **动作（界面唯一允许的状态修改方式，R06）**：`selectZone` `equipItem` `equipToSlot` `discardItem` `discardEquipment` `useItem` `assignLogistics` `startWorkshopUpgrade` `startCampChallenge` `answerPendingEvent` `craftMap` `startExpedition` `submitResearchTask` `upgradeResearchItem` `upgradeResearchItemToMax` `setResearchDifficulty` `setFontScale` `setNumberFormat` `setNotify` `resetGame` `devGrantItem` `devSetStat` `devUnlockSystems`。
 - **订阅 / 启动**：`subscribe(cb)`、`onUnlock(cb)`、`startLoop()`（内部 `notify()` 由动作函数调用，界面不直接用）。
 
 ### 7.5 未解锁系统的统一表达（由 `main.ts` 统一处理，页面不要重复实现）
@@ -872,41 +899,49 @@ interface PageDefinition<Context = any> {
 
 | 约束 | 怎么保证 |
 | --- | --- |
-| 区域内强度相当 | 用「无装备玩家击杀这只怪的**净损失生命**」当强度指标，同区域所有怪物落在同一区间 |
-| 偏科不同 | 强度拉平的前提下，攻击 / 出手间隔 / 血量 / 防御各偏一头（高攻慢手、低攻快攻、高血高防低攻…） |
+| 区域内强度相当 | 用「**净损失生命占玩家生命上限的比例**」当强度指标，同区域所有怪物落在同一区间（终点怪除外） |
+| 偏科不同 | 强度拉平的前提下，攻击 / 出手间隔 / 血量 / 防御各偏一头（高攻慢手、低攻快攻、高血高防低攻…）；偏的是「怎么打」，不是「打不打得过」 |
 | 开局区域无装备可过 | 新档**身上不穿任何装备**（`equipped` 全空、`inventory` 全 0），废弃边境每一只都必须在「攻 12 / 防 0 / 血 100 / 回复 2」下打得赢。开局送的那把拾荒者短刃（+0）只放在包里、不预装，所以这个基准没变 |
 
-净损失 ≈ `T × (怪物 DPS − 玩家回复)`，`T = 玩家出手次数 × 出手间隔`。
+净损失 ≈ `T ×（怪物 DPS − 玩家回复）`，`T = ⌈怪物生命 ÷（玩家攻击 − 怪物防御）⌉ × 玩家出手间隔`。
 「血厚 + 防高」的怪 `T` 天然更长，**攻击必须相应压低**，净损失才拉得平。
 
-各区域的玩家基准（穿齐上一区域的套装，见 §7.9）。「设计」那一列是按「套装齐 + 营火 N 级」算的旧值，
-「实际」那一列是按**当前代码**（`getPlayerAttack` = 12 + 装备 + 套装 + 词条）现算的：
+**各区域的玩家基准 = 穿齐上一区域的整套套装**（见 §7.9），净损失一律压在 **25~35%** 生命上限
+（一条命能连打三场左右，回庇护所按 ×5 回复修整后再出门）：
 
-| 区域 | 设计基准 → 净损失 | **实际基准 → 净损失** |
+| 区域 | 玩家基准（穿齐上一区套装） | 净损失 |
 | --- | --- | --- |
-| 废弃边境 | 攻 12 / 防 0 / 血 100 / 回复 2 / 间隔 2.2（**裸装**）→ 16~23 | **同左** —— 这一区不依赖任何已删除的系统 |
-| 余烬矿脉 | 攻 30 / 防 6 / 血 240 / 回复 5.4 → 65~78（27~33%） | 攻 17 / 防 6 / 血 200 / 回复 3 / 间隔 2.2 → **305~451（153~226% 生命）** |
-| 核心深井 | 攻 50 / 防 8 / 血 260 / 回复 6 / 间隔 2.1 → 84~116（32~45%） | 攻 42 / 防 2 / 血 135 / 回复 2 / 间隔 2.0 → **261~468（193~347% 生命）** |
+| 废弃边境 | **裸装** 攻 12 / 防 0 / 血 100 / 回复 2 / 间隔 2.2 | 16~23（16~23%） |
+| 余烬矿脉 | 拾荒者套装齐 攻 17 / 防 6 / 血 200 / 回复 3 / 间隔 2.2 | 51~67（25~34%） |
+| 核心深井 | 余烬套装齐 攻 42 / 防 2 / 血 135 / 回复 2 / 间隔 2.0 | 36~52（27~39%，泰坦最高） |
+| 熔火裂谷 | 核心套装齐 攻 57 / 防 11 / 血 290 / 回复 2 / 间隔 2.2 | 84~92（29~32%） |
 
-⚠️ **后两个区域现在打不过。** 设计基准是按「套装齐 + 营火 3 / 5 级」算的，而营火强化已经被移除：
-`state.workshop`（原「营火强化」）仍被 `getPlayerAttack`（+3/级）、`getPlayerMaxHp`（+15/级）、
-`getPlayerRegen`（+0.8/级）和三个庇护所数值读取，但**升级入口已经删掉**，只有开发者面板能改（名字还叫「营火强化」）。
-`rebuildState` 走 `{ ...initial, ...saved }`，所以**老存档保留着旧值、新存档恒为 0** —— 新老玩家战力不一致。
+⚠️ **余烬矿脉与核心深井是批次 2 重新校准过的。** 它们原来的数值是按「套装齐 + 营火 N 级」算的，
+而**营火那条成长线已经整条移除**（见 `庇护所扩展方案.md` §4.3）—— 旧数值等于按一个不存在的成长线设计，
+新档按当前公式去打算，净损失是生命上限的 1.5~3.5 倍，**根本打不过**。
+现在四档一律按上表的「穿齐上一区域套装」重算过，`zones.ts` 文件头留着这张基准表。
+**改数值时别只调一个区域** —— 套装是玩家战力的主要来源，基准一漂整张表都偏。
 
-**修法只有二选一**：给玩家补回这部分战力（把 `workshop` 的加成挪进套装 / 工坊，或给它补回升级入口），
-或按「实际」那一列重算这 10 只怪。**别只调一个区域** —— 套装是玩家战力的主要来源，基准一漂整张表都偏。
+**核心泰坦故意留高一档**（净损失约 39%、血量最厚、出手最慢），是同区唯一的例外；
+其余四只一律拉平。「不允许出现明显更强的隐藏 Boss」约束普通怪，不约束明写的终点怪。
 
 **金币按「每秒产出大致不变」折算**：击杀变慢的区域，单只金币同步抬高 —— 否则加强怪物会顺带砍掉经济。
+四个区域的产出档位大致是 0.7~1.7 / 2.4 / 4.0 / 6.0 金币每秒。
 
-**区域解锁只看 `mainlineIndex`**：`isZoneUnlocked()` = `mainlineIndex >= zones[zoneId].unlockIndex`，而 `mainlineIndex` 是**已完成的主线节点数**（`mainline` 一共 7 个）。区域下拉（`pages/adventure.ts`）与研究委托池（`researchZones()`）都按它过滤。
+**区域解锁走 `unlock` 规则**（可组合，见 §7.17），不再是单一的主线门槛。
+`isZoneUnlocked()` 仍是**全游戏唯一的判定点**，区域下拉（`pages/adventure.ts`）、研究委托池
+（`researchZones()`）、图鉴的「进入条件」、解锁公告全部读它：
 
-| 区域 | `unlockIndex` | 解锁于 |
+| 区域 | 解锁规则 | 含义 |
 | --- | --- | --- |
-| 废弃边境 | 0 | 开局 |
-| 余烬矿脉 | **7** | 「击退第一次兽潮」—— 当前主线的最后一个节点 |
-| 核心深井 | **7** | 同上 |
+| 庇护所 / 废弃边境 | `unlockBy.mainline(0)` | 开局 |
+| 余烬矿脉 | `any(mainline(7), map(veinChart))` | 推进主线，**或**拼出矿脉图纸并勘探成功 |
+| 核心深井 | `any(mainline(7), map(deepProfile))` | 推进主线，**或**拼出深井剖面并勘探成功 |
+| 熔火裂谷 | `map(riftChart)` | **只能靠勘探图** —— 新区域没有主线通道 |
 
-⚠️ **余烬矿脉原来要求 5**（完成「追踪核心信号」），改到 7 之后它和核心深井**同时开放**。`mainline` 现在只有 7 个节点，想让它们错开就得先加主线节点。
+⚠️ **余烬矿脉原来要求 5**（完成「追踪核心信号」），后来改到 7 —— 它和核心深井经主线**同时开放**，
+两条地图路线因此更像是「卡住时的另一条路」而不是「提前进度的捷径」。`mainline` 现在只有 7 个节点，
+想让它们错开就得先加主线节点。
 
 ⚠️ **`ENEMY_DEFS` 的键顺序不能动** —— `enemyId` 就是下标，`state.encountered` / `state.discoveredDrops` / `adventure.enemyId` 全按下标存，重排会让旧存档整体错位。新增怪物追加到所属区域分组的末尾。
 
@@ -1008,6 +1043,7 @@ scavenger: { name: '拾荒者', icon: '🔧', zone: ZONE.wasteBorder, dropChance
 | --- | --- | --- |
 | `category === 'quest'` | `questSourceMarkup` | 由「委托指向的区域」统一掉落 |
 | `type === '清洗'` | `solventSourceMarkup` | 任何怪物 0.1%，与区域无关 |
+| 地图碎片（`fragmentMapOf(id) >= 0`） | `fragmentSourceMarkup` | 由庇护所的大事件带回（见 §7.17） |
 | 套装部件（`setOfItem(id) >= 0`） | `setSourceMarkup` | 走 `grantSetDrop` 的独立通道 |
 | 其余 | `dropSourceMarkup` | 真的写在某只怪的 `dropTable` 里 |
 
@@ -1366,8 +1402,9 @@ export function getLogisticsTotal(target: GameState = state): number { return 1 
 - `getLogisticsSources()` 是总人数三个来源（主线 / 胜场 / 人口）的**唯一出处**，界面要展示来源就调它，不要自己算
 - 每 `POP_PER_WORKER` 人换 1 名后勤
 
-**读档校验**：`camp` 的三个新字段（`wave` / `stage` / `population`）在 `rebuildState` 里**逐字段**夹上下限，
-不要退回 `{ ...initial.camp, ...saved.camp }` 一把梭 —— 那个写法拦不住被手改过的值。
+**读档校验**：`camp` 的每个新字段（`wave` / `stage` / `population`，以及勘探图那四个，见 §7.17）都在
+`rebuildState` 里**逐字段**夹上下限，不要退回 `{ ...initial.camp, ...saved.camp }` 一把梭 ——
+那个写法拦不住被手改过的值。
 
 **一键清剿**（`countSafeCampFights()` / `sweepCampWaves()` / `simulateCampFight()`）：
 
@@ -1381,6 +1418,79 @@ export function getLogisticsTotal(target: GameState = state): number { return 1 
   只有这一份实现。它**只记账不播报**，播报交给调用方 —— 单场战斗一条日志、清剿只出一条汇总
 - 界面上的场次是**缓存过的参考值**（签名 = 波次 + 场次 + 四项数值 + 生命 10% 分档），
   所以 `sweepCampWaves()` **每场都要重新验一遍**，不能照那个数字直接结算
+
+---
+
+### 7.17 勘探图与勘探远征（`config/unlock.ts` + `config/maps.ts` + `game-state.ts` + `pages/research.ts`）
+
+**一、区域解锁是可组合规则**（`config/unlock.ts`）
+
+```ts
+interface UnlockRule {
+  text: (state: GameState) => string;      // 渲染层 HTML，可内嵌图鉴引用
+  done: (state: GameState) => boolean;
+  notice?: string | (() => string);        // 解锁提示的补语；不写 = 开局就满足 ⇒ 不进提示列表
+}
+unlockBy.mainline(index) / map(mapId) / all(...) / any(...)
+```
+
+| 项 | 规则 |
+| --- | --- |
+| 形状 | 规则**刻意和主线条件（`MainlineRequirement`）同形状** —— 冒险页的解锁提示、图鉴的「进入条件」、解锁公告三处直接复用主线那套条件渲染，不用为每种规则各写一份显示 |
+| `text()` | **必须给**，而且必须可读（玩家看完要知道去哪做什么）。返回的是渲染层 HTML（可内嵌 `xxxRefMarkup`），能直接 `setHtml`；它现算、不进存档 |
+| `notice` | 写的是**达成条件的描述，不含「解锁」二字** —— 提示标题已经是「icon 解锁：分类「名称」」，再补一遍会变成「解锁：……解锁」。`all` / `any` 会把子规则的 notice 拼起来（`，并且` / `，或`） |
+| 判定点 | 仍然只有 `isZoneUnlocked()` 一处。**不要**在页面里重写 `mainlineIndex >= N` |
+| 正文文案 | 冒险页的「还有一片区域没定下位置」只列**最靠前的那一片**，而且**不点名区域**（区域名在开放前是剧透，图鉴的区域列表对未开放区域也是「待发现」占位格） |
+| 主线节点名 | 靠**注入**：`setMainlineTitles()` 由 game-state 在启动时给一次。config **不能**反向 import game-state，否则 `zones → unlock → game-state` 成环（同 `codex-ref` 的 `setWikiUnlocked`） |
+| 还没实现的 helper | `event` / `boss` / `challenge` 留给后续批次（要等对应的状态字段落地）。加它们时照 `map` 的写法补，并且**必须给出 `text()`** |
+| 新增区域 | `zones.ts` 末尾追加一条（带 `icon` 与 `unlock`）即可；`unlockNotices` 里区域那一段由规则自动推导（`zoneNotices()`），不用手写 |
+
+**二、地图残片（`config/maps.ts`）**
+
+| 项 | 规则 |
+| --- | --- |
+| 下标 | `mapSets` 的键顺序就是 mapId，而 `camp.maps` 按下标存进存档 ⇒ **新地图只能追加到末尾**（R24 同款约束） |
+| 残片是物品 | 每片都是 `category: 'resource'` 的可堆叠物品（自动进物品栏、自动进图鉴）。稀有度用**火红色**（14）：它和清洗剂同属「不走 `dropTable` 的特殊渠道」，不和区域档位抢位置 |
+| 掉落通道 | 走 `grantMapFragment()`，**不写进任何怪物的 `dropTable`**，也不占「同一只怪物最多 3 条掉落」的名额 |
+| 分套 | 大事件**按事件类型分套**（`mapSets[].kind` ↔ `CAMP_EVENT`）：天灾 / 兽潮 / 异种各一套，一波里三种依次出现，所以想集齐一套就得三种都打 |
+| 随机事件 | 唯一的例外：**不挑套，补最靠前的那个缺口**。它每小时来一次、与波次进度无关，给卡在某一波的玩家留一条靠时间慢慢磨的路 |
+| 解锁闸门 | **勘探图没解锁就不掉**（同任务物品那道闸门，见 §7.13）：大事件开局就能打，那时掉出来只会白占物品栏 |
+| 上限 | 每套最多 3 片：集齐后不再掉，勘探完成后更不掉 —— 不留没有出口的囤积（`庇护所扩展方案.md` §2 的原则）。它们是**消耗品**：勘探成功时各扣 1（见「三」） |
+| 槽位数 | `mapSets[].tiles.length` **就是槽位数**（页面按它生成格子），换套头（以后做 4 片一张图）不用改页面 |
+| 图鉴 | 残片不在任何 `dropTable` 里，物品页必须走 `fragmentSourceMarkup` 那条分支（见 §7.9 的表） |
+
+**三、三格槽位与勘探（`game-state.ts` + `pages/research.ts`）**
+
+```
+选三片（界面上的临时选择，不进存档）→ 三片正好是同一张图 → startExpedition(mapId)
+  → 成功：camp.maps[mapId] = 2（已勘探）+ 各扣 1 片残片   → 失败：什么都不动，残片还在手里
+```
+
+| 项 | 规则 |
+| --- | --- |
+| 状态常量 | `MAP_STATE`（0 未勘探 / 1 **已废弃** / 2 已勘探）在 `config/maps.ts`，**取值就是存档值** ⇒ 只能追加 |
+| 槽位是界面状态 | 三格放的是物品下标，存在**页面的 `ctx`**（R05），**不进 `GameState`** —— 它只是个临时的选择，刷新/切页丢掉也无所谓 |
+| 判据 | 三片必须**正好等于某张图的全部残片**（`matchedMap()`：部件都在 **且** 没有重复）。所以「同一片摆两格」凑不出图 |
+| 动作入口自校验 | `canStartExpedition()` 会再验一遍「这套残片真的在物品栏里」（`hasMapSet`）—— 界面状态不可信（R30） |
+| 消耗时机 | **成功那一刻**才扣残片：失败不扣，可以立刻再派一次；队伍在路上时残片仍在玩家手里，掉落判定自然不会再补第二套 |
+| 出发门槛 | 待命后勤 ≥ `EXPEDITION.minWorkers`（2 人）。**不占用 `logistics.assigned`** —— 那会把后勤分配系统搅成一锅粥，「派人去」的语义用门槛 + 成功率加成表达 |
+| 成功率 | `baseRate` + 每名待命后勤 `ratePerWorker`，夹在 `[baseRate, maxRate]`；**出发时算一次并锁进存档**，途中等候区再招到人也不改这一趟的结果 |
+| 结算 | `resolveExpedition()` 在 `advanceCamp()` 的**最前面**跑，看 `Date.now()` 而不是累计秒数 ⇒ 交战中、离线期间都能正常收尾（与 `camp.pendingExpires` 同一套做法） |
+| 新字段 | `camp.maps` / `camp.expeditionMap` / `camp.expeditionEnds` / `camp.expeditionRate` 都在 `rebuildState` 里**逐字段**校验（`maps` 按 `mapSets` 长度对齐、`expeditionMap` 指向不存在的地图就当没出发过）。新增字段不动 `SAVE_VERSION` |
+| 旧值兼容 | 上一版有过「拼合地图」独立一步（`camp.maps` 记 1、残片已扣掉）。`rebuildState` 会把 1 **退回 0 并把那三片还给玩家**（只跑一次），`normalizeMapState()` 之后只认 0 / 2 |
+
+**四、页面（`pages/research.ts`，研究基地的第二个页签）**
+
+- **勘探图不是独立页面，是研究基地的页签**（`TABS` + `data-pane`，抄 `pages/story.ts` 的写法）。
+  页签可见性走 `setHidden(ctx.atlasTab, !isAtlasUnlocked(state))`：与随机事件同一个主线节点，未解锁时**不渲染**（R29）。
+  留在勘探图页签上又被重新锁上（重置存档）就退回委托页。
+- **面板只有三格槽位**（`SLOT_COUNT = mapSets[0].tiles.length`）：点一格开**页内**的选片窗口（不是浮层，不需要单例与三关闭），
+  候选是物品栏里现成的残片；已经放进别格的残片置灰（同一片不能占两格）。
+- **槽位骨架一次性建好**（数量固定），每帧只改文本与类名；**只有选片窗口按签名重建** ——
+  它每 500ms 无条件重写会打断点击（同 §10-22）。
+- **区域名在勘探成功之前不剧透**：未开放时只写「走通就解锁」，成功之后才换成区域引用 ——
+  和图鉴区域列表的「待发现」占位口径一致。
+- 庇护所页在 `camp-actions` 末尾补一行「勘探队：… · 剩余 X」；**它只是提示，详细进度在研究基地的勘探图页签里**。
 
 ---
 
@@ -1436,7 +1546,9 @@ export function getLogisticsTotal(target: GameState = state): number { return 1 
 - [ ] 有解锁门槛的内容未解锁时不渲染、解锁后才追加（R29）；未解锁项不参与任何逻辑（R30）
 - [ ] 动态列表重建后重新收集了 `data-ref`（卡片模板里的 `data-ref` 不带下标）
 - [ ] 含引用的段落没有被高频重绘的数值污染（拆成 `setHtml` + `setText` 两段）
-- [ ] 新增区域在 `config/zones.ts` 里给了 `icon`
+- [ ] 新增区域在 `config/zones.ts` 里给了 `icon` 与 `unlock`（规则里必须有可读的 `text()`，见 §7.17）
+- [ ] 新增区域 / 制造项 / 研究项是**追加到配置表末尾**，`unlockNotices` 的新条目也是（下标即 `state.notices` 的存档下标）
+- [ ] 页面级门槛用 `isXxxUnlocked()`，导航项数量变化时 `style.css` 的 `repeat(N, 1fr)` 与 `page-code` 编号已同步
 
 **交互**
 
@@ -1472,6 +1584,7 @@ export function getLogisticsTotal(target: GameState = state): number { return 1 
 - [ ] 变化的数字容器已加入 `tabular-nums` 选择器（R20）
 - [ ] 等分条用 `grid-auto-flow: column`（R21）
 - [ ] 时间指示不是实心条（R22）
+- [ ] 新增的网格 / 磁贴里没有写死尺寸的元素：宽度都用 `min(设计值, 100%)` 之类的收缩写法，且列数在 §5.3 的两个断点里降级（§10-27）
 
 **工程**
 
@@ -1519,3 +1632,4 @@ export function getLogisticsTotal(target: GameState = state): number { return 1 
 | 24 | 导入一份无关的文本，提示「导入成功」但进度没了 | 先 `validateSave()` 挡一道，再 `parseSave()` | `parseSave` 对任何输入都会「成功」（补成初始存档），不校验就等于接受一切 |
 | 25 | 复制按钮点了没反应，也没提示 | `navigator.clipboard` 可能不存在（非 HTTPS / localhost），失败时退回「已选中，请手动 Ctrl+C」 | `writeText` 在非安全上下文不可用；静默失败会让玩家以为复制成功了 |
 | 26 | 工坊人手「串台」：给弩台分配人数，基础城防的人数也跟着涨；而且只有基础城防在推进 | 人手**按项分配**（`fortSlot(id)`，一项一个下标），推进时逐项取自己那一份 | 曾经是「工坊共用一个池子、按项顺序喂」的模型，而界面上每张卡各有一个步进器 —— 界面说 A、模型做 B，两边都是错的（见 §7.15） |
+| 27 | 磁贴里的图标框顶出卡片：图标压到相邻卡片上、网格看着错位、溢出面板边框；**有数量的卡片还会把图标框往上顶**（没 stack 时正常） | 磁贴里**不放写死尺寸的元素**：图标框写 `min(60px, calc(100% - 25px))` + `aspect-ratio: 1/1`；卡片必须给一条**宽度确定的轨道**（`grid-template-columns: minmax(0, 1fr)`，**不要**用 `place-content: center`，那种写法下轨道按「最大内容宽度」定尺寸，图标框永远不跟着缩、百分比也解析不出来）；列数按 §5.3 的断点降级 | `.storage-grid` 的方格子（`aspect-ratio: 1/1`）等于「格子多大 = 能放多大的图标」。横向：研究项网格住在 `.archive-layout` 的半宽栏里（约 453px），6 列时每格只有 67px，装不下 60px 的图标框；纵向：格子高 = 宽，内容高 = 图标框 + 5 间距 + 一行数量 + 16 padding + 2 边框，只按宽度收缩的话**有数量行的卡片**会高出格子，而 `align-content: center` 把多出来的部分上下平分 ⇒ 图标框被顶出格子顶边。所以收缩公式要**把竖向占位一起减掉**，两个方向同时成立 |

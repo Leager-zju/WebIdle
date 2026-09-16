@@ -89,6 +89,11 @@ const GUIDES: Record<string, GuideStep[]> = {
     { target: '[data-page="camp"]', requireClick: true, title: '庇护所 · 随机事件', body: '庇护所现在会被荒野上的随机事件打扰，点进去看看。' },
     { target: '#camp-view', title: '庇护所 · 随机事件', body: '事件会在倒计时结束后出现：接受就进入战斗，拒绝不扣任何东西。强度随主线与胜场一起涨。' }
   ],
+  atlas: [
+    { target: '[data-page="research"]', requireClick: true, title: '新内容 · 勘探图', body: '勘探图搬进了「研究基地」，点进去看看。' },
+    { target: '[data-tab="atlas"]', click: '[data-tab="atlas"]', requireClick: true, title: '切到「勘探图」页签', body: '研究基地顶部多了第二个页签，点一下。' },
+    { target: '#research-view', title: '勘探图', body: '庇护所被大事件冲击时会带回地图残片：天灾、兽潮、异种各一套。点三个格子，把同一张图的残片放进去，就能派勘探队出去 —— 走通了，那片区域才会开放。' }
+  ],
   wiki: [
     { title: '新系统 · 图鉴', body: '所有带下划线的名字现在都能点开了：物品、怪物、区域、事件各有图鉴页，页面顶部还能沿着路径往回翻。' }
   ]

@@ -305,9 +305,11 @@ select:focus { border-color: var(--accent); }
 .research-card:hover, .research-card:focus-visible { z-index: 7; }
 /* 0 级置灰、满级高亮都不用 opacity：opacity < 1 会给卡片建层叠上下文，悬停浮层会被后面的卡片盖住。 */
 .research-card.level-0 { border-style: dashed; }
-.research-card.level-0 .item-icon { border-style: dashed; color: var(--muted); }
-.research-card.maxed { border-color: var(--accent); }
-.research-card.maxed .item-icon { color: var(--accent); border-color: var(--accent); }
+.research-card.level-0 .item-icon { color: var(--muted); }
+/* 满级的研究项与「已装备」的装备用同一套高亮：主色描边 + 加粗到视觉 12px。
+   声明要和 .item-card.equipped 保持一致（改一处记得改另一处）—— 两边是「同一档状态」的两种说法。 */
+.research-card.maxed { --card-line: var(--accent); box-shadow: inset 0 0 0 11px var(--accent); }
+.research-card.maxed .item-icon { color: var(--accent); }
 
 .item-detail .research-level { margin-top: 6px; color: var(--text); font: .68rem DM Mono, monospace; }
 .item-detail .research-cost { color: var(--accent); font: .65rem DM Mono, monospace; }
@@ -448,7 +450,7 @@ select:focus { border-color: var(--accent); }
 .inventory-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; }.inventory-heading p { margin: 9px 0 0; color: var(--muted); font-size: .75rem; }.capacity-track { width: min(420px, 100%); height: 6px; margin-top: 12px; overflow: hidden; background: #0b1214; }.capacity-bar { height: 100%; background: var(--accent); transition: width .25s ease; }.inventory-empty { margin: 0; padding: 46px 20px; color: var(--muted); font: .72rem DM Mono, monospace; text-align: center; }.item-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }/* 卡片描边：border 1px + inset 阴影 7px = 视觉 8px。
    不用 `border-width` —— 那会让卡片外廓变大，网格跟着抖（同 §7.10 的装备槽）。
    --card-line 由稀有度类提供，边框与内阴影共用同一个颜色，改色时只改一处。 */
-.item-card { position: relative; min-width: 0; padding: 16px; border: 1px solid var(--card-line, var(--line-soft)); box-shadow: inset 0 0 0 7px var(--card-line, var(--line-soft)); background: var(--surface-2); }.item-grid .item-card { min-height: 170px; }.item-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 13px; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 1.2rem; }.item-copy b { display: block; font-size: .85rem; }.item-type { display: block; margin-top: 4px; color: var(--muted); font: .62rem DM Mono, monospace; }.item-copy p { margin: 10px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }.item-quantity { position: absolute; right: 14px; top: 14px; color: var(--accent); font: .72rem DM Mono, monospace; }/* 稀有度配色：--rarity-color 供物品名字使用，边框只加在物品卡片上。 */
+.item-card { position: relative; min-width: 0; padding: 16px; border: 1px solid var(--card-line, var(--line-soft)); box-shadow: inset 0 0 0 7px var(--card-line, var(--line-soft)); background: var(--surface-2); }.item-grid .item-card { min-height: 170px; }.item-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 13px; color: var(--accent); font-size: 1.2rem; }.item-copy b { display: block; font-size: .85rem; }.item-type { display: block; margin-top: 4px; color: var(--muted); font: .62rem DM Mono, monospace; }.item-copy p { margin: 10px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }.item-quantity { position: absolute; right: 14px; top: 14px; color: var(--accent); font: .72rem DM Mono, monospace; }/* 稀有度配色：--rarity-color 供物品名字使用，边框只加在物品卡片上。 */
 /* 稀有度类：只提供 --rarity-color，实际着色交给各处的 `color: var(--rarity-color, …)`。
    类名由 rarityClass() 生成，不要在别处手拼。 */
 .rarity-gray { --rarity-color: var(--rarity-0); }
@@ -627,20 +629,34 @@ select:focus { border-color: var(--accent); }
 .item-grid .item-category { color: var(--muted); }
 .item-grid .item-quantity { position: static; display: block; margin-top: 0; color: var(--accent); font: inherit; }
 .item-grid .item-detail { text-align: left; min-width: 168px; }
-/* 物品储藏改成图标磁贴：正方形，卡面只有图标与数量（名称、稀有度、属性、词条都在悬停浮层里）。 */
-.storage-grid .item-card { aspect-ratio: 1 / 1; min-height: 0; display: grid; place-content: center; gap: 5px; padding: 8px; }
+/* 物品储藏改成图标磁贴：正方形，卡面只有图标与数量（名称、稀有度、属性、词条都在悬停浮层里）。
+
+   ⚠️ **格子明确给一条宽度确定的轨道**（`grid-template-columns: minmax(0, 1fr)`），
+   不要用 `place-content: center`：那种写法下轨道按「最大内容宽度」定尺寸，图标框永远不跟着格子缩，
+   格子一窄（研究基地的半宽栏 6 列、手机 5 列）图标就会顶出卡片、压到旁边的卡片与面板边框上（见 §10-27）。
+   换成确定宽度的轨道之后，图标框才可以用百分比。 */
+.storage-grid .item-card { aspect-ratio: 1 / 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; align-content: center; gap: 5px; padding: 8px; }
 /* 图标框与里面的字形一起放大：只放大框会让字符缩在中间，只放大字形会撑破边框。
-   60px 的框放在约 152px 见方的卡片里，上下还能留出数量那行的位置。 */
-.storage-grid .item-icon { width: 60px; height: 60px; margin: 0 auto; font-size: 1.9rem; }
+   宽屏上就是 60px（放在约 152px 见方的卡片里，上下还能留出数量那行的位置）。
+
+   ⚠️ 这里要减掉的不是「零头」，而是**卡片竖向除图标之外的全部占位**：格子是正方形（高 = 宽），
+   所以「内容总高 = 图标框 + 5px 间距 + 一行数量 + 16px padding + 2px 边框」必须 ≤ 格子内容高（= 宽 − 18px）。
+   少减了这一截，内容就会比格子高，而 `align-content: center` 把多出来的部分上下平分 ——
+   表现就是**有数量的卡片（有 stack）时图标框被顶出卡片顶边**（见 §10-27）。
+   25px = 5 间距 + 约 12 一行数量 + 8px 余量（字号档位调大时那一行会变高）。 */
+.storage-grid .item-icon { width: min(60px, calc(100% - 25px)); height: auto; aspect-ratio: 1 / 1; margin: 0 auto; font-size: 1.9rem; }
 .storage-grid .item-quantity { position: static; margin: 0; color: var(--accent); font: 500 .64rem DM Mono, monospace; text-align: center; }
+/* 研究项网格住在 `.archive-layout` 的半宽栏里（桌面约 453px），按 6 列排每格只有 67px —— 装不下
+   60px 的图标框。这里按格子自身的宽度自适应，列宽不再写死：窄到装不下时自己少排一列。 */
+.storage-grid.research-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
 .item-detail-name { display: block; color: var(--rarity-color, var(--text)); font-size: .8rem; font-weight: 700; }
 .item-card { cursor: context-menu; }
 /* 装备类卡片可以左键拖到左侧槽位，用抓取光标提示。 */
 .item-card[draggable="true"] { cursor: grab; }
 .item-card.dragging { opacity: .4; cursor: grabbing; }
 .item-card:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-/* 已装备：边框加粗到视觉 2px。用内阴影而不是 border-width —— 后者会让卡片尺寸跳 1px，网格跟着抖。 */
-/* 已装备的卡片描边再加粗一档：border 1px + inset 11px = 视觉 12px，比普通卡片（8px）明显一档。 */
+/* 已装备：卡片描边换成主色并加粗一档 —— border 1px + inset 11px = 视觉 12px，比普通卡片（8px）明显一档。
+   加粗只能动内阴影那一层：改 border-width 会让卡片外廓变大、网格跟着抖。 */
 .item-card.equipped { --card-line: var(--accent); box-shadow: inset 0 0 0 11px var(--accent); }
 .item-equipped-tag { margin-left: 8px; color: var(--accent); font: .58rem DM Mono, monospace; }
 /* 词条名：列在装备名下方，用 · 分隔，颜色跟随词条品阶；装备槽上只标条数。 */
@@ -843,6 +859,48 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .guide-hint { margin: 10px 0 0; color: var(--accent); font-size: .72rem; }
 .guide-hint[hidden] { display: none; }
 .guide-actions button:disabled { opacity: .4; cursor: default; }
-@media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.inventory-layout { grid-template-columns: 1fr; }.archive-layout { grid-template-columns: 1fr; }.camp-layout { grid-template-columns: 1fr; }.sidebar, .nav-collapsed .sidebar { min-height: auto; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(8, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.home-grid { grid-template-columns: 1fr; }.home-hero, .home-log { grid-column: auto; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
-@media (max-width: 600px) { .app-shell { width: min(100% - 24px, 1240px); padding-top: 30px; }.game-header { align-items: start; flex-direction: column; gap: 17px; }.brand-group { gap: 10px; }.nav-toggle { width: 28px; height: 28px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(4, 1fr); }.resource-strip { grid-auto-flow: row; grid-template-columns: repeat(2, 1fr); }.resource:last-child { grid-column: 1 / -1; }.hero-stats { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }.page-heading, .inventory-heading { flex-direction: column; gap: 10px; }.adventure-toolbar, .toolbar-row { align-items: stretch; flex-direction: column; }.battle-arena { grid-template-columns: 1fr; }.versus { padding: 2px 0; }.combatant { padding: 14px; }.log-entry { grid-template-columns: 58px 40px 1fr; gap: 7px; }.home-log .log-entry { grid-template-columns: 58px minmax(0, 1fr); }.item-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+/* ——— 勘探图（研究基地的第二个页签）：三格槽位 + 选片窗口 + 勘探队 ———
+   面板只有三个格子：点一格 → 从物品栏里挑一片残片 → 三格凑成同一张图才能派勘探队。
+   槽位是正方形以外的 3:2 横格，装得下「图标 + 残片名」两行；三格等分（R21）。 */
+.atlas-panel { padding: 22px; }
+.atlas-hint { margin: 0 0 18px; color: var(--muted); font-size: .74rem; line-height: 1.6; }
+.atlas-desc { margin: 0; color: var(--muted); font-size: .74rem; line-height: 1.6; }
+.atlas-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0 0 16px; }
+.atlas-slot { display: grid; place-items: center; align-content: center; gap: 8px; min-height: 92px; padding: 14px 10px; border: 1px dashed var(--line); background: rgba(11, 18, 20, .4); color: var(--muted); text-align: center; }
+.atlas-slot.filled { border-style: solid; border-color: var(--accent-dim); background: var(--surface-2); color: var(--text); }
+.atlas-slot.active { border-color: var(--accent); }
+.atlas-slot:disabled { opacity: .5; }
+.atlas-slot-icon { color: var(--rarity-14); font-size: 1.5rem; line-height: 1; }
+.atlas-slot-name { overflow-wrap: anywhere; font-size: .68rem; line-height: 1.35; }
+/* 选片窗口：候选残片一行一个（同 .wiki-cell 的骨架，但它是页面内的临时列表，不是图鉴引用）。 */
+.atlas-picker { display: grid; gap: 8px; margin: 0 0 16px; padding: 14px; border: 1px solid var(--line); background: rgba(11, 18, 20, .35); }
+/* 这条不能省：.atlas-picker 自带 display:grid，会盖掉浏览器对 [hidden] 的默认 display:none。 */
+.atlas-picker[hidden] { display: none; }
+.atlas-pick-title { margin: 0 0 2px; color: var(--muted); font: 500 .64rem/1 DM Mono, monospace; letter-spacing: .1em; }
+.atlas-pick { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line-soft); background: var(--surface-2); color: var(--text); text-align: left; }
+.atlas-pick:hover:not(:disabled), .atlas-pick:focus-visible { border-color: var(--accent); background: rgba(139, 245, 201, .08); }
+.atlas-pick:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.atlas-pick.active { border-color: var(--accent); background: rgba(139, 245, 201, .12); }
+.atlas-pick:disabled { opacity: .45; }
+.atlas-pick-icon { flex: 0 0 auto; color: var(--rarity-14); font-size: 1rem; line-height: 1; }
+.atlas-pick-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-pick-note { flex: 0 0 auto; color: var(--muted); font: .62rem DM Mono, monospace; }
+.atlas-pick-clear { justify-content: center; color: var(--muted); }
+.atlas-pick-empty { margin: 0; color: var(--muted); font-size: .74rem; line-height: 1.6; }
+.atlas-actions { display: flex; margin-top: 14px; }
+.atlas-actions button[hidden] { display: none; }
+/* 已勘探 / 队伍在路上时按钮整块收起来，别在面板底部留一道空行。 */
+.atlas-actions:empty { display: none; }
+.atlas-expedition { display: grid; gap: 10px; margin-top: 16px; padding: 18px; border: 1px solid var(--accent-dim); background: rgba(11, 18, 20, .35); }
+/* 这条不能省：.atlas-expedition 自带 display:grid，会盖掉浏览器对 [hidden] 的默认 display:none。 */
+.atlas-expedition[hidden] { display: none; }
+.atlas-expedition .panel-heading { margin-bottom: 0; }
+/* 庇护所页那行「勘探队：…」：独占一整行，压在行动按钮下面。 */
+.camp-expedition { flex: 1 1 100%; color: var(--accent); font: .68rem DM Mono, monospace; font-variant-numeric: tabular-nums; }
+.camp-expedition[hidden] { display: none; }
+/* 冒险页的「还有一片区域没定下位置」：和委托提示同一套排版，只用暖色区分。 */
+.unlock-hint { margin-top: 6px; color: var(--warm); }
+.unlock-hint[hidden] { display: none; }
+@media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.inventory-layout { grid-template-columns: 1fr; }.archive-layout { grid-template-columns: 1fr; }.camp-layout { grid-template-columns: 1fr; }.storage-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }.sidebar, .nav-collapsed .sidebar { min-height: auto; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(8, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.home-grid { grid-template-columns: 1fr; }.home-hero, .home-log { grid-column: auto; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
+@media (max-width: 600px) { .app-shell { width: min(100% - 24px, 1240px); padding-top: 30px; }.game-header { align-items: start; flex-direction: column; gap: 17px; }.brand-group { gap: 10px; }.nav-toggle { width: 28px; height: 28px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(4, 1fr); }.resource-strip { grid-auto-flow: row; grid-template-columns: repeat(2, 1fr); }.resource:last-child { grid-column: 1 / -1; }.hero-stats { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }.page-heading, .inventory-heading { flex-direction: column; gap: 10px; }.adventure-toolbar, .toolbar-row { align-items: stretch; flex-direction: column; }.battle-arena { grid-template-columns: 1fr; }.versus { padding: 2px 0; }.combatant { padding: 14px; }.log-entry { grid-template-columns: 58px 40px 1fr; gap: 7px; }.home-log .log-entry { grid-template-columns: 58px minmax(0, 1fr); }.storage-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.atlas-slots { grid-template-columns: 1fr; }
  }

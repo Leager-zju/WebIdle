@@ -1,4 +1,6 @@
-import { zones, enemyTable, ENEMY, ZONE, zoneOfEnemy, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
+import { zones, enemyTable, ENEMY, ZONE, zoneOfEnemy, zoneOfMap, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
+import { mapSets, MAP, MAP_STATE, fragmentMapOf, mapOfEventKind } from './config/maps';
+import { setMainlineTitles } from './config/unlock';
 import { sets, setTable, SET, setOfZone, setOfItem } from './config/sets';
 import { items, ITEM, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, SOLVENT_IDS } from './config/items';
 import { affixes, AFFIX, affixCap, affixMarkup, affixCategoryClass, affixCategories, AFFIX_CATEGORY, skills, SKILL, AFFIX_MAX_MULTIPLIER } from './config/affixes';
@@ -104,7 +106,12 @@ function devOverride(index: number, target: GameState): number | null {
   const value = target.devOverrides?.[index];
   return typeof value === 'number' && value >= 0 ? value : null;
 }
-export { zones, enemyTable, items, ITEM, ENEMY, ZONE, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, affixes, AFFIX, affixCap, affixMarkup, skills, SKILL, AFFIX_MAX_MULTIPLIER, CAMP_EVENT, randomEventDefs, sets, setTable, SET, setOfItem, setOfZone };
+export { zones, enemyTable, items, ITEM, ENEMY, ZONE, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, affixes, AFFIX, affixCap, affixMarkup, skills, SKILL, AFFIX_MAX_MULTIPLIER, CAMP_EVENT, randomEventDefs, sets, setTable, SET, setOfItem, setOfZone, mapSets, MAP, MAP_STATE, fragmentMapOf, mapOfEventKind, zoneOfMap };
+
+/* 主线节点的标题注入给 config/unlock.ts：那边的 unlockBy.mainline() 要把节点名写进解锁文案，
+   而它不能反向 import 本模块（zones → unlock → game-state 会成环）。注入式做法同 codex-ref 的
+   setWikiUnlocked —— 启动时给一次，之后按需取用。 */
+setMainlineTitles(index => mainline[index - 1]?.title || '');
 
 /** 初始区域：庇护所（不刷怪，只休整）。 */
 const CAMP_ZONE_ID = ZONE.camp;
@@ -151,6 +158,9 @@ export const RANDOM_EVENT_INTERVAL = 60 * 60;
 const RANDOM_EVENT_START_INDEX = 6;
 /** 随机事件计时是否已经在走。 */
 export function isCampEventTimerRunning(target: GameState = state): boolean { return target.mainlineIndex >= RANDOM_EVENT_START_INDEX; }
+/** 「勘探图」是否已解锁（它是研究基地页里的第二个页签）。门槛和随机事件同一个节点 ——
+    残片就是从大事件来的，解锁的同时就能看见「一共要收哪几片」，玩家不会错过这条线。 */
+export function isAtlasUnlocked(target: GameState = state): boolean { return isCampEventTimerRunning(target); }
 const PENDING_EVENT_TIMEOUT = 30;        // 事件等待玩家响应的秒数，超时直接跳过
 const CAMP_ATTACK_INTERVAL = 1.2;        // 庇护所出手间隔（秒）
 /** 庇护所裸值：等级 0、没有任何强化时的基础数值。 */
@@ -473,6 +483,118 @@ export function answerPendingEvent(accept: boolean): void {
 /** 设置页的通知开关：决定随机事件是否弹窗提醒（不弹窗也能在庇护所页看到倒计时）。 */
 export function setNotify(enabled: boolean): void { state.settings.notify = !!enabled; addLog(state, enabled ? '随机事件将弹窗提醒。' : '随机事件不再弹窗提醒。', 'system'); saveState(); notify(); }
 
+/* ——— 勘探图与勘探远征 ———
+   庇护所的大事件掉地图残片（按事件类型分套）→ 在研究基地的「勘探图」页签把同一张图的
+   残片放进三个槽位 → 派勘探队出去（限时 + 成功率）→ 成功才解锁地图指向的区域。
+   这条链的每一环都有出口：残片能派队、勘探能开区域，不留纯收集物（残片在成功时被消耗掉）。
+   三格槽位是**界面的临时选择**，不进存档：能不能出发由 canStartExpedition 现算（残片真的在不在包里）。 */
+/** 一次勘探远征的时长、出发门槛与成功率。 */
+export const EXPEDITION = {
+  /** 路上要花的秒数。结算看时间戳，所以关掉页面也照常走完。 */
+  duration: 10 * 60,
+  /** 出发需要的**待命**后勤人手。人手不足就派不出去 —— 「派人去」的语义靠这条表达，
+      不真去占用 logistics.assigned（那会把后勤分配系统搅成一锅粥）。 */
+  minWorkers: 2,
+  /** 基础成功率。 */
+  baseRate: .55,
+  /** 每多一名待命后勤加成的成功率。 */
+  ratePerWorker: .07,
+  /** 成功率上限：永远留一点失败的可能 —— 失败了地图还在，只是白跑一趟。 */
+  maxRate: .95
+};
+/** 这张图的进度状态：只有「未勘探 / 已勘探」两种。
+    1（MAP_STATE.charted）是**上一版的中间态**，读档时会被退回 0 并退还碎片，
+    所以这里一律当成「未勘探」—— 残片够不够不在这个字段里，看物品栏（hasMapSet）。 */
+export function getMapState(mapId: number, target: GameState = state): number {
+  return Number(target.camp.maps?.[mapId]) === MAP_STATE.explored ? MAP_STATE.explored : MAP_STATE.none;
+}
+/** 这一套残片是不是全在物品栏里 —— 勘探的入场券。
+    三格槽位只是**界面上的选择**，真正决定能不能出发的是这一条：选中的三片必须真的在包里（R30）。 */
+export function hasMapSet(mapId: number, target: GameState = state): boolean {
+  const entry = mapSets[mapId];
+  return !!entry && entry.tiles.every(tile => (target.inventory[tile.itemId] || 0) > 0);
+}
+/** 正在路上的勘探队；没有则返回 null。remaining 是剩余秒数。 */
+export function getExpedition(target: GameState = state): { mapId: number; name: string; icon: string; endsAt: number; rate: number; remaining: number } | null {
+  const mapId = Math.floor(Number(target.camp.expeditionMap));
+  if (!(mapId >= 0) || !mapSets[mapId]) return null;
+  const endsAt = Math.max(0, Number(target.camp.expeditionEnds) || 0);
+  return {
+    mapId, name: mapSets[mapId].name, icon: mapSets[mapId].icon, endsAt,
+    rate: Math.max(0, Math.min(1, Number(target.camp.expeditionRate) || 0)),
+    remaining: Math.max(0, (endsAt - Date.now()) / 1000)
+  };
+}
+/** 一趟勘探的成功率：基础值 + 每名待命后勤的加成，夹在 [baseRate, maxRate]。
+    **出发时算一次并锁进存档**，途中等候区再招到人也不改这一趟的结果。 */
+export function getExpeditionRate(target: GameState = state): number {
+  const extra = Math.max(0, getIdleLogistics(target) - EXPEDITION.minWorkers);
+  return Math.min(EXPEDITION.maxRate, EXPEDITION.baseRate + extra * EXPEDITION.ratePerWorker);
+}
+/** 能不能派队：这张图还没勘探过、残片齐了、没有别的队伍在路上、待命后勤够。
+    「残片齐了」是硬条件 —— 界面上的三格只是选择，动作入口自己也要判（R30）。 */
+export function canStartExpedition(mapId: number, target: GameState = state): boolean {
+  if (!mapSets[mapId] || getMapState(mapId, target) === MAP_STATE.explored) return false;
+  if (getExpedition(target)) return false;
+  if (!hasMapSet(mapId, target)) return false;
+  return getIdleLogistics(target) >= EXPEDITION.minWorkers;
+}
+/** 派出勘探队。 */
+export function startExpedition(mapId: number): boolean {
+  if (!canStartExpedition(mapId)) return false;
+  const rate = getExpeditionRate(state);
+  state.camp.expeditionMap = mapId;
+  state.camp.expeditionEnds = Date.now() + EXPEDITION.duration * 1000;
+  state.camp.expeditionRate = rate;
+  addLog(state, `勘探队带着${mapSets[mapId].name}出发了，${formatDuration(EXPEDITION.duration)}后见分晓（成功率 ${Math.round(rate * 100)}%）。`, 'progress');
+  saveState(); notify();
+  return true;
+}
+/** 到点了就结算：成功把地图标成「已完成」（区域随即解锁，见 isZoneUnlocked），
+    失败退回「待勘探」—— 地图不丢，可以再派一次。 */
+function resolveExpedition(target: GameState): void {
+  const mapId = Math.floor(Number(target.camp.expeditionMap));
+  if (!(mapId >= 0) || !mapSets[mapId]) {
+    if (target.camp.expeditionMap !== -1) { target.camp.expeditionMap = -1; target.camp.expeditionEnds = 0; target.camp.expeditionRate = 0; }
+    return;
+  }
+  if (Date.now() < (Number(target.camp.expeditionEnds) || 0)) return;
+  const rate = Math.max(0, Math.min(1, Number(target.camp.expeditionRate) || 0));
+  const name = mapSets[mapId].name;
+  target.camp.expeditionMap = -1; target.camp.expeditionEnds = 0; target.camp.expeditionRate = 0;
+  if (Math.random() < rate) {
+    target.camp.maps[mapId] = MAP_STATE.explored;
+    /* 残片在**成功那一刻**才消耗：路已经定下来了，图纸就没用了。
+       失败不消耗 —— 三片还在包里，可以立刻再派一次（见 canStartExpedition）。
+       放在成功这一步还有一个好处：队伍在外面时残片还在玩家手里，掉落判定自然不会再补齐第二套。 */
+    mapSets[mapId].tiles.forEach(tile => { target.inventory[tile.itemId] = Math.max(0, (target.inventory[tile.itemId] || 0) - 1); });
+    addLog(target, `勘探队照着${name}找到了能走的路，坐标已确认。`, 'progress');
+  } else {
+    addLog(target, `勘探队照着${name}走了一圈，没找到能过去的路。地图还在，可以再派一次。`, 'defeat');
+  }
+}
+/** 掉一片地图碎片：**大事件按事件类型分套**（哪张图由什么事件产出见 config/maps.ts），
+    每场给那一套里**还没拿到手的第一片**；三片齐了就停，拼好之后更不再掉 ——
+    免得背包里堆一堆没有出口的碎片。
+    **随机事件不挑套，补最靠前的那个缺口**：随机事件每小时来一次、和波次进度无关，
+    卡在某一波的玩家因此还有一条靠时间慢慢磨的路（放置游戏该有的兜底节奏）。
+    返回这一场新拿到的碎片物品下标；没掉返回 -1。
+
+    **勘探图还没解锁时不掉**（同任务物品的那道闸门）：大事件开局就能打，但那时候玩家
+    还不知道碎片是干什么用的，掉出来只会白占物品栏、还得反过来解释它是干嘛的。 */
+function grantMapFragment(target: GameState, kind: number): number {
+  if (!isAtlasUnlocked(target)) return -1;
+  const needs = (mapId: number): boolean => getMapState(mapId, target) === MAP_STATE.none
+    && mapSets[mapId].tiles.some(entry => !(target.inventory[entry.itemId] > 0));
+  const mapId = kind === CAMP_EVENT.random ? mapSets.findIndex((_, id) => needs(id)) : mapOfEventKind(kind);
+  if (mapId < 0 || !needs(mapId)) return -1;
+  const tile = mapSets[mapId].tiles.find(entry => !(target.inventory[entry.itemId] > 0));
+  if (!tile) return -1;
+  target.inventory[tile.itemId] += 1;
+  trimInventoryOverflow(target, tile.itemId);
+  return tile.itemId;
+}
+
 /* ——— 更新日志（见 changelog.ts） ———
    已读版本存进 settings 而不是 localStorage：它随存档走，换设备导入备份后不会重复弹公告；
    重置存档会连它一起清掉，于是新档会再弹一次（重置本身就会重放新手指引，语义一致）。 */
@@ -493,29 +615,46 @@ export const achievements: Achievement[] = [
 /* ——— 解锁提示 ———
    机制（工坊、研究基地…）与条目（制造项、研究项、区域…）解锁时都弹一条顶部 tips，
    界面也据此决定「显示 / 不显示」：未解锁的内容不渲染，解锁后追加进列表（见 UI开发规范 §6.11）。
-   开局就有的内容（unlockIndex 为 0）不列在这里，免得一进游戏刷一屏。
+   开局就有的内容（区域的 unlock 规则没给 notice、制造项 unlockIndex 为 0）不列在这里，
+   免得一进游戏刷一屏。
    下标即 state.notices 的下标，追加新项要放在末尾（删中间项会让旧存档的「已提示过」标记整体前移，
    最坏只是重复弹一条提示，读档时按新表长度重建即可，不做迁移）。 */
-/** 条目级解锁的提示文案：统一写成「完成主线「XXX」解锁」。 */
+/** 一条解锁提示。hint 允许给成函数：**区域的解锁条件是由规则现算的**（见 config/unlock.ts），
+    规则里的主线节点名要等主线表就绪才拼得出来，写成函数就能延到真正解锁那一刻再算。 */
+interface UnlockNotice { id: string; icon: string; category: string; name: string; hint: string | (() => string); unlocked: (target: GameState) => boolean; }
+/** 提示的补语统一**不写「解锁」二字** —— 提示标题已经是「icon 解锁：分类「名称」」，
+    补语再写一遍会变成「解锁：……解锁」。 */
+function noticeHint(entry: UnlockNotice): string { return typeof entry.hint === 'function' ? entry.hint() : entry.hint; }
+/** 条目级解锁的提示文案：统一写成「完成主线「XXX」」。 */
 function unlockHint(unlockIndex: number): string {
   const goal = unlockIndex > 0 ? mainline[unlockIndex - 1] : null;
-  return goal ? `完成主线「${goal.title}」解锁` : '主线推进后解锁';
+  return goal ? `完成主线「${goal.title}」` : '主线推进后开放';
 }
 /** 条目级解锁：直接由各自配置表的 unlockIndex 推导，新增条目不用在这里再写一遍。 */
-function entryNotices<T extends { icon: string; name: string; unlockIndex: number }>(entries: T[], category: string, prefix: string, isUnlocked: (id: number, target: GameState) => boolean) {
+function entryNotices<T extends { icon: string; name: string; unlockIndex: number }>(entries: T[], category: string, prefix: string, isUnlocked: (id: number, target: GameState) => boolean): UnlockNotice[] {
   return entries.flatMap((entry, id) => entry.unlockIndex > 0
     ? [{ id: `${prefix}:${id}`, icon: entry.icon, category, name: entry.name, hint: unlockHint(entry.unlockIndex), unlocked: (target: GameState) => isUnlocked(id, target) }]
     : []);
 }
+/** 区域解锁提示：条件文案由**规则自己**给（`unlock.notice`），没给就说明这张图开局就能进，
+    不进提示列表（见 config/unlock.ts）。不要在表里重写一遍「主线到 N」式的判断。 */
+function zoneNotices(): UnlockNotice[] {
+  return zones.flatMap((zone, id) => zone.unlock.notice
+    ? [{ id: `zone:${id}`, icon: zone.icon, category: '冒险', name: zone.name, hint: zone.unlock.notice, unlocked: (target: GameState) => isZoneUnlocked(id, target) }]
+    : []);
+}
 
-export const unlockNotices = [
+export const unlockNotices: UnlockNotice[] = [
   /* 机制级：条件一律引用 game-state 自己的判定函数，不要在表里重写一遍 mainlineIndex 比较。 */
-  { id: 'workshop', icon: '🔨', category: '工坊', name: '工坊', hint: '完成「清理废弃边境」解锁', unlocked: isWorkshopUnlocked },
-  { id: 'researchBase', icon: '🧪', category: '研究基地', name: '研究基地', hint: '完成「分析异常电池」解锁', unlocked: isResearchUnlocked },
-  { id: 'randomEvent', icon: '🌪️', category: '庇护所', name: '随机事件', hint: '完成「抵御第一场天灾」解锁', unlocked: isCampEventTimerRunning },
+  { id: 'workshop', icon: '🔨', category: '工坊', name: '工坊', hint: '完成「清理废弃边境」', unlocked: isWorkshopUnlocked },
+  { id: 'researchBase', icon: '🧪', category: '研究基地', name: '研究基地', hint: '完成「分析异常电池」', unlocked: isResearchUnlocked },
+  { id: 'randomEvent', icon: '🌪️', category: '庇护所', name: '随机事件', hint: '完成「抵御第一场天灾」', unlocked: isCampEventTimerRunning },
   ...entryNotices(workshopItems, '工坊', 'workshop', isWorkshopItemUnlocked),
   ...entryNotices(researchItems, '研究基地', 'research', isResearchItemUnlocked),
-  ...entryNotices(zones, '冒险', 'zone', isZoneUnlocked)
+  ...zoneNotices(),
+  /* 新内容追加在**整张表的末尾** —— 插在中间会让旧存档 notices 的下标整体错位。
+     勘探图住在研究基地里（第二个页签），所以分类写「研究基地」，提示读作「解锁：研究基地「勘探图」」。 */
+  { id: 'atlas', icon: '🗺️', category: '研究基地', name: '勘探图', hint: '完成「抵御第一场天灾」', unlocked: isAtlasUnlocked }
 ];
 /** 解锁事件：界面（unlock-toast.ts）订阅它来弹 tips，新手指引（guide.ts）也订阅它来放该系统的引导。
     id 与 guide.ts 的 GUIDES 键对应（没有对应引导的会被忽略）；
@@ -537,7 +676,7 @@ function checkUnlocks(target: GameState): void {
     target.notices[index] = 1;
     unlockedAny = true;
     addLog(target, `解锁：${entry.category}「${entry.name}」`, 'progress');
-    emitUnlock({ id: entry.id, icon: entry.icon, category: entry.category, name: entry.name, detail: entry.hint });
+    emitUnlock({ id: entry.id, icon: entry.icon, category: entry.category, name: entry.name, detail: noticeHint(entry) });
   });
   /* 立刻写盘：这些「已提示过」的标记如果留到下一次自动保存，刷新后会重复弹同一条 tips。 */
   if (unlockedAny) saveState();
@@ -601,7 +740,7 @@ const freshState = (): GameState => ({
   /* 后勤小队开局 1 人（全部待命）；工坊只有一个制造项，0 级且空闲；庇护所满血、随机事件从满间隔开始倒数。 */
   logistics: { assigned: logisticsTargets.map(() => 0) },
   campWorkshop: workshopItems.map(() => ({ level: 0, target: -1, work: 0 })),
-  camp: { hp: CAMP_BASE.hp, worksiteProgress: 0, disasterWins: 0, tideWins: 0, randomTimer: RANDOM_EVENT_INTERVAL, pendingKind: -1, pendingId: -1, pendingExpires: 0, wave: 1, stage: 0, population: 0 },
+  camp: { hp: CAMP_BASE.hp, worksiteProgress: 0, disasterWins: 0, tideWins: 0, randomTimer: RANDOM_EVENT_INTERVAL, pendingKind: -1, pendingId: -1, pendingExpires: 0, wave: 1, stage: 0, population: 0, maps: mapSets.map(() => MAP_STATE.none), expeditionMap: -1, expeditionEnds: 0, expeditionRate: 0 },
   achievements: achievements.map(() => 0),
   notices: unlockNotices.map(() => 0),
   guides: [],
@@ -616,14 +755,25 @@ let lastSave = Date.now();
 export function getState(): GameState { return state; }
 export function subscribe(listener: (state: GameState) => void): () => void { listeners.add(listener); return () => listeners.delete(listener); }
 function notify(): void { syncEquipSlots(state); syncLogistics(state); syncCamp(state); checkAchievements(state); checkUnlocks(state); listeners.forEach(listener => listener(state)); }
+/** 一格勘探图状态归一：只留「未勘探 / 已勘探」两个合法值。
+    旧版的 1（`MAP_STATE.charted`，拼好的地图）按「未勘探」处理 —— 碎片由 rebuildState 退还（见那里）。 */
+function normalizeMapState(value: unknown): number {
+  return Math.floor(Number(value) || 0) >= MAP_STATE.explored ? MAP_STATE.explored : MAP_STATE.none;
+}
 /** 庇护所生命值只做上下限对齐：上限随城防 / 营垒提升，脱战时由 tick 的回血填满。
-    波次 / 场次 / 人口也在这里夹一次上下限（读档、手改存档都可能给出越界值）。 */
+    波次 / 场次 / 人口 / 勘探图进度也在这里夹一次上下限（读档、手改存档都可能给出越界值）。 */
 function syncCamp(target: GameState): void {
   target.camp.hp = Math.max(0, Math.min(getCampMaxHp(target), Number(target.camp.hp) || 0));
   if (!(target.camp.randomTimer > 0)) target.camp.randomTimer = RANDOM_EVENT_INTERVAL;
   target.camp.wave = campWave(target);
   target.camp.stage = campWaveStage(target);
   target.camp.population = Math.max(0, Math.floor(Number(target.camp.population) || 0));
+  /* 勘探图：长度对齐配置表（多出来的截掉、缺的补 0），每一格只留「未勘探 / 已勘探」。 */
+  const maps = Array.isArray(target.camp.maps) ? target.camp.maps : (target.camp.maps = []);
+  maps.length = mapSets.length;
+  for (let index = 0; index < maps.length; index++) maps[index] = normalizeMapState(maps[index]);
+  /* 勘探队指向不存在的地图（配置删项 / 手改存档）就当没出发过。 */
+  if (!mapSets[target.camp.expeditionMap]) { target.camp.expeditionMap = -1; target.camp.expeditionEnds = 0; target.camp.expeditionRate = 0; }
 }
 /* 数值与时长格式化统一放在 format.ts，这里转出一份，页面照旧从 game-state 引入。 */
 import { formatNumber, formatNumberExact, formatSigned, numberHint, formatDuration, formatSeconds, formatPerSecond, numberFormats, NUMBER_FORMAT } from './format';
@@ -886,9 +1036,12 @@ export function isItemDiscovered(itemId: number, target: GameState = state): boo
 }
 export function currentEnemy(target: GameState = state) { return enemyTable[target.adventure.enemyId] || enemyTable[zones[currentZoneId(target)].enemyIds[0]] || enemyTable[FIRST_ENEMY_ID]; }
 export function getEnemyAttackInterval(target: GameState = state): number { return currentEnemy(target).attackInterval; }
-/* 目前所有区域都开放；后续做进度门槛时改这里的判断即可。 */
-/** 区域是否解锁：主线进度达到 unlockIndex 才开放（庇护所为 0，一直可进）。 */
-export function isZoneUnlocked(zoneId: number, target: GameState = state): boolean { return !!zones[zoneId] && target.mainlineIndex >= zones[zoneId].unlockIndex; }
+/** 区域是否解锁：走它自己的解锁规则（可组合，见 config/unlock.ts）——
+    这里仍然是**全游戏唯一的判定点**，界面不要另写一套比较。 */
+export function isZoneUnlocked(zoneId: number, target: GameState = state): boolean { return !!zones[zoneId] && zones[zoneId].unlock.done(target); }
+/** 区域解锁条件的可读文案（含图鉴引用，渲染层直接 setHtml）：冒险页的解锁提示与
+    图鉴的「进入条件」共用它 —— 规则怎么写，两处就跟着怎么显示。 */
+export function zoneUnlockText(zoneId: number, target: GameState = state): string { return zones[zoneId] ? zones[zoneId].unlock.text(target) : ''; }
 
 function addLog(target: GameState, message: string, type: LogType = 'system'): void { target.log = [{ time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), message, type }, ...target.log].slice(0, 160); }
 function updateMainline(target: GameState): void { while (target.mainlineIndex < mainline.length && mainline[target.mainlineIndex].condition(target)) { target.mainlineIndex += 1; const messages: Record<number, string> = { 2: '旧工坊重新亮起。现在可以把冒险带回的废料变成长期战力。', 3: '研究台接入了旧电池。新的升级路线已经开放。', 4: '你收到了幸存者的回应。伙伴系统已经可以使用。', 5: '余烬碎片指向更深处的道路。边境调查阶段完成。', 6: '庇护所挡下了第一场天灾，防线经验开始积累。', 7: '兽潮退去，庇护所战备阶段完成。荒野深处还有更大的信号。' }; addLog(target, messages[target.mainlineIndex] || '主线记录已更新。', 'progress'); } }
@@ -1011,8 +1164,9 @@ function finishCampBattle(target: GameState, won: boolean): void {
   const battle = campBattle!;
   campBattle = null;
   if (won) {
-    const waveDone = settleCampWin(target, battle);
+    const { waveDone, fragment } = settleCampWin(target, battle);
     addLog(target, `「${battle.name}」被击退：获得 ${battle.rewards.gold} 金币、${battle.rewards.scrap} 废料、${battle.rewards.essence} 精华${battle.rewards.survivors ? `，救下 ${battle.rewards.survivors} 名幸存者` : ''}。`, 'progress');
+    if (fragment >= 0) addLog(target, `掉落：${itemTag(fragment)} ×1`, 'drop');
     if (waveDone) addLog(target, `第 ${campWave(target)} 波的动静已经传到庇护所。`, 'progress');
   } else {
     /* 输了不归零：庇护所留下 35% 生命，修整后可以再迎战（资源不退还）。 */
@@ -1021,10 +1175,11 @@ function finishCampBattle(target: GameState, won: boolean): void {
   }
   saveState(); notify();
 }
-/** 结算一场胜利：发奖励、记次数、救下的人进人口、推进波次。返回**这一场是不是波末**。
+/** 结算一场胜利：发奖励、记次数、救下的人进人口、推进波次、掉地图碎片。
+    返回**这一场是不是波末**与**这一场掉到的碎片**（没掉是 -1）。
     **只记账、不播报** —— 播报交给调用方（单场战斗一条日志、一键清剿只出一条汇总），
     这样两边的账走的是同一条路，不会各算各的。 */
-function settleCampWin(target: GameState, stats: { kind: number; rewards: { gold: number; scrap: number; essence: number; survivors: number } }): boolean {
+function settleCampWin(target: GameState, stats: { kind: number; rewards: { gold: number; scrap: number; essence: number; survivors: number } }): { waveDone: boolean; fragment: number } {
   target.gold += stats.rewards.gold; target.scrap += stats.rewards.scrap;
   /* 精华同时是物品「余烬碎片」的数量：两边一起加，否则资源条和物品栏会各说各的。 */
   target.essence += stats.rewards.essence;
@@ -1034,6 +1189,8 @@ function settleCampWin(target: GameState, stats: { kind: number; rewards: { gold
   if (stats.kind === CAMP_EVENT.tide) target.camp.tideWins += 1;
   /* 幸存者进人口，人口按 POP_PER_WORKER 换后勤人手（见 getLogisticsSources）。 */
   target.camp.population = Math.max(0, Number(target.camp.population) || 0) + stats.rewards.survivors;
+  /* 地图碎片：按事件类型分套，每场给对应那套里还没到手的一片（见 grantMapFragment）。 */
+  const fragment = grantMapFragment(target, stats.kind);
   /* 波次推进：本波三场打完就进下一波（异种是波末）。 */
   target.camp.stage = (Number(target.camp.stage) || 0) + 1;
   const waveDone = target.camp.stage >= CAMP_WAVE_KINDS.length;
@@ -1041,7 +1198,7 @@ function settleCampWin(target: GameState, stats: { kind: number; rewards: { gold
   /* 打赢就把防线修满 —— 下一场从这里重新开始算。 */
   target.camp.hp = getCampMaxHp(target);
   updateMainline(target);
-  return waveDone;
+  return { waveDone, fragment };
 }
 
 /* ——— 一键清剿：把「能稳赢」的波次一次打完 ———
@@ -1106,24 +1263,27 @@ export function countSafeCampFights(target: GameState = state): number {
     落地必须以当下状态为准（真打起来是稳赢的，所以这里不会翻车）。 */
 export function sweepCampWaves(): number {
   if (campBattle || state.camp.pendingKind >= 0) return 0;
-  const gained = { gold: 0, scrap: 0, essence: 0, survivors: 0, fights: 0 };
+  const gained = { gold: 0, scrap: 0, essence: 0, survivors: 0, fights: 0, fragments: 0 };
   while (gained.fights < SWEEP_LIMIT) {
     const stats = withMaxHp(campEventStats(campWaveKind(state), 0, state));
     if (!isSafeCampFight(stats, state)) break;
     gained.gold += stats.rewards.gold; gained.scrap += stats.rewards.scrap;
     gained.essence += stats.rewards.essence; gained.survivors += stats.rewards.survivors;
     gained.fights += 1;
-    settleCampWin(state, stats);
+    if (settleCampWin(state, stats).fragment >= 0) gained.fragments += 1;
     /* 打赢后生命回满，下一场从满血重新判 —— 与真实流程一致。 */
   }
   if (!gained.fights) return 0;
-  addLog(state, `一键清剿：连打 ${gained.fights} 场，推进到第 ${campWave(state)} 波 —— 获得 ${gained.gold} 金币、${gained.scrap} 废料、${gained.essence} 精华${gained.survivors ? `，救下 ${gained.survivors} 名幸存者` : ''}。`, 'progress');
+  /* 残片不逐片播报：清剿整段本来就只出一条汇总，具体是哪几片在研究基地的「勘探图」页签里看得更清楚。 */
+  addLog(state, `一键清剿：连打 ${gained.fights} 场，推进到第 ${campWave(state)} 波 —— 获得 ${gained.gold} 金币、${gained.scrap} 废料、${gained.essence} 精华${gained.survivors ? `，救下 ${gained.survivors} 名幸存者` : ''}${gained.fragments ? `，带回 ${gained.fragments} 片地图碎片` : ''}。`, 'progress');
   saveState(); notify();
   return gained.fights;
 }
-/** 没有战斗时：庇护所按恢复速度回血；随机事件倒计时到点就触发，等待响应超时则跳过。 */
+/** 没有战斗时：庇护所按恢复速度回血；随机事件倒计时到点就触发，等待响应超时则跳过；
+    勘探远征到点就结算（它看时间戳，所以交战中也在推进）。 */
 function advanceCamp(target: GameState, seconds: number): void {
   if (!(seconds > 0)) return;
+  resolveExpedition(target);
   if (campBattle) { advanceCampBattle(target, seconds); return; }
   target.camp.hp = Math.min(getCampMaxHp(target), getCampHp(target) + getCampRegen(target) * seconds);
   if (target.camp.pendingKind >= 0) {
@@ -1155,8 +1315,28 @@ function readSettings(saved: any): SettingsState {
     以 freshState() 为底再覆盖，所以新增字段会自动拿到初始值 —— 这就是「加字段不用改版本号」的原因。 */
 function rebuildState(saved: any): GameState {
   const initial = freshState();
-  /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id)); const rebuilt: GameState = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: readSettings(saved.settings), inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: { ...initial.camp, ...saved.camp, hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp), wave: Math.max(1, Math.floor(Number(saved.camp?.wave) || 1)), stage: Math.max(0, Math.min(CAMP_WAVE_KINDS.length - 1, Math.floor(Number(saved.camp?.stage) || 0))), population: Math.max(0, Math.floor(Number(saved.camp?.population) || 0)) }, perfectItems: (Array.isArray(saved.perfectItems) ? saved.perfectItems : []).map((itemId: number) => Math.floor(Number(itemId) || -1)).filter((itemId: number) => itemId >= 0 && !!items[itemId]),
+  /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id)); const rebuilt: GameState = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: readSettings(saved.settings), inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: {
+      ...initial.camp, ...saved.camp,
+      hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp),
+      wave: Math.max(1, Math.floor(Number(saved.camp?.wave) || 1)),
+      stage: Math.max(0, Math.min(CAMP_WAVE_KINDS.length - 1, Math.floor(Number(saved.camp?.stage) || 0))),
+      population: Math.max(0, Math.floor(Number(saved.camp?.population) || 0)),
+      /* 勘探图与勘探队逐字段校验：不要退回「...saved.camp 一把梭」，那个写法拦不住手改过的值
+         （旧存档没有这几个字段，从 freshState 的初始值来）。 */
+      maps: mapSets.map((_, mapId) => normalizeMapState(saved.camp?.maps?.[mapId])),
+      expeditionMap: mapSets[Math.floor(Number(saved.camp?.expeditionMap))] ? Math.floor(Number(saved.camp.expeditionMap)) : -1,
+      expeditionEnds: Math.max(0, Number(saved.camp?.expeditionEnds) || 0),
+      expeditionRate: Math.max(0, Math.min(1, Number(saved.camp?.expeditionRate) || 0))
+    }, perfectItems: (Array.isArray(saved.perfectItems) ? saved.perfectItems : []).map((itemId: number) => Math.floor(Number(itemId) || -1)).filter((itemId: number) => itemId >= 0 && !!items[itemId]),
 achievements: achievements.map((_, index) => (saved.achievements?.[index] ? 1 : 0)), notices: unlockNotices.map((_, index) => (saved.notices?.[index] ? 1 : 0)), devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)), ...readResearchState(saved), autoEat: readAutoEat(saved), log: [] };
+  /* 兼容一次：上一版把「拼合地图」做成独立一步 —— 那时 camp.maps 记 1、三片残片已经扣掉。
+     现在三格槽位就是拼合，所以把 1 退回「未勘探」并**把那三片还给玩家**：
+     不还的话那份存档会卡在「残片没了、图又不是已勘探」的空档里，只能重新去刷。
+     放在这里（读盘与导入共用的唯一入口）所以只跑一次，之后 normalizeMapState 不会再看到 1。 */
+  mapSets.forEach((entry, mapId) => {
+    if (Math.floor(Number(saved.camp?.maps?.[mapId]) || 0) !== MAP_STATE.charted) return;
+    entry.tiles.forEach(tile => { rebuilt.inventory[tile.itemId] = (rebuilt.inventory[tile.itemId] || 0) + 1; });
+  });
   /* 区域 / 敌人这类字段存的是配置表下标，配置删项后可能指向不存在的位置，进来先对齐一次。 */
   if (!zones[rebuilt.adventure.zoneId]) rebuilt.adventure.zoneId = CAMP_ZONE_ID;
   if (isCampZone(rebuilt.adventure.zoneId)) rebuilt.adventure.running = false;
@@ -1521,6 +1701,10 @@ export const devStats = [
   { name: '城防等级', get: (target: GameState) => target.campWorkshop[0].level, set: (target: GameState, value: number) => { target.campWorkshop[0].level = value; } },
   { name: '城防工时', get: (target: GameState) => Math.floor(target.campWorkshop[0].work), set: (target: GameState, value: number) => { target.campWorkshop[0].work = value; } },
   { name: '营垒后勤', get: (target: GameState) => getLogisticsAssigned(LOGISTICS.camp, target), set: (target: GameState, value: number) => { target.logistics.assigned[LOGISTICS.camp] = value; } },
+  { name: '庇护所人口', get: (target: GameState) => target.camp.population, set: (target: GameState, value: number) => { target.camp.population = value; } },
+  /* 勘探远征要 10 分钟才到点，调试时不可能干等：把这一格改成 0 就等于「立刻抵达」，
+     下一 tick 的 resolveExpedition 会照常掷成功率。 */
+  { name: '勘探队剩余（秒）', float: false, display: (target: GameState) => target.camp.expeditionMap >= 0 ? `${Math.max(0, Math.round((target.camp.expeditionEnds - Date.now()) / 1000))} 秒（${mapSets[target.camp.expeditionMap].name}）` : '未出发', get: (target: GameState) => Math.max(0, Math.round((target.camp.expeditionEnds - Date.now()) / 1000)), set: (target: GameState, value: number) => { if (target.camp.expeditionMap >= 0) target.camp.expeditionEnds = Date.now() + value * 1000; } },
   /* 每个制造项一行后勤：人手是分到具体某一项的，不再有「工坊后勤」这个总池子。 */
   ...workshopItems.map((item, id) => ({ name: `${item.name}后勤`, get: (target: GameState) => getLogisticsAssigned(fortSlot(id), target), set: (target: GameState, value: number) => { target.logistics.assigned[fortSlot(id)] = value; } })),
   /* 冒险：只关心玩家自身的派生战斗属性，写的是覆盖值（见 devOverride）。

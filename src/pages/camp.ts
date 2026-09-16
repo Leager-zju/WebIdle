@@ -1,7 +1,7 @@
 import {
   startCampChallenge, answerPendingEvent, getCampMaxHp, getCampAttack, getCampDefense, getCampRegen, getCampHp,
   getCampBattle, getNextCampChallenge, getPendingEvent, isCampEventTimerRunning, formatNumber, formatDuration, formatSeconds, formatPerSecond, RANDOM_EVENT_INTERVAL, CAMP_WAVE_KINDS,
-  campWave, campWaveStage, POP_PER_WORKER,
+  campWave, campWaveStage, POP_PER_WORKER, getExpedition,
   countSafeCampFights, sweepCampWaves
 } from '../game-state';
 import { setText, setNumber, setHtml, setWidth, setClass, setHidden, setDisabled, pick } from '../dom';
@@ -49,11 +49,11 @@ const page: PageDefinition<any> = {
         <div class="camp-event-track" data-ref="randomTimerBar">${TIMER_CELLS.map(() => '<i class="camp-event-cell"></i>').join('')}</div>
       </div>
       <div class="camp-layout"><section class="camp-block camp-status">${statusMarkup}</section><section class="camp-block camp-threat">${threatMarkup}</section></div>
-      <div class="camp-actions"><span class="camp-countdown" data-ref="countdown"></span><button class="primary-button camp-challenge" type="button" data-action="challenge" data-ref="challenge"></button><button class="secondary-button camp-sweep" type="button" data-action="sweep" data-ref="sweep" title="把所有能稳赢的波次一次打完，直到遇到会伤筋动骨的一场为止（单次最多 200 场，可以接着点；带伤时不会硬上）"></button><button class="secondary-button camp-accept" type="button" data-action="accept" data-ref="accept">应对</button><button class="secondary-button" type="button" data-action="decline" data-ref="decline">跳过</button></div>
+      <div class="camp-actions"><span class="camp-countdown" data-ref="countdown"></span><button class="primary-button camp-challenge" type="button" data-action="challenge" data-ref="challenge"></button><button class="secondary-button camp-sweep" type="button" data-action="sweep" data-ref="sweep" title="把所有能稳赢的波次一次打完，直到遇到会伤筋动骨的一场为止（单次最多 200 场，可以接着点；带伤时不会硬上）"></button><button class="secondary-button camp-accept" type="button" data-action="accept" data-ref="accept">应对</button><button class="secondary-button" type="button" data-action="decline" data-ref="decline">跳过</button><span class="camp-expedition" data-ref="expedition" hidden></span></div>
       <div class="event-log compact camp-log" data-ref="log"></div>`;
     const ctx: any = {
       ...pick(view, 'copy', 'hp', 'attack', 'defense', 'regen', 'population', 'health', 'threatTitle', 'threatState', 'threatDesc',
-        'eventHp', 'eventAttack', 'eventDefense', 'eventInterval', 'eventHealth', 'randomTimer', 'randomTimerBar', 'countdown', 'challenge', 'accept', 'decline', 'log', 'sweep'),
+        'eventHp', 'eventAttack', 'eventDefense', 'eventInterval', 'eventHealth', 'randomTimer', 'randomTimerBar', 'countdown', 'challenge', 'accept', 'decline', 'log', 'sweep', 'expedition'),
       /* 一键清剿的按钮文案要显示场次，而场次靠模拟算 —— 缓存签名，见 update。 */
       sweepSignature: '', sweepCount: 0,
       timerBlock: view.querySelector<HTMLElement>('.camp-event-timer')!,
@@ -148,6 +148,11 @@ const page: PageDefinition<any> = {
     const lit = timerRunning ? Math.ceil(timerLeft / RANDOM_EVENT_INTERVAL * ctx.cells.length) : 0;
     ctx.cells.forEach((cell: HTMLElement, index: number) => setClass(cell, 'on', index >= ctx.cells.length - lit));
     setText(ctx.countdown, pending ? `剩余响应时间 ${Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000))} 秒` : '');
+    /* 勘探队在路上的话，庇护所页也留一句：它和大事件是同一套「庇护所派人出去」的叙事，
+       而队伍回到庇护所门口才知道结果 —— 详细进度在「勘探图」页。 */
+    const expedition = getExpedition(state);
+    setHidden(ctx.expedition, !expedition);
+    if (expedition) setText(ctx.expedition, `${expedition.icon} 勘探队：${expedition.name} · 剩余 ${formatDuration(Math.ceil(expedition.remaining))}（成功率 ${Math.round(expedition.rate * 100)}%）`);
     setHtml(ctx.log, logMarkup(state));
   }
 };

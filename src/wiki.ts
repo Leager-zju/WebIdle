@@ -1,9 +1,10 @@
 import { items, equipTypes } from './config/items';
 import { affixes, affixCap } from './config/affixes';
-import { enemyTable, zones, zoneOfEnemy, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
+import { enemyTable, zones, zoneOfEnemy, zoneOfMap, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
 import { campEventDef, campEventEntries } from './config/events';
+import { mapSets, fragmentMapOf } from './config/maps';
 import { codexEntry, onWikiUnlockChange } from './codex-ref';
-import { getState, isEncountered, isDropDiscovered, isItemDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, mainline, setTable, setOfItem, setOfZone, getSetWorn, isPerfectItem, setBonusEntries, perfectBonusEntries } from './game-state';
+import { getState, isEncountered, isDropDiscovered, isItemDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, setTable, setOfItem, setOfZone, getSetWorn, isPerfectItem, setBonusEntries, perfectBonusEntries } from './game-state';
 import type { ItemCategory } from './types';
 
 /* ——— 内置 wiki：图鉴弹窗 ———
@@ -221,6 +222,18 @@ function solventSourceMarkup(): string {
   return `<p class="wiki-note">任何怪物都有 ${(SOLVENT_DROP_CHANCE * 100).toFixed(1)}% 的概率掉落一瓶清洗剂，三种随机出一种。掉率与区域、怪物种类都无关。</p>`;
 }
 
+/** 地图碎片的获取说明。它来自**庇护所的大事件**（按事件类型分套，见 config/maps.ts），
+    不在任何怪物的 dropTable 里 —— 照「掉落来源」写只会得到一片占位（见 UI开发规范 §7.9 的
+    那四条分支）。大事件没有图鉴条目，所以这里只能写事件名 + 指向它解锁的区域。 */
+function fragmentSourceMarkup(itemId: number): string {
+  const mapId = fragmentMapOf(itemId);
+  const entry = mapId >= 0 ? mapSets[mapId] : undefined;
+  if (!entry) return '<p class="wiki-note">暂时没有已知的获取途径。</p>';
+  const zoneId = zoneOfMap(mapId);
+  const cells = zoneId >= 0 ? cellGridMarkup([entryCellMarkup('zone', zoneId)]) : '';
+  return `${cells}<p class="wiki-note">庇护所击退「${campEventDef(entry.kind, 0).name}」时带回来的战利品；随机事件也会补上一片，但慢得多。集齐「${entry.name}」的 ${entry.tiles.length} 片之后，到研究基地的「勘探图」页签把三片放进槽位，再派勘探队成功走一趟${zoneId >= 0 ? `，就能进入${zones[zoneId].name}` : ''}。</p>`;
+}
+
 /** 套装部件的获取说明。它**不在任何怪物的 dropTable 里** —— 走的是套装掉落通道
     （见 game-state 的 grantSetDrop）：按怪物所在区域判定，随机给一个部位。
     所以这里给的是「去哪个区域刷、多大几率掉一件」，而不是一份来源清单 ——
@@ -250,9 +263,11 @@ function itemBody(id: number): string {
     lines.push(sectionMarkup('使用效果', `<p class="wiki-note">${item.useText}</p>`));
   }
   const setId = setOfItem(id);
-  /* 任务物品、清洗剂、套装部件都不在 dropTable 里，用「掉落来源」那套只会得到一片占位，各走自己的说明。 */
+  /* 任务物品、清洗剂、地图碎片、套装部件都不在 dropTable 里，用「掉落来源」那套只会得到一片占位，
+     各走自己的说明（新增「不走 dropTable 的掉落通道」时这里必须补一条分支）。 */
   if (item.category === 'quest') lines.push(sectionMarkup('获取方式', questSourceMarkup(id)));
   else if (item.type === '清洗') lines.push(sectionMarkup('获取方式', solventSourceMarkup()));
+  else if (fragmentMapOf(id) >= 0) lines.push(sectionMarkup('获取方式', fragmentSourceMarkup(id)));
   else if (setId >= 0) lines.push(sectionMarkup('获取方式', setSourceMarkup(setId)));
   else lines.push(sectionMarkup('掉落来源', dropSourceMarkup(id)));
   /* 套装部件只给一个链接：套装效果、部件清单、极致进度都写在套装页（见 setBody）。
@@ -292,10 +307,12 @@ function zoneBody(id: number): string {
   const zone = zones[id];
   const state = getState();
   const camp = !zone.enemyIds.length;
-  const goal = zone.unlockIndex > 0 ? mainline[zone.unlockIndex - 1] : null;
+  /* 进入条件直接渲染区域自己的解锁规则（见 config/unlock.ts）—— 规则换成地图 / 任意组合时，
+     这里不用改一个字：条件文案与达成状态都从规则里取，和冒险页、解锁提示共用同一份。 */
+  const unlock = zone.unlock;
   return [
     `<p class="wiki-desc">${zone.description}</p>`,
-    sectionMarkup('进入条件', `<p class="wiki-note">${goal ? `完成主线「${goal.title}」后开放。` : '开局即可前往。'}</p>`),
+    sectionMarkup('进入条件', statusLine(unlock.text(state), unlock.done(state))),
     sectionMarkup(camp ? '这里有什么' : '会遇到的怪物', camp
       ? '<p class="wiki-note">非战斗区域：不会遭遇敌人，生命恢复速度远高于野外，适合修整与等待后勤推进。</p>'
       : cellGridMarkup(zone.enemyIds.map(enemyId => (isEncountered(enemyId, state) ? entryCellMarkup('enemy', enemyId) : lockedCellMarkup()))))

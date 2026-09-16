@@ -49,8 +49,34 @@ export interface SetBonus { attack?: number; hp?: number; defense?: number; rege
 export interface DropEntry { itemId: number; chance: number; min: number; max: number; }
 /** art 是战斗卡片与图鉴里用的单字图标。defense 减免玩家造成的伤害，缺省按 0 处理。 */
 export interface Enemy { art: string; name: string; description: string; maxHp: number; attack: number; defense?: number; attackInterval: number; gold: number; dropTable: DropEntry[]; }
+/** 区域解锁规则。**刻意和主线条件（MainlineRequirement）用同一套形状** ——
+    这样冒险页的解锁提示、图鉴的「进入条件」、解锁公告三处都能直接复用主线那套条件渲染，
+    不用为「地图 / 任意组合」再各写一套显示。规则由 config/unlock.ts 的 unlockBy 生成。
+    text() 返回的是**渲染层 HTML**（会内嵌图鉴引用），能直接 setHtml / 塞进 innerHTML；
+    它现算、不进存档，所以用 markup 而不是标记。 */
+export interface UnlockRule {
+  text: (state: GameState) => string;
+  done: (state: GameState) => boolean;
+  /** 解锁提示（unlock-toast）里那行补语，纯文本；也可以给成函数，等真正解锁时再算。
+      **不写这个字段 = 开局就满足**（例如废弃边境），因此不进解锁提示列表 ——
+      否则一进游戏会刷一屏「解锁：冒险「废弃边境」」。 */
+  notice?: string | (() => string);
+}
 /** enemyIds 是敌人表下标。icon 是区域在界面上的图标（区域引用、图鉴里用）。 */
-export interface Zone { name: string; icon: string; description: string; enemyIds: number[]; /** 进入所需的主线进度：mainlineIndex 达到这个值才算解锁。 */ unlockIndex: number; /** 这个区域掉落的装备自带的精炼等级，缺省 0。越早的区域给得越高：早期装备靠喂太慢，直接送一档起步。 */ dropRefine?: number; /** 这个区域的「任务物品」物品下标（研究基地的委托要它）。非战斗区域没有，缺省 -1。 */ questItem?: number; }
+export interface Zone { name: string; icon: string; description: string; enemyIds: number[]; /** 进入条件（可组合规则，见 UnlockRule）。 */ unlock: UnlockRule; /** 这个区域掉落的装备自带的精炼等级，缺省 0。越早的区域给得越高：早期装备靠喂太慢，直接送一档起步。 */ dropRefine?: number; /** 这个区域的「任务物品」物品下标（研究基地的委托要它）。非战斗区域没有，缺省 -1。 */ questItem?: number; }
+/** 一张勘探图：集齐 tiles 里的碎片 → 拼合成地图 → 派勘探队 → 成功才解锁它指向的区域
+    （哪张图解锁哪个区域，写在 config/zones.ts 的 unlockBy.map(...) 里）。 */
+export interface MapSet {
+  name: string;
+  icon: string;
+  description: string;
+  /** 拼图网格的列数：碎片按 col / row 摆进去，纯 CSS grid 拼图。 */
+  cols: number;
+  /** 这一套碎片由哪种大事件产出（config/events.ts 的 CAMP_EVENT 取值）。 */
+  kind: number;
+  /** 碎片物品下标 + 它在拼图里的位置。顺序无关紧要，位置才是拼图的全部信息。 */
+  tiles: { itemId: number; col: number; row: number }[];
+}
 export interface LogEntry { time: string; message: string; type: LogType; }
 /** zoneId / enemyId 都是各自表的下标。spawnTimer 是距离下一个敌人出现的剩余秒数，0 表示场上已有敌人。
     attackCount 是累计出手次数，词条赋予的技能按它决定第几次触发。 */
@@ -83,7 +109,12 @@ export interface CampState { hp: number; worksiteProgress: number; disasterWins:
   /** 大事件波次（从 1 起）与本波打到第几场（0 起，对应 game-state 的 CAMP_WAVE_KINDS）。 */
   wave: number; stage: number;
   /** 庇护所人口：事件里救下来的幸存者，每 POP_PER_WORKER 人提供 1 名后勤人手。 */
-  population: number; }
+  population: number;
+  /** 每张勘探图的进度，下标即 config/maps.ts 的 mapId：0 未拼齐 / 1 已拼好待勘探 / 2 勘探完成（区域解锁）。 */
+  maps: number[];
+  /** 正在进行的勘探远征：目标地图下标（-1 表示没有）、结束时间戳（毫秒）、出发时锁定的成功率（0~1）。
+      用**时间戳**而不是剩余秒数：关掉页面再回来也照常结算，与 pendingExpires 同一套做法。 */
+  expeditionMap: number; expeditionEnds: number; expeditionRate: number; }
 /** 正在进行的庇护所战斗。只存在于内存：刷新页面即视为放弃当前这场。 */
 export interface CampBattleState { kind: number; id: number; name: string; icon: string; campHp: number; campMaxHp: number; eventHp: number; eventMaxHp: number; eventAttack: number; eventDefense: number; eventInterval: number; rewards: { gold: number; scrap: number; essence: number; survivors: number }; campTimer: number; eventTimer: number; }
 /** inventory 只存可堆叠物品（资源、消耗品）的数量，下标是物品表下标；装备不放这里。

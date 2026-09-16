@@ -102,7 +102,34 @@ const ITEM_DEFS = {
      而存档按下标存物品 —— 违反「只能末尾追加」的硬约束（见 UI开发规范 R24）。 */
   logisticsManual: { name: '勤务手册', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.blue, icon: '✎', description: '旧时代的排班与工时记录。使用后点选一件装备，为它刻上「勤务」——让后勤小队推进得更快。', targetsEquipment: true, use: grantAffixHandler(AFFIX.logistics), useText: '附加词条「勤务」', grantsAffix: AFFIX.logistics },
   crystalSample: { name: '结晶样本', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '⬢', description: '用铅盒封住的一小块矿脉结晶。离开矿道后还在缓慢生长，基地想弄清它在长什么。' },
-  coreReading: { name: '核心读数', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '⧗', description: '从井壁记录仪上抄下的原始读数。基地认为把这几十秒的信号拼起来，就能定位信号的源头。' }
+  coreReading: { name: '核心读数', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '⧗', description: '从井壁记录仪上抄下的原始读数。基地认为把这几十秒的信号拼起来，就能定位信号的源头。' },
+
+  /* ——— 地图碎片（见 config/maps.ts）———
+     每张勘探图 3 片，凑齐后在「勘探图」页拼成地图，再派勘探队出去。
+     来源只有一条：**庇护所的大事件**，而且**按事件类型分套** ——
+     天灾给矿脉图纸、兽潮给深井剖面、异种给裂谷坐标。
+     一波里三种事件依次出现，所以想集齐一套就得把三种都打下来，没法只刷一种。
+     稀有度统一火红色（14）：和清洗剂同属「不走 dropTable 的特殊渠道」，不和区域档位抢位置。 */
+  veinChartA: { name: '矿脉图纸残片 Ⅰ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '画着矿道走向的一角。纸边被烤得发脆，墨迹却还是新的。' },
+  veinChartB: { name: '矿脉图纸残片 Ⅱ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '中段的矿道剖面，标着几处已经塌掉的支巷。' },
+  veinChartC: { name: '矿脉图纸残片 Ⅲ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '图纸的最后一角，边上有前人用炭笔写的「别往下」。' },
+  deepProfileA: { name: '深井剖面残片 Ⅰ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '井口的剖面线，比例尺精确得不像手工画的。' },
+  deepProfileB: { name: '深井剖面残片 Ⅱ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '中段的岩层图，标着一条一直往下的竖井。' },
+  deepProfileC: { name: '深井剖面残片 Ⅲ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '井底那一小段剖面。画到这里笔迹突然停住了。' },
+  riftChartA: { name: '裂谷坐标残片 Ⅰ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '一组经纬与方位角。参照物是一处早就不在地图上的地标。' },
+  riftChartB: { name: '裂谷坐标残片 Ⅱ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '半张等高线，密得几乎连成一片黑。' },
+  riftChartC: { name: '裂谷坐标残片 Ⅲ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '最后一角写着进入的窗口期。字迹很急。' },
+
+  /* ——— 熔火套装（熔火裂谷掉落，见 config/sets.ts）———
+     风格：地热裂谷里的重装，靠热与重量硬顶。 */
+  magmaCleaver: { name: '熔火锯刃', type: '武器', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.weapon, rarity: RARITY.green, icon: '⚒', description: '刃口挂着一层半凝固的熔渣，砍下去会重新烧起来。', equip: { attack: 18 } },
+  magmaVisor: { name: '熔火面甲', type: '头部', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.head, rarity: RARITY.green, icon: '⌂', description: '面甲内侧镀了一层隔热结晶，看出去的世界微微发红。', equip: { attack: 6, hp: 20 } },
+  magmaPlate: { name: '熔火胸甲', type: '躯干', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.torso, rarity: RARITY.green, icon: '▦', description: '从裂谷壁上整片剥下来的岩甲，穿着像背了半座山。', equip: { hp: 55, defense: 4 } },
+  cinderLegs: { name: '熔渣胫甲', type: '腿部', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.legs, rarity: RARITY.green, icon: '▧', description: '走过滚烫的谷底也不变形的胫甲，脚踝处还嵌着未冷却的渣块。', equip: { hp: 35, defense: 3 } },
+  magmaCore: { name: '熔火之核', type: '饰品', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.accessory, rarity: RARITY.green, icon: '❂', description: '一颗一直在缓慢自转的熔核，靠近时能听见地底的回声。', equip: { attack: 8, hp: 25 } },
+
+  /* ——— 熔火裂谷的任务物品 ——— */
+  riftSample: { name: '熔火晶核', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '◈', description: '从裂谷深处撬下的一小块熔核。离开地热之后它开始自己发热，基地想弄清它靠什么烧。' }
 } satisfies Record<string, Item>;
 
 export const items: Item[] = Object.values(ITEM_DEFS);
