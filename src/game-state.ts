@@ -106,7 +106,7 @@ function devOverride(index: number, target: GameState): number | null {
 }
 export { zones, enemyTable, items, ITEM, ENEMY, ZONE, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, affixes, AFFIX, affixCap, affixMarkup, skills, SKILL, AFFIX_MAX_MULTIPLIER, CAMP_EVENT, randomEventDefs, sets, setTable, SET, setOfItem, setOfZone };
 
-/** 初始区域：营地（不刷怪，只休整）。 */
+/** 初始区域：庇护所（不刷怪，只休整）。 */
 const CAMP_ZONE_ID = ZONE.camp;
 /** 初始战斗区域与初始敌人。 */
 const FIRST_COMBAT_ZONE_ID = ZONE.wasteBorder;
@@ -121,7 +121,7 @@ export const mainline: MainlineQuest[] = [
   quest('点亮第一座营火', '让远征队完成第一次战斗，确认荒原边缘仍然可以被穿越。', '获得初始远征资格', [
     { text: (state: GameState) => `击杀${pageRefMarkup('enemies', '任意怪物')} ${progressText(state.totalWins, 1)} 只`, done: (state: GameState) => state.totalWins >= 1 }
   ]),
-  quest('清理废弃边境', '击退一批盘踞在旧哨站的机械单位，营地才有空间继续扩建。', '解锁「工坊」系统', [
+  quest('清理废弃边境', '击退一批盘踞在旧哨站的机械单位，庇护所才有空间继续扩建。', '解锁「工坊」系统', [
     { text: (state: GameState) => `累计击杀${pageRefMarkup('enemies', '任意怪物')} ${progressText(state.totalWins, 5)} 只`, done: (state: GameState) => state.totalWins >= 5 }
   ]),
   quest('分析异常电池', '收集旧电池，研究它们为何仍在污染区域中保持电量。', '解锁「研究基地」系统', [
@@ -133,46 +133,70 @@ export const mainline: MainlineQuest[] = [
   quest('追踪核心信号', '余烬碎片正在指向更深处的区域。第一章的下一段道路已经出现。', '解锁研究项「信号放大 I」', [
     { text: (state: GameState) => `收集${itemRefMarkup(ITEM.emberShard)} ${progressText(state.inventory[ITEM.emberShard], 2)} 个`, done: (state: GameState) => state.inventory[ITEM.emberShard] >= 2 }
   ]),
-  quest('抵御第一场天灾', '把工坊造出来的城防和后勤小队都压上去，让营地在沙暴里站住。', '营地进入长期战备，荒野开始注意到这里（解锁随机事件）', [
+  quest('抵御第一场天灾', '把工坊造出来的城防和后勤小队都压上去，让庇护所在沙暴里站住。', '庇护所进入长期战备，荒野开始注意到这里（解锁随机事件）', [
     { text: (state: GameState) => `成功应对天灾 ${progressText(state.camp.disasterWins, 1)} 次`, done: (state: GameState) => state.camp.disasterWins >= 1 }
   ]),
-  quest('击退第一次兽潮', '兽潮不打算绕路。营地攻防与营垒等级决定了这堵墙能不能撑到最后。', '完成营地战备阶段', [
+  quest('击退第一次兽潮', '兽潮不打算绕路。庇护所攻防与营垒等级决定了这堵墙能不能撑到最后。', '完成庇护所战备阶段', [
     { text: (state: GameState) => `成功应对兽潮 ${progressText(state.camp.tideWins, 1)} 次`, done: (state: GameState) => state.camp.tideWins >= 1 }
   ])
 ];
 
-/* ——— 营地 / 后勤小队 / 工坊制造 ———
-   营地不直接升级，它靠「其他系统」变强：工坊把资源造成实物（基础城防），后勤小队把人力换成进度。
+/* ——— 庇护所 / 后勤小队 / 工坊制造 ———
+   庇护所不直接升级，它靠「其他系统」变强：工坊把资源造成实物（基础城防），后勤小队把人力换成进度。
    主线也因此延伸出两个节点：抵御第一场天灾、击退第一次兽潮。 */
-/** 随机事件触发间隔（秒），默认 1 小时。营地页的倒计时进度条要用它算比例。 */
+/** 随机事件触发间隔（秒），默认 1 小时。庇护所页的倒计时进度条要用它算比例。 */
 export const RANDOM_EVENT_INTERVAL = 60 * 60;
 /** 随机事件从第几步主线开始计时：它是「抵御第一场天灾」（mainline 下标 5）的奖励，
-   完成那条主线后 mainlineIndex 才是 6，在此之前营地完全不会被荒野上的随机事件打扰。 */
+   完成那条主线后 mainlineIndex 才是 6，在此之前庇护所完全不会被荒野上的随机事件打扰。 */
 const RANDOM_EVENT_START_INDEX = 6;
 /** 随机事件计时是否已经在走。 */
 export function isCampEventTimerRunning(target: GameState = state): boolean { return target.mainlineIndex >= RANDOM_EVENT_START_INDEX; }
 const PENDING_EVENT_TIMEOUT = 30;        // 事件等待玩家响应的秒数，超时直接跳过
-const CAMP_ATTACK_INTERVAL = 1.2;        // 营地出手间隔（秒）
-/** 营地裸值：等级 0、没有任何强化时的基础数值。 */
+const CAMP_ATTACK_INTERVAL = 1.2;        // 庇护所出手间隔（秒）
+/** 庇护所裸值：等级 0、没有任何强化时的基础数值。 */
 const CAMP_BASE = { hp: 200, attack: 10, defense: 4 };
-/** 后勤小队的可分配去处：下标即 state.logistics.assigned 的下标，顺序不能随意调整。 */
-export const LOGISTICS = { camp: 0, workshop: 1 };
+/** 大事件的波次强度：每波的每项属性都是**上一波的 growth 倍**（等比，越往后越陡）。
+    防御单列：它进的是减法（伤害 = 攻击 − 防御，最低 1 点），跟着等比会让伤害迅速压到 1 点，
+    把「打不过」变成「磨不完」，所以它走线性。
+    growth 决定「墙」在哪：玩家侧（工坊 / 营垒）是线性成长，等比迟早追上 ——
+    调大更陡、能推进的波次更少。 */
+export const CAMP_WAVE = { growth: 1.35, defenseStep: 1.5, intervalStep: .03, intervalMin: .7, rewardDamp: .5 };
+/** 每波的场次顺序：天灾 → 兽潮 → 异种（异种是波末）。下标即 camp.stage。
+    图鉴的「威胁」页也按这个顺序列三张数值表。 */
+export const CAMP_WAVE_KINDS = [CAMP_EVENT.disaster, CAMP_EVENT.tide, CAMP_EVENT.mutant];
+/** 大事件的基础数值：第 1 波就是这一档，之后按 CAMP_WAVE 逐波抬高。 */
+const CAMP_EVENT_BASE: Record<number, { hp: number; attack: number; defense: number; interval: number; gold: number; scrap: number; essence: number; survivors: number }> = {
+  [CAMP_EVENT.disaster]: { hp: 180, attack: 9, defense: 3, interval: 1.4, gold: 150, scrap: 60, essence: 2, survivors: 1 },
+  [CAMP_EVENT.tide]: { hp: 260, attack: 12, defense: 4, interval: 1.2, gold: 220, scrap: 90, essence: 3, survivors: 2 },
+  [CAMP_EVENT.mutant]: { hp: 330, attack: 14, defense: 5, interval: 1.1, gold: 300, scrap: 120, essence: 4, survivors: 3 }
+};
+/** 人口换算：每 3 人提供 1 名后勤。人口只来自事件奖励（救下来的人）。 */
+export const POP_PER_WORKER = 3;
+/** 工坊的制造项：下标即 state.campWorkshop 的下标，追加新项要放在末尾。
+   unlockIndex 是解锁所需的主线进度（mainlineIndex 达到这个值才会在工坊里出现）。 */
+export const workshopItems = [
+  { name: '基础城防', unlockIndex: 0, icon: '🛡️', desc: '加固庇护所外围的挡墙与射击位。每级提高庇护所生命、防御与攻击。', perHp: 25, perDefense: 2, perAttack: 1.5, baseWork: 40, workStep: 30, baseGold: 60, goldStep: 45, baseScrap: 20, scrapStep: 15, basePlate: 1, plateStep: .5 },
+  /* 第二支小队到位后才有人值守：弩台偏攻击，造价与工时都比城防高一档。 */
+  { name: '哨戒弩台', unlockIndex: 4, icon: '🏹', desc: '在庇护所四角架起自动弩台。每级提高庇护所攻击，并小幅提高防御与生命。',
+    perHp: 10, perDefense: 1, perAttack: 3, baseWork: 55, workStep: 35, baseGold: 90, goldStep: 70, baseScrap: 30, scrapStep: 22, basePlate: 2, plateStep: .7 }
+];
+/** 后勤小队的可分配去处：下标即 state.logistics.assigned 的下标，顺序不能随意调整。
+    0 是营垒修筑，之后**每个制造项各占一个下标**（见 fortSlot）—— 人手是「派给这一项的人」，
+    不是工坊共用一个池子：分给弩台的人不会跑去修城防，两项也就能同时开工。
+    总人数由 getLogisticsTotal 换算，assigned 只记分配，不存总数。 */
+export const LOGISTICS = { camp: 0, fort: 1 };
+/** 制造项 id → 后勤下标。制造项自己不用关心下标是怎么排的。 */
+export const fortSlot = (id: number): number => LOGISTICS.fort + id;
 export const logisticsTargets = [
-  { id: 'camp', name: '营垒修筑', icon: '🧱', desc: '每人每秒贡献 1 工时，每 100 工时提升 1 级营垒，提高营地生命、攻击与防御。' },
-  { id: 'workshop', name: '工坊制造', icon: '🔧', desc: '分配的人数就是建造速度：制造耗时 = 该项总工时 ÷（人数 × 每人每秒工时）。每人每秒的工时基础为 1，可被装备词条「勤务」提升。' }
+  { id: 'camp', name: '营垒修筑', icon: '🧱', desc: '每人每秒贡献 1 工时，每 100 工时提升 1 级营垒，提高庇护所生命、攻击与防御。' },
+  /* 每个制造项一行：分配的人数就是这一项的建造速度。
+     每人每秒的工时基础为 1，可被装备词条「勤务」提升（见 getWorkshopRate）。 */
+  ...workshopItems.map(item => ({ id: 'fort', name: item.name, icon: item.icon, desc: `把人数派到${item.name}上：每人每秒贡献 1 工时，攒够本级总工时就会提升 1 级。制造耗时 = 本级总工时 ÷（人数 × 每人每秒工时）。` }))
 ];
 /** 工坊页面本身的解锁进度：完成「清理废弃边境」（mainline 下标 1）后 mainlineIndex 才是 2。 */
 const WORKSHOP_UNLOCK_INDEX = 2;
 /** 研究基地页面本身的解锁进度：完成「分析异常电池」（mainline 下标 2）后 mainlineIndex 才是 3。 */
 const RESEARCH_UNLOCK_INDEX = 3;
-/** 工坊的制造项：下标即 state.campWorkshop 的下标，追加新项要放在末尾。
-   unlockIndex 是解锁所需的主线进度（mainlineIndex 达到这个值才会在工坊里出现）。 */
-export const workshopItems = [
-  { name: '基础城防', unlockIndex: 0, icon: '🛡️', desc: '加固营地外围的挡墙与射击位。每级提高营地生命、防御与攻击。', perHp: 25, perDefense: 2, perAttack: 1.5, baseWork: 40, workStep: 30, baseGold: 60, goldStep: 45, baseScrap: 20, scrapStep: 15, basePlate: 1, plateStep: .5 },
-  /* 第二支小队到位后才有人值守：弩台偏攻击，造价与工时都比城防高一档。 */
-  { name: '哨戒弩台', unlockIndex: 4, icon: '🏹', desc: '在营地四角架起自动弩台。每级提高营地攻击，并小幅提高防御与生命。',
-    perHp: 10, perDefense: 1, perAttack: 3, baseWork: 55, workStep: 35, baseGold: 90, goldStep: 70, baseScrap: 30, scrapStep: 22, basePlate: 2, plateStep: .7 }
-];
 /** 工坊是否已解锁（页面级）：完成主线「清理废弃边境」。导航锁定与解锁提示共用这一处判定。 */
 export function isWorkshopUnlocked(target: GameState = state): boolean { return target.mainlineIndex >= WORKSHOP_UNLOCK_INDEX; }
 /** 某个制造项是否已解锁：主线进度不够时工坊里不显示它。 */
@@ -300,8 +324,21 @@ export const WORKSITE_BONUS = { hp: 12, attack: 1.5, defense: 1 };
 export function worksiteLevel(target: GameState = state): number { return Math.floor(Math.max(0, target.camp.worksiteProgress) / 100); }
 /** 营垒修筑进度：朝下一级的百分比。 */
 export function worksiteProgress(target: GameState = state): number { return Math.max(0, target.camp.worksiteProgress) % 100; }
-/** 后勤小队总人数：初始 1 人，随主线进度与累计胜场增长。 */
-export function getLogisticsTotal(target: GameState = state): number { return 1 + Math.floor(target.mainlineIndex / 2) + Math.floor(target.totalWins / 20); }
+/** 总人数的来源拆分：界面拿它解释「为什么又多了一个人」。
+    三个来源分别是主线进度、累计胜场、庇护所人口（事件里救下来的幸存者）。 */
+export function getLogisticsSources(target: GameState = state): { mainline: number; wins: number; population: number } {
+  return {
+    mainline: Math.floor(target.mainlineIndex / 2),
+    wins: Math.floor(target.totalWins / 20),
+    population: Math.floor(Math.max(0, Number(target.camp.population) || 0) / POP_PER_WORKER)
+  };
+}
+/** 后勤小队总人数：基础 1 人 + 三个来源。
+    人数**不存档**，只由这几项换算，避免两处数据不同步。 */
+export function getLogisticsTotal(target: GameState = state): number {
+  const sources = getLogisticsSources(target);
+  return 1 + sources.mainline + sources.wins + sources.population;
+}
 /** 某个后勤系统分到的人数。 */
 export function getLogisticsAssigned(index: number, target: GameState = state): number { return Math.max(0, target.logistics.assigned[index] || 0); }
 /** 还没分配出去、可以随时调动的人数。 */
@@ -326,15 +363,14 @@ export function assignLogistics(index: number, delta: number): void {
   addLog(state, `${logisticsTargets[index].name}的后勤人数调整为 ${target} 人。`, 'system');
   saveState(); notify();
 }
-/* ——— 营地数值：基础值 + 城防等级加成 + 营垒等级加成 + 其他系统（营火强化 / 研究 / 伙伴）的加成。
-   这三个字段目前没有升级入口（对应的快速强化已精简掉），只作为后续系统的数值保留。 */
+/* ——— 庇护所数值：基础值 + 城防等级加成 + 营垒等级加成 + 其他系统（研究 / 伙伴）的加成。 */
 /** 工坊所有制造项的等级加成之和：按各自等级 × 各自系数累加。 */
 function workshopBonus(target: GameState, key: 'perHp' | 'perAttack' | 'perDefense'): number {
   return workshopItems.reduce((total, item, id) => total + levelBonus(target.campWorkshop[id]?.level || 0, item[key]), 0);
 }
-export function getCampMaxHp(target: GameState = state): number { return Math.round(CAMP_BASE.hp + workshopBonus(target, 'perHp') + worksiteLevel(target) * WORKSITE_BONUS.hp + target.workshop * 20); }
-export function getCampAttack(target: GameState = state): number { return Math.round(CAMP_BASE.attack + workshopBonus(target, 'perAttack') + worksiteLevel(target) * WORKSITE_BONUS.attack + target.workshop * 2); }
-export function getCampDefense(target: GameState = state): number { return Math.round(CAMP_BASE.defense + workshopBonus(target, 'perDefense') + worksiteLevel(target) * WORKSITE_BONUS.defense + target.workshop); }
+export function getCampMaxHp(target: GameState = state): number { return Math.round(CAMP_BASE.hp + workshopBonus(target, 'perHp') + worksiteLevel(target) * WORKSITE_BONUS.hp); }
+export function getCampAttack(target: GameState = state): number { return Math.round(CAMP_BASE.attack + workshopBonus(target, 'perAttack') + worksiteLevel(target) * WORKSITE_BONUS.attack); }
+export function getCampDefense(target: GameState = state): number { return Math.round(CAMP_BASE.defense + workshopBonus(target, 'perDefense') + worksiteLevel(target) * WORKSITE_BONUS.defense); }
 export function getCampRegen(target: GameState = state): number { return 1.5 + worksiteLevel(target) * .3; }
 export function getCampHp(target: GameState = state): number { return Math.max(0, Math.min(getCampMaxHp(target), target.camp.hp)); }
 /* ——— 工坊制造 ——— */
@@ -347,7 +383,7 @@ export function isWorkshopBusy(id: number, target: GameState = state): boolean {
 export function canStartWorkshop(id: number, target: GameState = state): boolean { if (!isWorkshopItemUnlocked(id, target)) return false; const cost = getWorkshopCost(id, target); return !isWorkshopBusy(id, target) && target.gold >= cost.gold && target.scrap >= cost.scrap && target.inventory[ITEM.armorPlate] >= cost.plate; }
 /** 剩余秒数：没有分配后勤人数时返回 Infinity（进度会停住）。 */
 export function getWorkshopRemaining(id: number, target: GameState = state): number {
-  const workers = getLogisticsAssigned(LOGISTICS.workshop, target);
+  const workers = getLogisticsAssigned(fortSlot(id), target);
   const item = target.campWorkshop[id];
   if (!workers || item.target < 0) return Infinity;
   /* 剩余秒数同样要按「每人每秒的实际工时」算，否则界面上的倒计时会和真实进度对不上。 */
@@ -368,30 +404,59 @@ function beginWorkshopBuild(id: number, target: GameState, auto = false): boolea
 }
 /** 手动开工（界面上现在由「分配人数 > 0」自动触发，保留给脚本与调试用）。 */
 export function startWorkshopUpgrade(id: number, target: GameState = state): boolean { if (!beginWorkshopBuild(id, target)) return false; saveState(); notify(); return true; }
-/* ——— 营地事件 ———
-   名字 / 图标 / 描述在 config/events.ts（图鉴也要读），这里只负责按存档算强度与奖励。 */
-/** 某场事件的强度与奖励：天灾、兽潮随已通过次数变强，随机事件随主线进度变强。 */
-function campEventStats(kind: number, id: number, target: GameState): { kind: number; id: number; name: string; icon: string; desc: string; hp: number; attack: number; defense: number; interval: number; rewards: { gold: number; scrap: number; essence: number } } {
+/* ——— 庇护所事件 ———
+   名字 / 图标 / 描述在 config/events.ts（图鉴也要读），这里只负责按存档算强度与奖励。
+   大事件按**波次**反复来（每波 3 场：天灾 → 兽潮 → 异种），不再有「打一次就清空」。 */
+/** 当前波次，从 1 起。 */
+export function campWave(target: GameState = state): number { return Math.max(1, Math.floor(Number(target.camp.wave) || 1)); }
+/** 本波打到第几场（0 起，对应 CAMP_WAVE_KINDS 的下标）。 */
+export function campWaveStage(target: GameState = state): number { return Math.max(0, Math.min(CAMP_WAVE_KINDS.length - 1, Math.floor(Number(target.camp.stage) || 0))); }
+/** 当前该打的事件类型。 */
+function campWaveKind(target: GameState): number { return CAMP_WAVE_KINDS[campWaveStage(target)]; }
+/** 某场事件的强度与奖励：大事件按**波次线性**变强，随机事件随主线进度变强。
+    survivors 是救下来的幸存者，结算时转成庇护所人口。 */
+function campEventStats(kind: number, id: number, target: GameState): { kind: number; id: number; name: string; icon: string; desc: string; hp: number; attack: number; defense: number; interval: number; rewards: { gold: number; scrap: number; essence: number; survivors: number } } {
   const def = campEventDef(kind, id);
-  if (kind === CAMP_EVENT.disaster) { const wins = target.camp.disasterWins; return { kind, id, name: `${def.name} · 第 ${wins + 1} 次`, icon: def.icon, desc: def.desc, hp: 180 + wins * 140, attack: 9 + wins * 5, defense: 3 + wins * 3, interval: 1.4, rewards: { gold: 150 + wins * 80, scrap: 60 + wins * 30, essence: 1 + wins } }; }
-  if (kind === CAMP_EVENT.tide) { const wins = target.camp.tideWins; return { kind, id, name: `${def.name} · 第 ${wins + 1} 次`, icon: def.icon, desc: def.desc, hp: 260 + wins * 200, attack: 12 + wins * 6, defense: 4 + wins * 3, interval: 1.2, rewards: { gold: 220 + wins * 110, scrap: 90 + wins * 40, essence: 2 + wins * 2 } }; }
-  const scale = target.mainlineIndex + Math.floor(target.totalWins / 10);
-  return { kind: CAMP_EVENT.random, id, name: def.name, icon: def.icon, desc: def.desc, hp: 120 + scale * 45, attack: 7 + scale * 2, defense: 2 + scale, interval: 1.6, rewards: { gold: 90 + scale * 30, scrap: 40 + scale * 15, essence: 1 + Math.floor(scale / 2) } };
+  if (kind === CAMP_EVENT.random) {
+    const scale = target.mainlineIndex + Math.floor(target.totalWins / 10);
+    return { kind, id, name: def.name, icon: def.icon, desc: def.desc, hp: 120 + scale * 45, attack: 7 + scale * 2, defense: 2 + scale, interval: 1.6, rewards: { gold: 90 + scale * 30, scrap: 40 + scale * 15, essence: 1 + Math.floor(scale / 2), survivors: 0 } };
+  }
+  const wave = campWave(target);
+  const base = CAMP_EVENT_BASE[kind] || CAMP_EVENT_BASE[CAMP_EVENT.disaster];
+  const scale = Math.pow(CAMP_WAVE.growth, wave - 1);
+  /* 奖励跟着难度涨，但只取**平方根**那一档：全额跟涨会让金币 / 废料 / 精华的数值爆炸，
+     完全不跟涨又没人愿意往上推。 */
+  const rewardScale = Math.pow(scale, CAMP_WAVE.rewardDamp);
+  return {
+    kind, id, name: `${def.name} · 第 ${wave} 波`, icon: def.icon, desc: def.desc,
+    hp: Math.round(base.hp * scale),
+    attack: Math.round(base.attack * scale),
+    defense: Math.round(base.defense + (wave - 1) * CAMP_WAVE.defenseStep),
+    /* 出手间隔只在第 3 波之后开始压，且有下限 —— 压到 0 会让战斗循环里 step 恒为 0。 */
+    interval: Math.max(CAMP_WAVE.intervalMin, base.interval - Math.max(0, wave - 3) * CAMP_WAVE.intervalStep),
+    rewards: {
+      gold: Math.round(base.gold * rewardScale),
+      scrap: Math.round(base.scrap * rewardScale),
+      essence: Math.round(base.essence * rewardScale),
+      survivors: Math.round(base.survivors * rewardScale)
+    }
+  };
 }
 /** 界面统一按「当前 / 最大」显示事件生命：未开打时两者相同，所以这里把 hp 同时当作 maxHp 给出。 */
 export type CampEventStats = ReturnType<typeof campEventStats> & { maxHp: number };
 function withMaxHp(stats: ReturnType<typeof campEventStats>): CampEventStats { return { ...stats, maxHp: stats.hp }; }
 /** 界面用：拿一场事件的可展示数据（不含战斗中的实时血量）。 */
 export function getCampEventInfo(kind: number, id = 0, target: GameState = state): CampEventStats { return withMaxHp(campEventStats(kind, id, target)); }
-/** 天灾打完才轮到兽潮；两个都打完就没有大事件了（之后只有随机事件）。 */
-export function getNextCampChallenge(target: GameState = state): CampEventStats | null { if (target.camp.disasterWins < 1) return getCampEventInfo(CAMP_EVENT.disaster, 0, target); if (target.camp.tideWins < 1) return getCampEventInfo(CAMP_EVENT.tide, 0, target); return null; }
+/** 当前该打哪一场：每波 3 场，打完进下一波。
+    永远返回一场 —— 庇护所不再有「大事件已清空」这个状态。 */
+export function getNextCampChallenge(target: GameState = state): CampEventStats { return getCampEventInfo(campWaveKind(target), 0, target); }
 /** 已经触发、等待玩家响应的事件；没有则返回 null。 */
 export function getPendingEvent(target: GameState = state): (CampEventStats & { expiresAt: number }) | null { if (target.camp.pendingKind < 0) return null; return { ...withMaxHp(campEventStats(target.camp.pendingKind, target.camp.pendingId, target)), expiresAt: target.camp.pendingExpires }; }
 let campBattle: CampBattleState | null = null;
 export function getCampBattle(): CampBattleState | null { return campBattle; }
 function beginCampBattle(target: GameState, stats: ReturnType<typeof campEventStats>): void {
   campBattle = { kind: stats.kind, id: stats.id, name: stats.name, icon: stats.icon, campHp: getCampHp(target), campMaxHp: getCampMaxHp(target), eventHp: stats.hp, eventMaxHp: stats.hp, eventAttack: stats.attack, eventDefense: stats.defense, eventInterval: stats.interval, rewards: stats.rewards, campTimer: 0, eventTimer: 0 };
-  addLog(target, `${stats.name}来袭，营地防线进入战斗。`, 'battle');
+  addLog(target, `${stats.name}来袭，庇护所防线进入战斗。`, 'battle');
   saveState(); notify();
 }
 function clearPending(target: GameState): void { target.camp.pendingKind = -1; target.camp.pendingId = -1; target.camp.pendingExpires = 0; }
@@ -402,10 +467,10 @@ export function answerPendingEvent(accept: boolean): void {
   if (state.camp.pendingKind < 0 || campBattle) return;
   const stats = campEventStats(state.camp.pendingKind, state.camp.pendingId, state);
   clearPending(state);
-  if (!accept) { addLog(state, `营地选择回避「${stats.name}」。`, 'system'); saveState(); notify(); return; }
+  if (!accept) { addLog(state, `庇护所选择回避「${stats.name}」。`, 'system'); saveState(); notify(); return; }
   beginCampBattle(state, stats);
 }
-/** 设置页的通知开关：决定随机事件是否弹窗提醒（不弹窗也能在营地页看到倒计时）。 */
+/** 设置页的通知开关：决定随机事件是否弹窗提醒（不弹窗也能在庇护所页看到倒计时）。 */
 export function setNotify(enabled: boolean): void { state.settings.notify = !!enabled; addLog(state, enabled ? '随机事件将弹窗提醒。' : '随机事件不再弹窗提醒。', 'system'); saveState(); notify(); }
 
 /* ——— 更新日志（见 changelog.ts） ———
@@ -447,7 +512,7 @@ export const unlockNotices = [
   /* 机制级：条件一律引用 game-state 自己的判定函数，不要在表里重写一遍 mainlineIndex 比较。 */
   { id: 'workshop', icon: '🔨', category: '工坊', name: '工坊', hint: '完成「清理废弃边境」解锁', unlocked: isWorkshopUnlocked },
   { id: 'researchBase', icon: '🧪', category: '研究基地', name: '研究基地', hint: '完成「分析异常电池」解锁', unlocked: isResearchUnlocked },
-  { id: 'randomEvent', icon: '🌪️', category: '营地', name: '随机事件', hint: '完成「抵御第一场天灾」解锁', unlocked: isCampEventTimerRunning },
+  { id: 'randomEvent', icon: '🌪️', category: '庇护所', name: '随机事件', hint: '完成「抵御第一场天灾」解锁', unlocked: isCampEventTimerRunning },
   ...entryNotices(workshopItems, '工坊', 'workshop', isWorkshopItemUnlocked),
   ...entryNotices(researchItems, '研究基地', 'research', isResearchItemUnlocked),
   ...entryNotices(zones, '冒险', 'zone', isZoneUnlocked)
@@ -533,10 +598,10 @@ const freshState = (): GameState => ({
      本函数之后，模块初始化时调用会踩暂时性死区。id 从 1 起，nextInstanceId 跟着写 2。 */
   equipment: [{ id: 1, itemId: ITEM.scavengedBlade, refine: 0 }], nextInstanceId: 2,
   encountered: new Array(enemyTable.length).fill(0), discoveredDrops: enemyTable.map(() => []), perfectItems: [], adventure: freshAdventure(),
-  /* 后勤小队开局 1 人（全部待命）；工坊只有一个制造项，0 级且空闲；营地满血、随机事件从满间隔开始倒数。 */
+  /* 后勤小队开局 1 人（全部待命）；工坊只有一个制造项，0 级且空闲；庇护所满血、随机事件从满间隔开始倒数。 */
   logistics: { assigned: logisticsTargets.map(() => 0) },
   campWorkshop: workshopItems.map(() => ({ level: 0, target: -1, work: 0 })),
-  camp: { hp: CAMP_BASE.hp, worksiteProgress: 0, disasterWins: 0, tideWins: 0, randomTimer: RANDOM_EVENT_INTERVAL, pendingKind: -1, pendingId: -1, pendingExpires: 0 },
+  camp: { hp: CAMP_BASE.hp, worksiteProgress: 0, disasterWins: 0, tideWins: 0, randomTimer: RANDOM_EVENT_INTERVAL, pendingKind: -1, pendingId: -1, pendingExpires: 0, wave: 1, stage: 0, population: 0 },
   achievements: achievements.map(() => 0),
   notices: unlockNotices.map(() => 0),
   guides: [],
@@ -551,8 +616,15 @@ let lastSave = Date.now();
 export function getState(): GameState { return state; }
 export function subscribe(listener: (state: GameState) => void): () => void { listeners.add(listener); return () => listeners.delete(listener); }
 function notify(): void { syncEquipSlots(state); syncLogistics(state); syncCamp(state); checkAchievements(state); checkUnlocks(state); listeners.forEach(listener => listener(state)); }
-/** 营地生命值只做上下限对齐：上限随城防 / 营垒提升，脱战时由 tick 的回血填满。 */
-function syncCamp(target: GameState): void { target.camp.hp = Math.max(0, Math.min(getCampMaxHp(target), Number(target.camp.hp) || 0)); if (!(target.camp.randomTimer > 0)) target.camp.randomTimer = RANDOM_EVENT_INTERVAL; }
+/** 庇护所生命值只做上下限对齐：上限随城防 / 营垒提升，脱战时由 tick 的回血填满。
+    波次 / 场次 / 人口也在这里夹一次上下限（读档、手改存档都可能给出越界值）。 */
+function syncCamp(target: GameState): void {
+  target.camp.hp = Math.max(0, Math.min(getCampMaxHp(target), Number(target.camp.hp) || 0));
+  if (!(target.camp.randomTimer > 0)) target.camp.randomTimer = RANDOM_EVENT_INTERVAL;
+  target.camp.wave = campWave(target);
+  target.camp.stage = campWaveStage(target);
+  target.camp.population = Math.max(0, Math.floor(Number(target.camp.population) || 0));
+}
 /* 数值与时长格式化统一放在 format.ts，这里转出一份，页面照旧从 game-state 引入。 */
 import { formatNumber, formatNumberExact, formatSigned, numberHint, formatDuration, formatSeconds, formatPerSecond, numberFormats, NUMBER_FORMAT } from './format';
 export { formatNumber, formatNumberExact, formatSigned, numberHint, formatDuration, formatSeconds, formatPerSecond, numberFormats, NUMBER_FORMAT };
@@ -762,17 +834,17 @@ export function getEquipBonusSources(key: EquipBonusKey, target: GameState = sta
 export function getPlayerDefense(target: GameState = state): number { const override = devOverride(DEV_STAT.defense, target); if (override !== null) return override; return getEquipBonus(target).defense + getSetBonus(target).defense + getAffixTotals(target).defense; }
 /** 这个装备实例是否在某个槽位上。参数是实例 id 而不是物品 id——同名装备的各件互不影响。 */
 export function isEquipped(instanceId: number, target: GameState = state): boolean { return instanceId >= 0 && target.equipped.some(slots => slots.includes(instanceId)); }
-/** 生命上限：先加固定值（基础 + 营火 + 装备 + 套装 + 固定词条），最后按百分比词条放大。 */
-export function getPlayerMaxHp(target: GameState = state): number { const override = devOverride(DEV_STAT.maxHp, target); if (override !== null) return override; const totals = getAffixTotals(target); const flat = 100 + target.workshop * 15 + getEquipBonus(target).hp + getSetBonus(target).hp + totals.hp; return Math.round(flat * (1 + (totals.hpPct + getPerfectBonus(target).hpPct) / 100)); }
-export function getPlayerRegen(target: GameState = state): number { const override = devOverride(DEV_STAT.regen, target); if (override !== null) return override; return 2 + target.workshop * .8 + getSetBonus(target).regen; }
+/** 生命上限：先加固定值（基础 + 装备 + 套装 + 固定词条），最后按百分比词条放大。 */
+export function getPlayerMaxHp(target: GameState = state): number { const override = devOverride(DEV_STAT.maxHp, target); if (override !== null) return override; const totals = getAffixTotals(target); const flat = 100 + getEquipBonus(target).hp + getSetBonus(target).hp + totals.hp; return Math.round(flat * (1 + (totals.hpPct + getPerfectBonus(target).hpPct) / 100)); }
+export function getPlayerRegen(target: GameState = state): number { const override = devOverride(DEV_STAT.regen, target); if (override !== null) return override; return 2 + getSetBonus(target).regen; }
 /** 进入战斗区域、以及击杀敌人之后，下一个敌人出现所需的刷新冷却（秒）。 */
 export const SPAWN_COOLDOWN = 3;
-/** 营地区域的基础回复倍率：在营地里生命回复速度 = 野外回复速度 × 这个值。 */
+/** 庇护所区域的基础回复倍率：在庇护所里生命回复速度 = 野外回复速度 × 这个值。 */
 export const CAMP_REGEN_MULTIPLIER = 5;
-/** 当前区域的回复倍率：营地用营地倍率，战斗区域为 1。 */
+/** 当前区域的回复倍率：庇护所用庇护所倍率，战斗区域为 1。 */
 export function getRegenMultiplier(target: GameState = state): number { return isCampZone(currentZoneId(target)) ? CAMP_REGEN_MULTIPLIER : 1; }
 /** 攻击力：先加固定值（基础 + 工坊 + 装备 + 套装 + 固定词条），最后按百分比词条放大。 */
-export function getPlayerAttack(target: GameState = state): number { const override = devOverride(DEV_STAT.attack, target); if (override !== null) return override; const totals = getAffixTotals(target); const flat = 12 + target.workshop * 3 + getEquipBonus(target).attack + getSetBonus(target).attack + totals.attack; return Math.round(flat * (1 + (totals.attackPct + getPerfectBonus(target).attackPct) / 100)); }
+export function getPlayerAttack(target: GameState = state): number { const override = devOverride(DEV_STAT.attack, target); if (override !== null) return override; const totals = getAffixTotals(target); const flat = 12 + getEquipBonus(target).attack + getSetBonus(target).attack + totals.attack; return Math.round(flat * (1 + (totals.attackPct + getPerfectBonus(target).attackPct) / 100)); }
 /* 出手间隔下限 0.1 秒：覆盖值给到 0 会让战斗循环里 step 恒为 0，卡死主循环。
    基础值 2.2 秒，套装加成可以把它压低（下限 0.9 秒，防止堆到瞬发）。 */
 export const PLAYER_ATTACK_INTERVAL = 2.2;
@@ -780,7 +852,10 @@ export function getPlayerAttackInterval(target: GameState = state): number { con
 /** 刷怪间隔：击杀 / 进入区域后到下一个敌人出现的秒数（可被开发者面板覆盖，同样有 0.1 秒下限）。 */
 export function getSpawnCooldown(target: GameState = state): number { const override = devOverride(DEV_STAT.spawnCooldown, target); return override !== null ? Math.max(.1, override) : SPAWN_COOLDOWN; }
 /* 物品栏上限按「种类」算：同一种物品可以无限叠加，只有新种类才会占用空位。
-   初始 20 格：开局不加工坊与伙伴也放得下三个区域的掉落种类，不会刚出门就被上限卡住。 */
+   初始 20 格：开局不加工坊与伙伴也放得下三个区域的掉落种类，不会刚出门就被上限卡住。
+   `target.workshop` 是**遗留字段**（原「营火强化」，升级入口早就删了）：新存档恒为 0，
+   只有老存档还带着旧值。它现在**只剩这一处引用** —— 要彻底清掉得同时决定
+   「老存档那几十格要不要留」，所以先摆在明面上，别让它再悄悄影响别的数值。 */
 export function getInventoryCapacity(target: GameState = state): number { return 20 + target.workshop * 2; }
 /** 已占用格数：可堆叠物品按「种类」算一类一格；不可堆叠（装备）一件一格，同名的每一件都要各自占一格。
     例外：**已经穿在身上的装备不算占格** —— 穿戴本身就该腾出背包空间。
@@ -794,7 +869,7 @@ export function getInventoryUsed(target: GameState = state): number {
 }
 export function currentZoneId(target: GameState = state): number { return zones[target.adventure.zoneId] ? target.adventure.zoneId : CAMP_ZONE_ID; }
 export function currentZone(target: GameState = state) { return zones[currentZoneId(target)]; }
-/** 营地这类没有敌人的区域：不刷怪，只按倍率回复生命值。 */
+/** 庇护所这类没有敌人的区域：不刷怪，只按倍率回复生命值。 */
 export function isCampZone(zoneId: number): boolean { return !zones[zoneId] || zones[zoneId].enemyIds.length === 0; }
 /** 该怪物是否已经遭遇过（击杀过）：只有击杀过的怪物才会被图鉴收录。 */
 export function isEncountered(enemyId: number, target: GameState = state): boolean { return !!target.encountered?.[enemyId]; }
@@ -812,11 +887,11 @@ export function isItemDiscovered(itemId: number, target: GameState = state): boo
 export function currentEnemy(target: GameState = state) { return enemyTable[target.adventure.enemyId] || enemyTable[zones[currentZoneId(target)].enemyIds[0]] || enemyTable[FIRST_ENEMY_ID]; }
 export function getEnemyAttackInterval(target: GameState = state): number { return currentEnemy(target).attackInterval; }
 /* 目前所有区域都开放；后续做进度门槛时改这里的判断即可。 */
-/** 区域是否解锁：主线进度达到 unlockIndex 才开放（营地为 0，一直可进）。 */
+/** 区域是否解锁：主线进度达到 unlockIndex 才开放（庇护所为 0，一直可进）。 */
 export function isZoneUnlocked(zoneId: number, target: GameState = state): boolean { return !!zones[zoneId] && target.mainlineIndex >= zones[zoneId].unlockIndex; }
 
 function addLog(target: GameState, message: string, type: LogType = 'system'): void { target.log = [{ time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), message, type }, ...target.log].slice(0, 160); }
-function updateMainline(target: GameState): void { while (target.mainlineIndex < mainline.length && mainline[target.mainlineIndex].condition(target)) { target.mainlineIndex += 1; const messages: Record<number, string> = { 2: '旧工坊重新亮起。现在可以把冒险带回的废料变成长期战力。', 3: '研究台接入了旧电池。新的升级路线已经开放。', 4: '你收到了幸存者的回应。伙伴系统已经可以使用。', 5: '余烬碎片指向更深处的道路。边境调查阶段完成。', 6: '营地挡下了第一场天灾，防线经验开始积累。', 7: '兽潮退去，营地战备阶段完成。荒野深处还有更大的信号。' }; addLog(target, messages[target.mainlineIndex] || '主线记录已更新。', 'progress'); } }
+function updateMainline(target: GameState): void { while (target.mainlineIndex < mainline.length && mainline[target.mainlineIndex].condition(target)) { target.mainlineIndex += 1; const messages: Record<number, string> = { 2: '旧工坊重新亮起。现在可以把冒险带回的废料变成长期战力。', 3: '研究台接入了旧电池。新的升级路线已经开放。', 4: '你收到了幸存者的回应。伙伴系统已经可以使用。', 5: '余烬碎片指向更深处的道路。边境调查阶段完成。', 6: '庇护所挡下了第一场天灾，防线经验开始积累。', 7: '兽潮退去，庇护所战备阶段完成。荒野深处还有更大的信号。' }; addLog(target, messages[target.mainlineIndex] || '主线记录已更新。', 'progress'); } }
 function chooseEnemyId(target: GameState): number { const ids = zones[currentZoneId(target)].enemyIds; return ids.length ? ids[Math.floor(Math.random() * ids.length)] : FIRST_ENEMY_ID; }
 function prepareEnemy(target: GameState, enemyId = chooseEnemyId(target)): void { const enemy = enemyTable[enemyId]; const shouldRestore = !Number.isFinite(target.adventure.playerHp) || target.adventure.playerHp <= 0; target.adventure.enemyId = enemyId; target.adventure.enemyHp = enemy.maxHp; target.adventure.spawnTimer = 0; if (shouldRestore) target.adventure.playerHp = getPlayerMaxHp(target); target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; }
 /** 敌人离场（被击杀或进入区域）后进入刷新冷却，冷却结束才会 prepareEnemy 出新敌人。 */
@@ -872,41 +947,40 @@ function defeatEnemy(target: GameState, enemyId: number): void { const enemy = e
 /* 伤害 = 攻击力 − 对方防御，至少 1 点：防御只能减免，不能完全免伤。
    词条赋予的技能按出手次数触发，额外叠一记倍率伤害（强度取词条数值的百分比）。 */
 function playerAttack(target: GameState): void { const enemy = currentEnemy(target); target.adventure.attackCount += 1; const attack = getPlayerAttack(target); let damage = Math.max(1, attack - (enemy.defense || 0)); const triggered = []; for (const entry of getAffixTotals(target).skills) { const skill = skills[entry.skill]; if (!skill || target.adventure.attackCount % skill.interval !== 0) continue; damage += Math.round(attack * skill.multiplier * entry.value / 100); triggered.push(skill.name); } target.adventure.enemyHp = Math.max(0, target.adventure.enemyHp - damage); addLog(target, `${triggered.length ? `${triggered.join('、')}触发！` : ''}你攻击${enemyTag(target.adventure.enemyId)}，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.enemyHp <= 0) defeatEnemy(target, target.adventure.enemyId); }
-function enemyAttack(target: GameState): void { const enemy = currentEnemy(target); const damage = Math.max(1, enemy.attack - getPlayerDefense(target)); target.adventure.playerHp = Math.max(0, target.adventure.playerHp - damage); addLog(target, `${enemyTag(target.adventure.enemyId)}反击，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.playerHp <= 0) { target.adventure.running = false; target.adventure.playerHp = getPlayerMaxHp(target); target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; target.adventure.spawnTimer = 0; target.adventure.zoneId = CAMP_ZONE_ID; addLog(target, '远征队生命值归零，已撤回营地并恢复状态。', 'defeat'); return; } /* 挨完这一下才判断要不要自动进食：放在这里最准 —— 一次 tick 可能推进多秒，挂在外层会出现「先死再吃」。 */ tryAutoEat(target); }
-/** 按当前区域的回复倍率回血：营地是野外的 CAMP_REGEN_MULTIPLIER 倍。 */
+function enemyAttack(target: GameState): void { const enemy = currentEnemy(target); const damage = Math.max(1, enemy.attack - getPlayerDefense(target)); target.adventure.playerHp = Math.max(0, target.adventure.playerHp - damage); addLog(target, `${enemyTag(target.adventure.enemyId)}反击，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.playerHp <= 0) { target.adventure.running = false; target.adventure.playerHp = getPlayerMaxHp(target); target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; target.adventure.spawnTimer = 0; target.adventure.zoneId = CAMP_ZONE_ID; addLog(target, '远征队生命值归零，已撤回庇护所并恢复状态。', 'defeat'); return; } /* 挨完这一下才判断要不要自动进食：放在这里最准 —— 一次 tick 可能推进多秒，挂在外层会出现「先死再吃」。 */ tryAutoEat(target); }
+/** 按当前区域的回复倍率回血：庇护所是野外的 CAMP_REGEN_MULTIPLIER 倍。 */
 function applyRegen(target: GameState, seconds: number): void { if (!(seconds > 0)) return; target.adventure.playerHp = Math.min(getPlayerMaxHp(target), target.adventure.playerHp + getPlayerRegen(target) * getRegenMultiplier(target) * seconds); }
 function advanceAdventure(target: GameState, seconds: number): void { if (isCampZone(currentZoneId(target))) { applyRegen(target, seconds); return; } if (!target.adventure.running) return; let remaining = Math.max(0, seconds); while (remaining > 0 && target.adventure.running) { /* 刷怪冷却：场上没有敌人，只回复生命值。 */ if (target.adventure.spawnTimer > 0) { const wait = Math.min(remaining, target.adventure.spawnTimer); target.adventure.spawnTimer -= wait; applyRegen(target, wait); remaining -= wait; if (target.adventure.spawnTimer > 0) break; prepareEnemy(target); continue; } const enemy = currentEnemy(target); const playerInterval = getPlayerAttackInterval(target); const playerWait = Math.max(0, playerInterval - target.adventure.playerAttackTimer); const enemyWait = Math.max(0, enemy.attackInterval - target.adventure.enemyAttackTimer); const step = Math.min(remaining, playerWait, enemyWait); target.adventure.playerAttackTimer += step; target.adventure.enemyAttackTimer += step; applyRegen(target, step); remaining -= step; if (target.adventure.playerAttackTimer >= playerInterval - .0001) { target.adventure.playerAttackTimer = 0; playerAttack(target); } if (target.adventure.running && target.adventure.enemyAttackTimer >= enemy.attackInterval - .0001) { target.adventure.enemyAttackTimer = 0; enemyAttack(target); } if (step === 0 && target.adventure.running) { target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; } } }
-/* ——— 营地 / 后勤小队的推进 ———
-   分配出去的每个人每秒贡献 1 工时：营垒修筑把它换成营垒等级，工坊制造把它换成制造进度。
-   工坊这一侧的工时会被功能类词条「勤务」放大（getWorkshopRate），营垒不受影响。 */
+/* ——— 庇护所 / 后勤小队的推进 ———
+   分配出去的每个人每秒贡献 1 工时：营垒修筑把它换成营垒等级，工坊把它换成制造进度。
+   工坊这一侧的工时会被功能类词条「勤务」放大（getWorkshopRate），营垒不受影响。
+   每个制造项各用**自己那一份**人手（fortSlot），互不抢人，也就能同时开工。 */
 function advanceLogistics(target: GameState, seconds: number): void {
   if (!(seconds > 0)) return;
   const builders = getLogisticsAssigned(LOGISTICS.camp, target);
   if (builders > 0) target.camp.worksiteProgress += builders * seconds;
-  const workers = getLogisticsAssigned(LOGISTICS.workshop, target);
-  if (workers <= 0) return;
-  /* 只要分到工坊的人 > 0，就自动接着造下一级：资源不够时 beginWorkshopBuild 会失败，进度自然停住。
-     budget 是这一轮能投入的秒数，循环让离线追赶（一大段 seconds）也能连造好几级。 */
-  /* 人手按制造项顺序投入：先把人给第一个能开工的项，做完再轮到下一个。
-     不能让每项各用一次 workers —— 那样同一批人会被算两遍，两项一起造反而更快。 */
-  let budget = seconds;
-  /* 每人每秒的实际工时：基础 1，被功能类词条「勤务」放大。人手乘上它才是这一轮的总产出。 */
-  const output = workers * getWorkshopRate(target);
-  for (let id = 0; id < target.campWorkshop.length && budget > 0; id++) {
+  for (let id = 0; id < target.campWorkshop.length; id++) {
     /* 未解锁的制造项不参与：后勤人手不会投到还没解锁的东西上，它也不该被自动造出来。 */
     if (!isWorkshopItemUnlocked(id, target)) continue;
+    const workers = getLogisticsAssigned(fortSlot(id), target);
+    if (workers <= 0) continue;
+    /* 每人每秒的实际工时：基础 1，被功能类词条「勤务」放大。人手乘上它才是这一轮的总产出。 */
+    const output = workers * getWorkshopRate(target);
+    /* 只要这一项分到了人就自动接着造下一级：资源不够时 beginWorkshopBuild 会失败，进度自然停住。
+       budget 是这一轮能投入的秒数，循环让离线追赶（一大段 seconds）也能连造好几级。 */
+    let budget = seconds;
     const item = target.campWorkshop[id];
     for (let guard = 0; guard < 100 && budget > 0; guard++) {
       if (item.target < 0 && !beginWorkshopBuild(id, target, true)) break;
       const need = (getWorkshopWorkTotal(id, target) - item.work) / output;
       if (need > budget) { item.work += output * budget; budget = 0; break; }
       budget -= need; item.level = item.target; item.target = -1; item.work = 0;
-      addLog(target, `工坊完成制造：${workshopItems[id].name} 提升至 Lv.${item.level}，营地数值提高。`, 'progress');
+      addLog(target, `工坊完成制造：${workshopItems[id].name} 提升至 Lv.${item.level}，庇护所数值提高。`, 'progress');
       updateMainline(target);
     }
   }
 }
-/** 营地战斗：双方按各自间隔出手，谁先归零谁输。 */
+/** 庇护所战斗：双方按各自间隔出手，谁先归零谁输。 */
 function advanceCampBattle(target: GameState, seconds: number): void {
   const battle = campBattle!;
   let remaining = Math.max(0, seconds);
@@ -917,15 +991,15 @@ function advanceCampBattle(target: GameState, seconds: number): void {
     battle.campTimer += step; battle.eventTimer += step; remaining -= step;
     if (battle.campTimer >= CAMP_ATTACK_INTERVAL - .0001) {
       battle.campTimer = 0;
-      const damage = Math.max(1, getCampAttack(target) - battle.eventDefense);
+      const damage = hitDamage(getCampAttack(target), battle.eventDefense);
       battle.eventHp = Math.max(0, battle.eventHp - damage);
-      addLog(target, `营地防线反击「${battle.name}」，造成 ${damage} 点伤害。`, 'battle');
+      addLog(target, `庇护所防线反击「${battle.name}」，造成 ${damage} 点伤害。`, 'battle');
     }
     if (campBattle && battle.eventTimer >= battle.eventInterval - .0001) {
       battle.eventTimer = 0;
-      const damage = Math.max(1, battle.eventAttack - getCampDefense(target));
+      const damage = hitDamage(battle.eventAttack, getCampDefense(target));
       battle.campHp = Math.max(0, battle.campHp - damage);
-      addLog(target, `「${battle.name}」冲击营地，造成 ${damage} 点伤害。`, 'battle');
+      addLog(target, `「${battle.name}」冲击庇护所，造成 ${damage} 点伤害。`, 'battle');
     }
     if (!battle.eventHp) { finishCampBattle(target, true); return; }
     if (!battle.campHp) { finishCampBattle(target, false); return; }
@@ -937,20 +1011,117 @@ function finishCampBattle(target: GameState, won: boolean): void {
   const battle = campBattle!;
   campBattle = null;
   if (won) {
-    target.gold += battle.rewards.gold; target.scrap += battle.rewards.scrap; target.essence += battle.rewards.essence;
-    if (battle.kind === CAMP_EVENT.disaster) target.camp.disasterWins += 1;
-    if (battle.kind === CAMP_EVENT.tide) target.camp.tideWins += 1;
-    target.camp.hp = getCampMaxHp(target);
-    addLog(target, `「${battle.name}」被击退：获得 ${battle.rewards.gold} 金币、${battle.rewards.scrap} 废料、${battle.rewards.essence} 精华。`, 'progress');
-    updateMainline(target);
+    const waveDone = settleCampWin(target, battle);
+    addLog(target, `「${battle.name}」被击退：获得 ${battle.rewards.gold} 金币、${battle.rewards.scrap} 废料、${battle.rewards.essence} 精华${battle.rewards.survivors ? `，救下 ${battle.rewards.survivors} 名幸存者` : ''}。`, 'progress');
+    if (waveDone) addLog(target, `第 ${campWave(target)} 波的动静已经传到庇护所。`, 'progress');
   } else {
-    /* 输了不归零：营地留下 35% 生命，修整后可以再迎战（资源不退还）。 */
+    /* 输了不归零：庇护所留下 35% 生命，修整后可以再迎战（资源不退还）。 */
     target.camp.hp = Math.max(1, Math.round(getCampMaxHp(target) * .35));
-    addLog(target, `「${battle.name}」冲垮了防线，营地受损。强化营地后再来一次。`, 'defeat');
+    addLog(target, `「${battle.name}」冲垮了防线，庇护所受损。强化庇护所后再来一次。`, 'defeat');
   }
   saveState(); notify();
 }
-/** 没有战斗时：营地按恢复速度回血；随机事件倒计时到点就触发，等待响应超时则跳过。 */
+/** 结算一场胜利：发奖励、记次数、救下的人进人口、推进波次。返回**这一场是不是波末**。
+    **只记账、不播报** —— 播报交给调用方（单场战斗一条日志、一键清剿只出一条汇总），
+    这样两边的账走的是同一条路，不会各算各的。 */
+function settleCampWin(target: GameState, stats: { kind: number; rewards: { gold: number; scrap: number; essence: number; survivors: number } }): boolean {
+  target.gold += stats.rewards.gold; target.scrap += stats.rewards.scrap;
+  /* 精华同时是物品「余烬碎片」的数量：两边一起加，否则资源条和物品栏会各说各的。 */
+  target.essence += stats.rewards.essence;
+  target.inventory[ITEM.emberShard] = (target.inventory[ITEM.emberShard] || 0) + stats.rewards.essence;
+  /* disasterWins / tideWins 仍然记着：主线「抵御第一场天灾」「击退第一次兽潮」看的就是它们。 */
+  if (stats.kind === CAMP_EVENT.disaster) target.camp.disasterWins += 1;
+  if (stats.kind === CAMP_EVENT.tide) target.camp.tideWins += 1;
+  /* 幸存者进人口，人口按 POP_PER_WORKER 换后勤人手（见 getLogisticsSources）。 */
+  target.camp.population = Math.max(0, Number(target.camp.population) || 0) + stats.rewards.survivors;
+  /* 波次推进：本波三场打完就进下一波（异种是波末）。 */
+  target.camp.stage = (Number(target.camp.stage) || 0) + 1;
+  const waveDone = target.camp.stage >= CAMP_WAVE_KINDS.length;
+  if (waveDone) { target.camp.stage = 0; target.camp.wave = campWave(target) + 1; }
+  /* 打赢就把防线修满 —— 下一场从这里重新开始算。 */
+  target.camp.hp = getCampMaxHp(target);
+  updateMainline(target);
+  return waveDone;
+}
+
+/* ——— 一键清剿：把「能稳赢」的波次一次打完 ———
+   判定靠**模拟**而不是估公式：双方都是固定数值 + 固定间隔，没有随机数，所以结果是确定的，
+   与 advanceCampBattle 走同一套伤害公式（hitDamage）与同一套出手节奏。 */
+/** 「能轻易通过」的门槛：整场下来生命不低于满血的这个比例才算稳。数值可调。 */
+const SAFE_FIGHT_HP = .6;
+/** 一次清剿最多结算多少场：防止某些数值组合把循环推到天荒地老。 */
+const SWEEP_LIMIT = 200;
+/** 一次攻击的伤害：双方同一套公式（最低 1 点）。战斗循环与「能不能稳赢」的模拟共用它 ——
+    改了这里两边一起变，不会出现「模拟说稳赢、真打却输」。 */
+function hitDamage(attack: number, defense: number): number { return Math.max(1, attack - defense); }
+/** 模拟当前这一场：返回会不会赢、以及全程最低的生命比例。
+    startHp 缺省取当前生命 —— 带伤硬上要算进去（打完一场才会回满）。 */
+function simulateCampFight(stats: CampEventStats, target: GameState, startHp = getCampHp(target)): { won: boolean; lowest: number } {
+  const maxHp = getCampMaxHp(target);
+  const regen = getCampRegen(target);
+  const campDamage = hitDamage(getCampAttack(target), stats.defense);
+  const eventDamage = hitDamage(stats.attack, getCampDefense(target));
+  let campHp = Math.min(maxHp, Math.max(0, startHp));
+  let eventHp = stats.hp;
+  let lowest = maxHp > 0 ? campHp / maxHp : 1;
+  /* 时间上限：两边各自打死对方所需的出手次数，换算成秒再加余量。 */
+  const limit = (stats.hp / campDamage + maxHp / eventDamage + 4) * Math.max(CAMP_ATTACK_INTERVAL, stats.interval);
+  let elapsed = 0, campTimer = 0, eventTimer = 0;
+  while (elapsed < limit && campHp > 0 && eventHp > 0) {
+    const step = Math.min(CAMP_ATTACK_INTERVAL - campTimer, stats.interval - eventTimer);
+    campTimer += step; eventTimer += step; elapsed += step;
+    campHp = Math.min(maxHp, campHp + regen * step);
+    if (campTimer >= CAMP_ATTACK_INTERVAL - .0001) { campTimer = 0; eventHp -= campDamage; }
+    if (eventHp <= 0) break;
+    if (eventTimer >= stats.interval - .0001) { eventTimer = 0; campHp -= eventDamage; lowest = Math.min(lowest, campHp / maxHp); }
+  }
+  return { won: eventHp <= 0 && campHp > 0, lowest };
+}
+/** 这一场能不能稳赢。 */
+function isSafeCampFight(stats: CampEventStats, target: GameState): boolean {
+  const result = simulateCampFight(stats, target);
+  return result.won && result.lowest >= SAFE_FIGHT_HP;
+}
+/** 从当前这一场往后还能稳赢几场（只算，不落账）。界面拿它显示按钮上的数字。
+    每场打赢后防线会修满、波次可能推进，所以这里只推进 wave / stage —— 它们才是影响强度的量。
+    界面上这个数字是**参考值**：真正落地时 sweepCampWaves 会逐场重新验一遍。 */
+export function countSafeCampFights(target: GameState = state): number {
+  /* 用一份只改 wave / stage 的浅拷贝去取事件数值；campEventStats 不会改它。 */
+  const probe: GameState = { ...target, camp: { ...target.camp } };
+  let count = 0;
+  let startHp = getCampHp(target);
+  while (count < SWEEP_LIMIT) {
+    const stats = withMaxHp(campEventStats(campWaveKind(probe), 0, probe));
+    const result = simulateCampFight(stats, target, startHp);
+    if (!result.won || result.lowest < SAFE_FIGHT_HP) break;
+    count += 1;
+    probe.camp.stage += 1;
+    if (probe.camp.stage >= CAMP_WAVE_KINDS.length) { probe.camp.stage = 0; probe.camp.wave += 1; }
+    startHp = getCampMaxHp(target);
+  }
+  return count;
+}
+/** 一键清掉所有能稳赢的波次：返回实际结算了几场。
+    **每场都重新验一遍**，不照 countSafeCampFights 的数字走 —— 界面上的数字可能是缓存的，
+    落地必须以当下状态为准（真打起来是稳赢的，所以这里不会翻车）。 */
+export function sweepCampWaves(): number {
+  if (campBattle || state.camp.pendingKind >= 0) return 0;
+  const gained = { gold: 0, scrap: 0, essence: 0, survivors: 0, fights: 0 };
+  while (gained.fights < SWEEP_LIMIT) {
+    const stats = withMaxHp(campEventStats(campWaveKind(state), 0, state));
+    if (!isSafeCampFight(stats, state)) break;
+    gained.gold += stats.rewards.gold; gained.scrap += stats.rewards.scrap;
+    gained.essence += stats.rewards.essence; gained.survivors += stats.rewards.survivors;
+    gained.fights += 1;
+    settleCampWin(state, stats);
+    /* 打赢后生命回满，下一场从满血重新判 —— 与真实流程一致。 */
+  }
+  if (!gained.fights) return 0;
+  addLog(state, `一键清剿：连打 ${gained.fights} 场，推进到第 ${campWave(state)} 波 —— 获得 ${gained.gold} 金币、${gained.scrap} 废料、${gained.essence} 精华${gained.survivors ? `，救下 ${gained.survivors} 名幸存者` : ''}。`, 'progress');
+  saveState(); notify();
+  return gained.fights;
+}
+/** 没有战斗时：庇护所按恢复速度回血；随机事件倒计时到点就触发，等待响应超时则跳过。 */
 function advanceCamp(target: GameState, seconds: number): void {
   if (!(seconds > 0)) return;
   if (campBattle) { advanceCampBattle(target, seconds); return; }
@@ -966,7 +1137,7 @@ function advanceCamp(target: GameState, seconds: number): void {
   target.camp.randomTimer = RANDOM_EVENT_INTERVAL;
   const id = Math.floor(Math.random() * randomEventDefs.length);
   target.camp.pendingKind = CAMP_EVENT.random; target.camp.pendingId = id; target.camp.pendingExpires = Date.now() + PENDING_EVENT_TIMEOUT * 1000;
-  addLog(target, `营地收到警报：${randomEventDefs[id].name}。${PENDING_EVENT_TIMEOUT} 秒内决定是否应对。`, 'progress');
+  addLog(target, `庇护所收到警报：${randomEventDefs[id].name}。${PENDING_EVENT_TIMEOUT} 秒内决定是否应对。`, 'progress');
 }
 /** 设置项的存档校验：两个档位必须是已知下标，通知开关按布尔取（缺省开），
     「更新日志已读版本」只认字符串 —— 旧存档没有这个字段，从空串开始。 */
@@ -984,7 +1155,7 @@ function readSettings(saved: any): SettingsState {
     以 freshState() 为底再覆盖，所以新增字段会自动拿到初始值 —— 这就是「加字段不用改版本号」的原因。 */
 function rebuildState(saved: any): GameState {
   const initial = freshState();
-  /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id)); const rebuilt: GameState = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: readSettings(saved.settings), inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: { ...initial.camp, ...saved.camp, hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp) }, perfectItems: (Array.isArray(saved.perfectItems) ? saved.perfectItems : []).map((itemId: number) => Math.floor(Number(itemId) || -1)).filter((itemId: number) => itemId >= 0 && !!items[itemId]),
+  /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id)); const rebuilt: GameState = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: readSettings(saved.settings), inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: { ...initial.camp, ...saved.camp, hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp), wave: Math.max(1, Math.floor(Number(saved.camp?.wave) || 1)), stage: Math.max(0, Math.min(CAMP_WAVE_KINDS.length - 1, Math.floor(Number(saved.camp?.stage) || 0))), population: Math.max(0, Math.floor(Number(saved.camp?.population) || 0)) }, perfectItems: (Array.isArray(saved.perfectItems) ? saved.perfectItems : []).map((itemId: number) => Math.floor(Number(itemId) || -1)).filter((itemId: number) => itemId >= 0 && !!items[itemId]),
 achievements: achievements.map((_, index) => (saved.achievements?.[index] ? 1 : 0)), notices: unlockNotices.map((_, index) => (saved.notices?.[index] ? 1 : 0)), devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)), ...readResearchState(saved), autoEat: readAutoEat(saved), log: [] };
   /* 区域 / 敌人这类字段存的是配置表下标，配置删项后可能指向不存在的位置，进来先对齐一次。 */
   if (!zones[rebuilt.adventure.zoneId]) rebuilt.adventure.zoneId = CAMP_ZONE_ID;
@@ -1035,8 +1206,8 @@ function isRawState(value: unknown): boolean {
   return Array.isArray(data.inventory) && typeof data.gold === 'number';
 }
 
-/** 离线补偿：远征、后勤、营地各推进一段。上限 MAX_OFFLINE_SECONDS，超出部分不算。
-    不到 3 秒不值得记一条日志，但后勤与营地的进度照走。 */
+/** 离线补偿：远征、后勤、庇护所各推进一段。上限 MAX_OFFLINE_SECONDS，超出部分不算。
+    不到 3 秒不值得记一条日志，但后勤与庇护所的进度照走。 */
 function applyOfflineProgress(target: GameState): void {
   const seconds = Math.min(MAX_OFFLINE_SECONDS, Math.max(0, (Date.now() - target.lastTick) / 1000));
   if (seconds < 1) return;
@@ -1047,7 +1218,7 @@ function applyOfflineProgress(target: GameState): void {
       addLog(target, `你离开了 ${formatDuration(seconds)}。远征队完成了 ${formatNumber(target.totalWins - before)} 场战斗。`, 'system');
     } else if (isCampZone(currentZoneId(target))) {
       advanceAdventure(target, seconds);
-      addLog(target, `你离开了 ${formatDuration(seconds)}。远征队在营地休整。`, 'system');
+      addLog(target, `你离开了 ${formatDuration(seconds)}。远征队在庇护所休整。`, 'system');
     }
   }
   advanceLogistics(target, seconds);
@@ -1147,7 +1318,7 @@ export function importSaveText(text: string): SaveIoResult {
   return { ok: true, message: '存档已导入。' };
 }
 
-/* 进入战斗区域立刻自动开战；进入营地这类非战斗区域则停下战斗、开始休整。 */
+/* 进入战斗区域立刻自动开战；进入庇护所这类非战斗区域则停下战斗、开始休整。 */
 export function selectZone(zoneId: number): void { const zone = zones[zoneId]; if (!zone || !isZoneUnlocked(zoneId)) return; state.adventure.zoneId = zoneId; state.adventure.playerAttackTimer = 0; state.adventure.enemyAttackTimer = 0; if (isCampZone(zoneId)) { state.adventure.running = false; state.adventure.spawnTimer = 0; addLog(state, `远征队回到${zoneTag(zoneId)}，开始休整。`, 'system'); } else { state.adventure.running = true; startSpawnCooldown(state); addLog(state, `远征队进入${zoneTag(zoneId)}，等待敌人出现。`, 'system'); } saveState(); notify(); }
 export function toggleAutoPush(): void { state.adventure.autoPush = !state.adventure.autoPush; saveState(); notify(); }
 /* ——— 研究基地 ———
@@ -1181,7 +1352,7 @@ function readAutoEat(saved: any): AutoEatState {
 }
 /** 需求数量的上限：被「任务需求降低」逐级压低，但不低于下限。 */
 export function getResearchNeedMax(target: GameState = state): number { return Math.max(RESEARCH.needMin, RESEARCH.needMax - getResearchLevel(RESEARCH_ITEM.taskNeed, target)); }
-/** 可发布委托的区域：已解锁的战斗区域（营地这类没有任务物品的区域排除在外）。 */
+/** 可发布委托的区域：已解锁的战斗区域（庇护所这类没有任务物品的区域排除在外）。 */
 function researchZones(target: GameState): number[] {
   return zones.map((zone, zoneId) => (zone.enemyIds.length && isZoneUnlocked(zoneId, target) && questItemOf(zoneId) >= 0 ? zoneId : -1)).filter(zoneId => zoneId >= 0);
 }
@@ -1341,16 +1512,17 @@ export const devStats = [
   { name: '精华', get: (target: GameState) => target.essence, set: (target: GameState, value: number) => { target.essence = value; target.inventory[ITEM.emberShard] = value; } },
   { name: '累计胜场', get: (target: GameState) => target.totalWins, set: (target: GameState, value: number) => { target.totalWins = value; } },
   { name: '主线进度', get: (target: GameState) => target.mainlineIndex, set: (target: GameState, value: number) => { target.mainlineIndex = Math.min(mainline.length, value); } },
-  { name: '营火强化', get: (target: GameState) => target.workshop, set: (target: GameState, value: number) => { target.workshop = value; } },
+  { name: '物品栏扩充（遗留）', get: (target: GameState) => target.workshop, set: (target: GameState, value: number) => { target.workshop = value; } },
   { name: '研究点数', get: (target: GameState) => target.researchPoints, set: (target: GameState, value: number) => { target.researchPoints = value; } },
-  { name: '营地生命', get: (target: GameState) => Math.floor(target.camp.hp), set: (target: GameState, value: number) => { target.camp.hp = Math.min(getCampMaxHp(target), value); } },
+  { name: '庇护所生命', get: (target: GameState) => Math.floor(target.camp.hp), set: (target: GameState, value: number) => { target.camp.hp = Math.min(getCampMaxHp(target), value); } },
   { name: '营垒工时', get: (target: GameState) => Math.floor(target.camp.worksiteProgress), set: (target: GameState, value: number) => { target.camp.worksiteProgress = value; } },
   { name: '天灾通过', get: (target: GameState) => target.camp.disasterWins, set: (target: GameState, value: number) => { target.camp.disasterWins = value; } },
   { name: '兽潮通过', get: (target: GameState) => target.camp.tideWins, set: (target: GameState, value: number) => { target.camp.tideWins = value; } },
   { name: '城防等级', get: (target: GameState) => target.campWorkshop[0].level, set: (target: GameState, value: number) => { target.campWorkshop[0].level = value; } },
   { name: '城防工时', get: (target: GameState) => Math.floor(target.campWorkshop[0].work), set: (target: GameState, value: number) => { target.campWorkshop[0].work = value; } },
   { name: '营垒后勤', get: (target: GameState) => getLogisticsAssigned(LOGISTICS.camp, target), set: (target: GameState, value: number) => { target.logistics.assigned[LOGISTICS.camp] = value; } },
-  { name: '工坊后勤', get: (target: GameState) => getLogisticsAssigned(LOGISTICS.workshop, target), set: (target: GameState, value: number) => { target.logistics.assigned[LOGISTICS.workshop] = value; } },
+  /* 每个制造项一行后勤：人手是分到具体某一项的，不再有「工坊后勤」这个总池子。 */
+  ...workshopItems.map((item, id) => ({ name: `${item.name}后勤`, get: (target: GameState) => getLogisticsAssigned(fortSlot(id), target), set: (target: GameState, value: number) => { target.logistics.assigned[fortSlot(id)] = value; } })),
   /* 冒险：只关心玩家自身的派生战斗属性，写的是覆盖值（见 devOverride）。
      攻击力 / 防御力 / 生命上限是整数，回复与两个间隔带小数，所以给它们单独的 display。 */
   { name: '自身攻击力', get: (target: GameState) => getPlayerAttack(target), set: (target: GameState, value: number) => { target.devOverrides[DEV_STAT.attack] = value; } },

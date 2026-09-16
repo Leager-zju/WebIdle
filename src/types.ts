@@ -69,17 +69,23 @@ export type EquipmentState = number[][];
     changelogSeen：玩家已经看过的更新日志版本（最新一条的短 hash）。它和当前版本不一致时，
     进入游戏会弹一次更新公告（见 changelog.ts）。存进存档是为了换设备导入后不重复弹。 */
 export interface SettingsState { fontScale: FontScaleId; notify: boolean; numberFormat: NumberFormatId; changelogSeen: string; }
-/** 后勤小队：assigned[i] 是分配给第 i 个后勤系统的人数（下标见 game-state 的 logisticsTargets）。
-    总人数不存档，由主线进度与胜场换算（getLogisticsTotal），避免两处数据不同步。 */
+/** 后勤小队：assigned[i] 是分配给第 i 个后勤对象的人数 —— 营垒修筑占 0，
+    之后每个制造项各占一个下标（见 game-state 的 LOGISTICS / fortSlot / logisticsTargets）。
+    人手是「派给这一项的人」，不存在工坊共用的池子；总人数不存档，
+    由主线进度与胜场换算（getLogisticsTotal），避免两处数据不同步。 */
 export interface LogisticsState { assigned: number[]; }
 /** 工坊制造项：level 当前等级；target 正在建造的目标等级（-1 表示空闲）；work 已累计工时（人数 × 秒）。 */
 export interface WorkshopItemState { level: number; target: number; work: number; }
-/** 营地：hp 当前生命（脱战时按恢复速度回满）；worksiteProgress 是营垒修筑累计工时（每 100 换 1 级）；
+/** 庇护所：hp 当前生命（脱战时按恢复速度回满）；worksiteProgress 是营垒修筑累计工时（每 100 换 1 级）；
     disasterWins / tideWins 是已通过的天灾、兽潮次数，决定下一场挑战与强度；
     randomTimer 是距离下一次随机事件的剩余秒数；pending* 是已触发、等待响应的事件（kind < 0 表示没有）。 */
-export interface CampState { hp: number; worksiteProgress: number; disasterWins: number; tideWins: number; randomTimer: number; pendingKind: number; pendingId: number; pendingExpires: number; }
-/** 正在进行的营地战斗。只存在于内存：刷新页面即视为放弃当前这场。 */
-export interface CampBattleState { kind: number; id: number; name: string; icon: string; campHp: number; campMaxHp: number; eventHp: number; eventMaxHp: number; eventAttack: number; eventDefense: number; eventInterval: number; rewards: { gold: number; scrap: number; essence: number }; campTimer: number; eventTimer: number; }
+export interface CampState { hp: number; worksiteProgress: number; disasterWins: number; tideWins: number; randomTimer: number; pendingKind: number; pendingId: number; pendingExpires: number;
+  /** 大事件波次（从 1 起）与本波打到第几场（0 起，对应 game-state 的 CAMP_WAVE_KINDS）。 */
+  wave: number; stage: number;
+  /** 庇护所人口：事件里救下来的幸存者，每 POP_PER_WORKER 人提供 1 名后勤人手。 */
+  population: number; }
+/** 正在进行的庇护所战斗。只存在于内存：刷新页面即视为放弃当前这场。 */
+export interface CampBattleState { kind: number; id: number; name: string; icon: string; campHp: number; campMaxHp: number; eventHp: number; eventMaxHp: number; eventAttack: number; eventDefense: number; eventInterval: number; rewards: { gold: number; scrap: number; essence: number; survivors: number }; campTimer: number; eventTimer: number; }
 /** inventory 只存可堆叠物品（资源、消耗品）的数量，下标是物品表下标；装备不放这里。
     equipment 存所有装备实例，含已经装在槽位上的那些（装备不会离开物品栏）。
     nextInstanceId 单调递增，删掉实例后不复用 id。

@@ -54,7 +54,7 @@ h2, h3, p { margin-top: 0; }
 h2 { margin-bottom: 0; font-size: 1.35rem; letter-spacing: -.04em; }
 h3 { margin-bottom: 5px; font-size: 1rem; }
 .subtitle { max-width: 650px; margin: 16px 0 0; color: var(--muted); line-height: 1.6; }.status { display: flex; align-items: center; gap: 10px; padding-bottom: 5px; color: var(--accent); font: 500 .7rem DM Mono, monospace; letter-spacing: .08em; white-space: nowrap; }
-/* 右上角：WIKI 入口在上、营地状态在下，右对齐。图鉴未解锁时按钮整体隐藏（applyWikiUnlock 控制）。 */
+/* 右上角：WIKI 入口在上、庇护所状态在下，右对齐。图鉴未解锁时按钮整体隐藏（applyWikiUnlock 控制）。 */
 .header-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 .wiki-open { display: flex; align-items: center; gap: 7px; padding: 7px 13px; border: 1px solid var(--accent-dim); background: rgba(139, 245, 201, .06); color: var(--accent); font: 700 .68rem DM Mono, monospace; letter-spacing: .1em; }
 .wiki-open:hover, .wiki-open:focus-visible { border-color: var(--accent); background: rgba(139, 245, 201, .14); }
@@ -108,7 +108,7 @@ h3 { margin-bottom: 5px; font-size: 1rem; }
 .hero-copy { max-width: 650px; margin: 19px 0; color: var(--muted); line-height: 1.65; }
 /* 「当前生命值」另起一行：它是每 500ms 都在变的独立一段，跟上面的区域 / 敌人描述分开更好扫。
    用块级而不是在文本里塞 \n —— setText 写的是 textContent，行首的 \n 会被 HTML 当空白折叠掉。
-   这一行没有内容时（营地 / 待命）整块高度为 0，不会留出空行。 */
+   这一行没有内容时（庇护所 / 待命）整块高度为 0，不会留出空行。 */
 .hero-copy-hp { display: block; }
 /* 与资源条同理：按实际子项数量等分，避免删掉一项后右侧空一格。 */
 .hero-stats { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; margin: 18px 0; }
@@ -177,7 +177,12 @@ select:focus { border-color: var(--accent); }
 /* 自动进食栏位：研究项「自动进食」解锁后出现在远征队标题下方。
    未解锁时靠 .is-hidden 收起来，不重建 DOM（骨架每次 mount 才建，重建要靠签名判断，不值当）。 */
 .auto-eat.is-hidden { display: none; }
-.auto-eat-button { display: flex; align-items: center; gap: 9px; width: 100%; margin-top: 12px; padding: 8px 10px; border: 1px solid var(--accent-dim); background: rgba(139, 245, 201, .06); color: var(--text); text-align: left; }
+/* 栏位只负责定位与间距，按钮在里面**垂直居中**。
+   注意间距要放在栏位上，不要写成按钮的 margin-top：margin 算在父级盒子里，
+   那 12px 会变成栏位顶部的一条空白带，按钮就成了贴底而不是居中。
+   （放在容器上一样会被 .is-hidden 的 display:none 一起收掉，不会留下空位。） */
+.auto-eat { display: flex; align-items: center; margin-top: 12px; }
+.auto-eat-button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: 1px solid var(--accent-dim); background: rgba(139, 245, 201, .06); color: var(--text); text-align: left; }
 .auto-eat-button:hover, .auto-eat-button:focus-visible { border-color: var(--accent); background: rgba(139, 245, 201, .12); }
 .auto-eat-icon { flex: 0 0 auto; display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--line); color: var(--accent); font-size: .8rem; }
 .auto-eat-copy { min-width: 0; display: grid; gap: 2px; }
@@ -327,17 +332,23 @@ select:focus { border-color: var(--accent); }
    不再用 top: calc(100% - …) 贴在卡片正下方，也不再需要按列号左右翻转 —— JS 会把它夹在视口内。
    宽度改成按内容自适应（原来 left/right: 0 会被卡片宽度限制）。 */
 .item-detail, .shop-detail, .achievement-detail { position: absolute; left: 0; top: 0; right: auto; width: max-content; max-width: min(320px, 78vw); transform: translate(var(--tip-x, 0px), var(--tip-y, 0px)); transition: opacity .14s ease, visibility .14s; }
-/* ——— 营地页：营地数值 / 后勤小队 / 当前威胁 ——— */
+/* ——— 庇护所页：庇护所数值 / 后勤小队 / 当前威胁 ——— */
 .camp-panel, .shop-panel { padding: 22px; }
-/* 两列默认 stretch：营地状态与威胁块高度一致（不写 align-items: start）。
+/* 两列默认 stretch：庇护所状态与威胁块高度一致（不写 align-items: start）。
    块内用纵向 flex，把血条压到底部，两块的血条自然对齐。 */
 .camp-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 18px; }
 .camp-block { display: flex; flex-direction: column; padding: 18px; border: 1px solid var(--line-soft); background: rgba(11, 18, 20, .35); }
 .camp-block .health-track { margin-top: auto; }
 .camp-threat.in-battle { border-color: var(--warm); }
-/* 2×2 排列：营地状态与事件卡片各四项，四列会把「250 / 250」这类数值挤到换行。 */
+/* 两列：四列会把「250 / 250」这类数值挤到换行。庇护所状态是五项（含人口），排在 2×2 之后多一行。 */
 .camp-stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
 .camp-hint { margin: 10px 0 0; color: var(--muted); font-size: .74rem; line-height: 1.55; }
+/* camp-block 里的说明文字一律按**三行**留位：它们每 500ms 就被重写一次，
+   文案长度一变（客服一行 ↔ 两行）整块高度就会跳，左右两栏也跟着错位。
+   用 min-height 而不是 height —— 真超过三行时让它自己长高，不要裁掉文字。
+   用 lh 而不是写死的 px / em：它按元素自己的 line-height 算，改行高时不用回来改这里。
+   （工坊页那行「后勤小队：…」也是 .camp-hint，但它不在 .camp-block 里，不受这条影响。） */
+.camp-block .camp-hint { min-height: calc(3em * 1.55); min-height: 3lh; }
 .camp-health { background: var(--accent); }
 /* 行动按钮单独占一整行：只有「迎接挑战」时它铺满，出现「应对 / 跳过」时两者平分。 */
 .camp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; }
@@ -345,9 +356,9 @@ select:focus { border-color: var(--accent); }
 .camp-countdown { color: var(--warm); font: .68rem DM Mono, monospace; }
 /* 下一次随机事件的倒计时：等宽数字，逐秒变化时不会左右抖动。 */
 .camp-timer { margin: 10px 0 0; color: var(--muted); font: .68rem DM Mono, monospace; font-variant-numeric: tabular-nums; }
-/* 下一次随机事件的倒计时：整条压在营地状态与威胁两栏上方。 */
-/* 下一次随机事件的倒计时：整条压在营地状态与威胁两栏上方。
-   做成一排刻度格子而不是实心条 —— 实心条和营地血条太像，一眼分不清是血还是时间。 */
+/* 下一次随机事件的倒计时：整条压在庇护所状态与威胁两栏上方。 */
+/* 下一次随机事件的倒计时：整条压在庇护所状态与威胁两栏上方。
+   做成一排刻度格子而不是实心条 —— 实心条和庇护所血条太像，一眼分不清是血还是时间。 */
 .camp-event-timer { display: grid; gap: 8px; margin-bottom: 16px; }
 /* 这条不能省：.camp-event-timer 自带 display:grid，会盖掉浏览器对 [hidden] 的默认 display:none。 */
 .camp-event-timer[hidden] { display: none; }
@@ -357,7 +368,7 @@ select:focus { border-color: var(--accent); }
 .camp-event-cell { height: 9px; border: 1px solid var(--line-soft); background: transparent; transition: background .2s ease, border-color .2s ease; }
 .camp-event-cell.on { border-color: var(--warm); background: rgba(255, 184, 107, .55); }
 .camp-log { margin-top: 18px; }
-/* 营地日志只有「时间 + 内容」两列，沿用 .log-entry 的三列网格会把内容挤成一条竖线。 */
+/* 庇护所日志只有「时间 + 内容」两列，沿用 .log-entry 的三列网格会把内容挤成一条竖线。 */
 .camp-log .log-entry { grid-template-columns: 66px minmax(0, 1fr); }
 /* 后勤小队分配：一行一个去向，左右是加减按钮。 */
 .logistics-list { display: grid; gap: 10px; margin-top: 14px; }
@@ -716,8 +727,8 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 /* wiki 未解锁：引用降级成纯文本 —— icon 与颜色照旧，只是去掉下划线、不再有可点的暗示。 */
 .codex-ref.is-plain { border-bottom-color: transparent; cursor: inherit; }
 .codex-ref.is-plain:hover { background: transparent; border-bottom-color: transparent; }
-/* 怪物 = 红（沿用「红 = 敌方」的既有语义），区域 = 主色，营地 = 暖色，
-   事件 = 暖色（与营地倒计时同一套），页面引用 = 主色。 */
+/* 怪物 = 红（沿用「红 = 敌方」的既有语义），区域 = 主色，庇护所 = 暖色，
+   事件 = 暖色（与庇护所倒计时同一套），页面引用 = 主色。 */
 .codex-enemy { --codex-color: var(--red); }
 .codex-zone { --codex-color: var(--accent); }
 .codex-zone-camp { --codex-color: var(--warm); }
@@ -786,7 +797,7 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .wiki-section-title { margin: 0 0 9px; color: var(--muted); font: .64rem DM Mono, monospace; letter-spacing: .08em; }
 /* 小节里「格子 → 说明文字」的间距（掉落区域、出现区域这类：先一格，后面跟一段补充）。
    套装页的极致效果同理：上面是数值网格，下面跟一条进度条。 */
-.wiki-body .wiki-grid + .wiki-note, .wiki-body .codex-stats + .requirement { margin-top: 12px; }
+.wiki-body .wiki-grid + .wiki-note, .wiki-body .codex-stats + .requirement, .wiki-body .codex-stats + .wiki-note { margin-top: 12px; }
 /* 未发现 / 未确认的条目占位格：和真格子同一套骨架，虚线边框 + 压暗，一眼看出是待揭示而不是内容。 */
 .wiki-cell-locked { border-style: dashed; color: var(--muted); }
 /* 占位格不是按钮，不该有可点的悬停反馈（它没有 data-codex，点了也没反应）。 */

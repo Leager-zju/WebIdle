@@ -32,7 +32,7 @@ export function updateEventPrompt(): void {
   setText(view.icon, pending.icon);
   setText(view.name, pending.name);
   setText(view.desc, pending.desc);
-  setText(view.stats, `事件生命 ${formatNumber(pending.hp)} · 攻击 ${formatNumber(pending.attack)} · 防御 ${formatNumber(pending.defense)}　｜　营地生命 ${formatNumber(getState().camp.hp)}`);
+  setText(view.stats, `事件生命 ${formatNumber(pending.hp)} · 攻击 ${formatNumber(pending.attack)} · 防御 ${formatNumber(pending.defense)}　｜　庇护所生命 ${formatNumber(getState().camp.hp)}`);
   setText(view.count, `剩余 ${Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000))} 秒未响应将自动跳过`);
   element.hidden = false;
 }

@@ -12,7 +12,7 @@ import { setTable } from './config/sets';
    三种条目：
    item  物品：物品图标 + 名称，颜色跟随稀有度（--rarity-color）
    enemy 怪物：单字 art + 名称，红色（沿用「红 = 敌方」的既有语义）
-   zone  区域：区域图标 + 名称，营地暖色、其余用主色
+   zone  区域：区域图标 + 名称，庇护所暖色、其余用主色
 
    两个入口：
    1) itemRefMarkup / enemyRefMarkup / zoneRefMarkup：渲染层直接拼 HTML 时用。
@@ -61,7 +61,7 @@ export function codexEntry(kind: string, id: number): CodexEntry | null {
   }
   if (kind === 'zone') {
     const zone = zones[id];
-    /* enemyIds 为空的区域就是营地（见 config/zones.ts），用暖色和战斗区域区分开。 */
+    /* enemyIds 为空的区域就是庇护所（见 config/zones.ts），用暖色和战斗区域区分开。 */
     return zone ? { icon: zone.icon, name: zone.name, kicker: 'CODEX / ZONE', colorClass: zone.enemyIds.length ? 'codex-zone' : 'codex-zone-camp', description: zone.description } : null;
   }
   if (kind === 'event') {

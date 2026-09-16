@@ -54,10 +54,10 @@ const GUIDES: Record<string, GuideStep[]> = {
     { target: '#home-quest', title: '主线目标', body: '当前主线。完成它会解锁新系统 —— 每解锁一个都会再带你认一次。' },
     { target: '#home-log', title: '日志', body: '战斗、掉落与成长的记录。日志里带下划线的名字都能点开图鉴。' },
     { target: '#main-nav', title: '面板入口', body: '所有面板都从左侧进入。还没解锁的会显示成「❓未解锁」，解锁后自动亮起。' },
-    { target: '[data-page="camp"]', requireClick: true, title: '先去营地', body: '点这里进入营地。' },
-    { target: '#camp-view', title: '营地', body: '后勤中心：分配人手修营垒、应对天灾与兽潮。营地生命归零就要重头再来。' },
+    { target: '[data-page="camp"]', requireClick: true, title: '先去庇护所', body: '点这里进入庇护所。' },
+    { target: '#camp-view', title: '庇护所', body: '后勤中心：分配人手修营垒、应对天灾与兽潮。庇护所生命归零就要重头再来。' },
     { target: '[data-page="adventure"]', requireClick: true, title: '然后是冒险', body: '点这里出发。' },
-    { target: '#adventure-view', title: '冒险', body: '选一个目标区域，远征队会自动开打。打不动就换个区域，或者回营地休整。' },
+    { target: '#adventure-view', title: '冒险', body: '选一个目标区域，远征队会自动开打。打不动就换个区域，或者回庇护所休整。' },
     { target: '[data-page="inventory"]', requireClick: true, title: '物品栏', body: '点这里看战利品。' },
     { target: '#inventory-view', title: '物品栏', body: '装备、材料与词条强化都在这里。悬停卡片看详细属性，右键出操作菜单；左上角的「装备加成」能看身上这套一共给了多少。' },
     /* 让玩家真的把开局送的短刃穿上：装备不会自己生效，这一步不亲手做一遍，武器槽大概率一直空着。
@@ -79,15 +79,15 @@ const GUIDES: Record<string, GuideStep[]> = {
   /* 以下都是系统解锁时的一次性引导（id 与 unlockNotices 的条目 id 一致）。 */
   workshop: [
     { target: '[data-page="workshop"]', requireClick: true, title: '新系统 · 工坊', body: '左侧导航多了一个入口，点进去看看。' },
-    { target: '#workshop-view', title: '工坊', body: '把后勤小队的人分到这里：工坊会用废料与装甲板自动制造城防，逐级提升营地战力。制造项按主线进度逐个开放。' }
+    { target: '#workshop-view', title: '工坊', body: '把后勤小队的人分到这里：工坊会用废料与装甲板自动制造城防，逐级提升庇护所战力。制造项按主线进度逐个开放。' }
   ],
   researchBase: [
     { target: '[data-page="research"]', requireClick: true, title: '新系统 · 研究基地', body: '左侧导航多了一个入口，点进去看看。' },
     { target: '#research-view', title: '研究基地', body: '基地会发布资源收集委托，交齐掉落物换研究点数。研究点数用来提升研究项，直接加强远征队自身。' }
   ],
   randomEvent: [
-    { target: '[data-page="camp"]', requireClick: true, title: '营地 · 随机事件', body: '营地现在会被荒野上的随机事件打扰，点进去看看。' },
-    { target: '#camp-view', title: '营地 · 随机事件', body: '事件会在倒计时结束后出现：接受就进入战斗，拒绝不扣任何东西。强度随主线与胜场一起涨。' }
+    { target: '[data-page="camp"]', requireClick: true, title: '庇护所 · 随机事件', body: '庇护所现在会被荒野上的随机事件打扰，点进去看看。' },
+    { target: '#camp-view', title: '庇护所 · 随机事件', body: '事件会在倒计时结束后出现：接受就进入战斗，拒绝不扣任何东西。强度随主线与胜场一起涨。' }
   ],
   wiki: [
     { title: '新系统 · 图鉴', body: '所有带下划线的名字现在都能点开了：物品、怪物、区域、事件各有图鉴页，页面顶部还能沿着路径往回翻。' }

@@ -1,5 +1,5 @@
 import {
-  workshopItems, LOGISTICS, logisticsTargets, getLogisticsAssigned, getIdleLogistics, getLogisticsTotal,
+  workshopItems, LOGISTICS, fortSlot, logisticsTargets, getLogisticsAssigned, getIdleLogistics, getLogisticsTotal, getLogisticsSources,
   getWorkshopCost, getWorkshopWorkTotal, getWorkshopRemaining, getWorkshopProgress, isWorkshopBusy, canStartWorkshop,
   assignLogistics, levelBonus, worksiteLevel, worksiteProgress, WORKSITE_BONUS, ITEM, isWorkshopUnlocked, isWorkshopItemUnlocked, formatNumber, formatDuration
 } from '../game-state';
@@ -7,7 +7,7 @@ import { setText, setWidth, setClass, setDisabled, pick } from '../dom';
 import { itemRefMarkup } from '../codex-ref';
 import type { GameState, PageDefinition } from '../types';
 
-/** 营地加成文案：只写数值，颜色由 CSS 给（等宽小字）。 */
+/** 庇护所加成文案：只写数值，颜色由 CSS 给（等宽小字）。 */
 const campBonusText = (hp: number, attack: number, defense: number): string => `生命 +${hp} · 攻击 +${attack} · 防御 +${defense}`;
 /** 材料一行：需要 / 现有，由 update 决定标红还是标绿。
     label 有两种：金币不是物品，直接写文字；废料与装甲板是物品表里的物品，传物品引用
@@ -26,7 +26,7 @@ const worksiteCard = `<article class="shop-item" data-shop="worksite" tabindex="
 const fortCard = (item: typeof workshopItems[number], id: number): string => `<article class="shop-item" data-shop="${id}" tabindex="0"><div class="shop-top"><div class="shop-left"><div class="shop-id"><span class="shop-icon" aria-hidden="true">${item.icon}</span><div class="shop-id-text"><b class="shop-name">${item.name}</b><span class="shop-level" data-ref="level"></span></div></div>
     <div class="capacity-track"><div class="capacity-bar" data-ref="progress"></div></div></div>
   <div class="shop-facts"><span class="shop-bonus" data-ref="bonus"></span><span class="shop-mats">${matMarkup('gold', '金币')}${matMarkup('scrap', itemRefMarkup(ITEM.scrap))}${matMarkup('plate', itemRefMarkup(ITEM.armorPlate))}</span></div></div>
-  <div class="shop-assign">${stepperMarkup(LOGISTICS.workshop)}</div>
+  <div class="shop-assign">${stepperMarkup(fortSlot(id))}</div>
   <div class="shop-detail"><span class="panel-kicker">FORTIFICATION</span><p class="shop-desc">${item.desc}</p><span class="shop-work" data-ref="work"></span></div></article>`;
 /** 收集网格里当前已渲染的卡片引用（制造项是动态追加的，重建后必须重新收集）。 */
 const collectCards = (grid: HTMLElement): any[] => [...grid.querySelectorAll<HTMLElement>('.shop-item')].map(card => ({
@@ -65,7 +65,10 @@ const page: PageDefinition<any> = {
     return ctx;
   },
   update(state: GameState, ctx: any) {
-    setText(ctx.hint, `待命 ${getIdleLogistics(state)} / 总数 ${getLogisticsTotal(state)}`);
+    /* 人数的三个来源拆开写：玩家看得见「为什么又多了一个人」，
+       尤其是人口那一项 —— 它来自庇护所事件里救下来的幸存者（见 getLogisticsSources）。 */
+    const sources = getLogisticsSources(state);
+    setText(ctx.hint, `待命 ${getIdleLogistics(state)} / 总数 ${getLogisticsTotal(state)}（主线 ${sources.mainline} · 胜场 ${sources.wins} · 人口 ${sources.population}）`);
     /* 未解锁的制造项不渲染：按解锁状态同步网格（营垒修筑始终在），签名变了才重建。 */
     const visibleForts = workshopItems.map((_, id) => id).filter(id => isWorkshopItemUnlocked(id, state));
     const signature = visibleForts.join(',');
@@ -76,7 +79,9 @@ const page: PageDefinition<any> = {
     }
     ctx.cards.forEach((refs: any) => {
       const isFort = refs.card.dataset.shop !== 'worksite';
-      const workers = getLogisticsAssigned(isFort ? LOGISTICS.workshop : LOGISTICS.camp, state);
+      /* 人手是分到具体某一项的：营垒走 LOGISTICS.camp，制造项走自己那个下标。 */
+      const id = isFort ? Number(refs.card.dataset.shop) : -1;
+      const workers = getLogisticsAssigned(isFort ? fortSlot(id) : LOGISTICS.camp, state);
       setText(refs.workers, workers);
       const idle = getIdleLogistics(state);
       setDisabled(refs.card.querySelector('[data-delta="-1"]'), workers <= 0);
@@ -94,7 +99,6 @@ const page: PageDefinition<any> = {
         return;
       }
 
-      const id = Number(refs.card.dataset.shop);
       const item = workshopItems[id];
       const level = state.campWorkshop[id].level;
       const busy = isWorkshopBusy(id, state);

@@ -1,7 +1,7 @@
 import { items, equipTypes } from './config/items';
 import { affixes, affixCap } from './config/affixes';
 import { enemyTable, zones, zoneOfEnemy, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
-import { CAMP_EVENT, campEventDef, campEventEntries } from './config/events';
+import { campEventDef, campEventEntries } from './config/events';
 import { codexEntry, onWikiUnlockChange } from './codex-ref';
 import { getState, isEncountered, isDropDiscovered, isItemDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, mainline, setTable, setOfItem, setOfZone, getSetWorn, isPerfectItem, setBonusEntries, perfectBonusEntries } from './game-state';
 import type { ItemCategory } from './types';
@@ -26,7 +26,7 @@ import type { ItemCategory } from './types';
     items 下面还有一层分类页（items-equipment 等），层级靠 pathMarkup 拼出来。 */
 const LIST_TITLES: Record<string, string> = {
   items: '物品', 'items-equipment': '装备', 'items-sets': '套装', 'items-resource': '资源', 'items-consumable': '消耗品', 'items-quest': '任务物品',
-  enemies: '怪物', zones: '区域', events: '事件'
+  enemies: '怪物', zones: '区域', events: '随机事件'
 };
 const LIST_ICONS: Record<string, string> = {
   items: '📦', 'items-equipment': '⚔️', 'items-sets': '🧩', 'items-resource': '◆', 'items-consumable': '⚗️', 'items-quest': '📋',
@@ -185,11 +185,11 @@ function zonesBody(): string {
   return cellGridMarkup(zones.map((_, id) => (isZoneUnlocked(id, state) ? entryCellMarkup('zone', id) : lockedCellMarkup())));
 }
 
+/** 随机事件列表。这一页**只有随机事件** —— 大事件不做内容差异化、只差属性，没有图鉴条目。
+    没解锁之前整页是空的，所以给一句说明而不是留一个空格子。 */
 function eventsBody(): string {
-  /* 随机事件有解锁门槛（主线推进后才开始计时），没解锁就不列出来。 */
-  const randomUnlocked = isCampEventTimerRunning(getState());
-  const visible = campEventEntries.map((entry, id) => ({ entry, id })).filter(item => item.entry.kind !== CAMP_EVENT.random || randomUnlocked);
-  return cellGridMarkup(visible.map(item => entryCellMarkup('event', item.id)));
+  if (!isCampEventTimerRunning(getState())) return '<p class="wiki-note">随机事件会在完成主线「抵御第一场天灾」之后开始出现。</p>';
+  return cellGridMarkup(campEventEntries.map((_, id) => entryCellMarkup('event', id)));
 }
 
 /* ——— 条目页 ——— */
@@ -302,27 +302,26 @@ function zoneBody(id: number): string {
   ].join('');
 }
 
-function eventBody(id: number): string {
-  const entry = campEventEntries[id];
-  const state = getState();
-  const def = campEventDef(entry.kind, entry.index);
-  const stats = getCampEventInfo(entry.kind, entry.index, state);
-  const facts = [
+/** 一场事件的数值 + 击退奖励：四项属性走数值网格，奖励写成网格下面的一行注。
+    大事件页与随机事件页共用它。 */
+function eventStatsMarkup(stats: ReturnType<typeof getCampEventInfo>): string {
+  const { gold, scrap, essence, survivors } = stats.rewards;
+  return `${factsMarkup([
     factMarkup('事件生命', formatNumber(stats.hp)),
     factMarkup('事件攻击', formatNumber(stats.attack)),
     factMarkup('事件防御', formatNumber(stats.defense)),
     factMarkup('出手间隔', formatSeconds(stats.interval))
-  ];
-  const round = entry.kind === CAMP_EVENT.disaster ? state.camp.disasterWins + 1 : entry.kind === CAMP_EVENT.tide ? state.camp.tideWins + 1 : 0;
-  const growth = entry.kind === CAMP_EVENT.random
-    ? '强度与奖励随主线进度和累计胜场一起增长。'
-    : `当前是第 ${round} 次。每次成功抵御后，它的强度与奖励都会提高一档。`;
+  ])}<p class="wiki-note">击退奖励：金币 ${formatNumber(gold)} · 废料 ${formatNumber(scrap)} · 精华 ${formatNumber(essence)}${survivors ? ` · 幸存者 ${formatNumber(survivors)}` : ''}</p>`;
+}
+/** 事件条目页。这一页**只有随机事件**：大事件没有条目（见 config/events.ts）。 */
+function eventBody(id: number): string {
+  const entry = campEventEntries[id];
+  const def = campEventDef(entry.kind, entry.index);
   return [
     `<p class="wiki-desc">${def.desc}</p>`,
-    factsMarkup(facts),
-    sectionMarkup('击退奖励', `<p class="wiki-note">金币 ${formatNumber(stats.rewards.gold)} · 废料 ${formatNumber(stats.rewards.scrap)} · 精华 ${formatNumber(stats.rewards.essence)}</p>`),
-    sectionMarkup('成长', `<p class="wiki-note">${growth}</p>`),
-    sectionMarkup('应对建议', `<p class="wiki-note">${def.advice}</p>`)
+    eventStatsMarkup(getCampEventInfo(entry.kind, entry.index, getState())),
+    sectionMarkup('成长', '<p class="wiki-note">强度与奖励随主线进度和累计胜场一起增长。</p>'),
+    sectionMarkup('应对建议', `<p class="wiki-note">${def.advice || ''}</p>`)
   ].join('');
 }
 

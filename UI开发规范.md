@@ -284,7 +284,7 @@ function close(): void { if (layer) layer.hidden = true; }
 <button class="segment active" type="button" data-scale="1">中</button>
 
 <!-- 数值格 -->
-<div class="camp-stat-grid"><div class="mini-stat"><span>营地生命</span><b data-ref="hp"></b></div></div>
+<div class="camp-stat-grid"><div class="mini-stat"><span>庇护所生命</span><b data-ref="hp"></b></div></div>
 
 <!-- 进度条 -->
 <div class="health-track"><div class="health-bar player-health" data-ref="health"></div></div>
@@ -347,6 +347,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 新增数值格式化 | §7.2 §1-R03 | `src/format.ts` |
 | 新增可交互动作 | §7.3 §1-R06 | `src/game-state.ts` + `src/pages/*.ts` |
 | 加解锁门槛 | §6.1 §7.1 | `src/pages/*.ts` 的 `locked()` |
+| 改后勤人数 / 工坊人手分配 | §7.15 | `src/game-state.ts`（`LOGISTICS` / `fortSlot` / `logisticsTargets` / `advanceLogistics`）、`src/pages/workshop.ts` |
 | 加开发者功能 | §1-R25 | `src/pages/settings.ts`、`globals.d.ts` |
 | 加全局提示 / 浮层 | §1-R09 R10 | 新建模块或复用 `unlock-toast.ts` |
 
@@ -427,6 +428,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 面板阴影 | `0 18px 42px rgba(0,0,0,.14)` |
 | 浮层阴影 | `0 16px 34px rgba(0,0,0,.4)` ~ `0 24px 60px rgba(0,0,0,.55)` |
 | 过渡 | 交互 `.16s ease`；进度条 `.25s–.3s`；浮层 `opacity .14s` |
+| 预留固定行高 | 用 `Nlh`（如 `min-height: 3lh`），不要写死 px / em —— `lh` 按元素自己的 `line-height` 算，改行高时不用回来改 |
 
 ### 4.6 词条类别色（`--affix-color`）
 
@@ -436,7 +438,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | --- | --- | --- | --- |
 | `.affix-offense` | 进攻 | `--red` | 直接提升输出：锋锐、余烬爆裂 |
 | `.affix-survival` | 生存 | `--rarity-3`（绿） | 提升承伤能力：坚韧、铁壁 |
-| `.affix-utility` | 功能 | `--rarity-2`（蓝） | 增益营地系统、不参与战斗：勤务 |
+| `.affix-utility` | 功能 | `--rarity-2`（蓝） | 增益庇护所系统、不参与战斗：勤务 |
 
 类名由 `affixCategoryClass(category)` 生成，别手拼。**类别不只是颜色**：它还决定哪个清洗剂能洗掉这条词条（一类一瓶，见 §7.12 旁边的道具说明）。
 
@@ -462,7 +464,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 骨架类 | 列定义 | 用途 |
 | --- | --- | --- |
 | `.home-grid` | `repeat(2, minmax(0, 1fr))` | 主界面（`.home-log` 用 `grid-column: 1 / -1`） |
-| `.camp-layout` | `minmax(0, 1.05fr) minmax(0, .95fr)`（默认 stretch） | 营地（两块血条底部对齐） |
+| `.camp-layout` | `minmax(0, 1.05fr) minmax(0, .95fr)`（默认 stretch） | 庇护所（两块血条底部对齐） |
 | `.archive-layout` | `repeat(2, minmax(0, 1fr))` + `align-items: start` | 远征档案 / 研究基地 |
 | `.inventory-layout` | `212px minmax(0, 1fr)` + `align-items: start` | 物品栏 |
 | `.battle-arena` | `minmax(0, 1fr) 70px minmax(0, 1fr)` | 战斗（中间 VS） |
@@ -570,7 +572,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | --- | --- | --- | --- | --- |
 | `item` 物品 | `items[id]` | `item.icon` | `.rarity-*`（走 `--rarity-color`） | — |
 | `enemy` 怪物 | `enemyTable[id]` | `enemy.art` | `.codex-enemy` | `--red` |
-| `zone` 区域 | `zones[id]` | `zone.icon` | `.codex-zone`（营地 `.codex-zone-camp`） | `--accent` / `--warm` |
+| `zone` 区域 | `zones[id]` | `zone.icon` | `.codex-zone`（庇护所 `.codex-zone-camp`） | `--accent` / `--warm` |
 | `event` 事件 | `campEventEntries[id]` | `campEventDef(...).icon` | `.codex-event` | `--warm` |
 | `page` 页面 | —（列表页，无具体条目） | — | `.codex-page` | `--accent` |
 
@@ -615,7 +617,7 @@ addLog(state, `远征队进入${zoneTag(zoneId)}，…`);                     //
 
 | 项 | 规则 |
 | --- | --- |
-| R26 | 物品 / 怪物 / 区域名**必须**通过 `itemRefMarkup` / `enemyRefMarkup` / `zoneRefMarkup`（渲染层）或 `itemTag` / `enemyTag` / `zoneTag`（存档文本）生成；**禁止**在文案里直接拼 `item.name` / `enemy.name` / `zone.name`（例外：`workshopItems` / `researchItems` / 营地事件名这类不在三张表里的条目） |
+| R26 | 物品 / 怪物 / 区域名**必须**通过 `itemRefMarkup` / `enemyRefMarkup` / `zoneRefMarkup`（渲染层）或 `itemTag` / `enemyTag` / `zoneTag`（存档文本）生成；**禁止**在文案里直接拼 `item.name` / `enemy.name` / `zone.name`（例外：`workshopItems` / `researchItems` / 庇护所事件名这类不在三张表里的条目） |
 | R27 | **会写进存档**的字符串**只能**存 `[[kind:id]]` 标记，**禁止**存 HTML；**渲染任何可能含标记的文本时都要过 `renderCodexTags`**（无标记的旧文本、以及早期格式 `[[12]]`（按物品解析）都原样兼容）。渲染 `MainlineRequirement.text()` 的每个地方都不能漏 |
 
 **引用不能放进高频重绘的 innerHTML**：`setHtml` 只在内容变化时重绘，但若字符串里混了每 500ms 都在变的数值，引用会被反复重建、悬停与点击都会被打断。做法是把段落拆成「稳定部分（含引用，`setHtml`）+ 变动部分（`setText`）」，见 `home.ts` 的 `copyMain` / `copyHp`。
@@ -629,7 +631,7 @@ addLog(state, `远征队进入${zoneTag(zoneId)}，…`);                     //
 | 装备加成窗口的「装备名 · 词条名」（`getEquipBonusSources`） | 已按稀有度着色，名字是拼接结果，不改成引用 |
 | 开发者面板的物品发放按钮 | 点击语义是「发放物品」，不能变成 wiki 链接 |
 | 主界面资源条（金币 / 废料 / 精华）、物品栏分区标题 | HUD 聚合数值与类别标签，不是图鉴引用 |
-| 营地事件名（天灾 / 兽潮 / 流民求助…） | 不在物品 / 怪物 / 区域三张表里 |
+| 庇护所事件名（天灾 / 兽潮 / 流民求助…） | 不在物品 / 怪物 / 区域三张表里 |
 
 **内置 wiki（`src/wiki.ts`）：页面路由 + 路径**
 
@@ -745,7 +747,7 @@ if (ctx.signature !== signature) {
 | 未遭遇的怪物 / 未开放的套装、区域 | 同上 | 列表页一律列全，只是把没见到的换成占位 |
 | 未确认的掉落来源 | 同上 | 边界是「已遭遇过的怪物」，只标这一条没确认，不剧透总数 |
 | 未完成的主线节点 | `未解锁记录` / `??? 待恢复` | 剧情进度，占位表达「还有内容」 |
-| 营地随机事件计时块 | `setHidden` | 单个元素，隐藏与不渲染等效 |
+| 庇护所随机事件计时块 | `setHidden` | 单个元素，隐藏与不渲染等效 |
 
 ### 6.13 新手指引（R32）
 
@@ -778,7 +780,7 @@ if (ctx.signature !== signature) {
 **步骤写法**
 
 ```ts
-{ target: '#camp-view', title: '营地', body: '…' }                          // 高亮面板，面板里的按钮按不动
+{ target: '#camp-view', title: '庇护所', body: '…' }                          // 高亮面板，面板里的按钮按不动
 { target: '[data-page="camp"]', requireClick: true, title: '…' }            // 没写 click → 默认放行 target 本身
 { target: '#inventory-view', click: '[data-action="equip-stats"]', requireClick: true, title: '…' }  // 只放行面板里的某一个按钮
 { target: '#adventure-view', waitFor: state => state.totalWins >= 1, waitHint: '远征队正在交战，等这一场打完。', title: '…' }  // 等玩家真的做完一件事
@@ -888,7 +890,7 @@ interface PageDefinition<Context = any> {
 
 ⚠️ **后两个区域现在打不过。** 设计基准是按「套装齐 + 营火 3 / 5 级」算的，而营火强化已经被移除：
 `state.workshop`（原「营火强化」）仍被 `getPlayerAttack`（+3/级）、`getPlayerMaxHp`（+15/级）、
-`getPlayerRegen`（+0.8/级）和三个营地数值读取，但**升级入口已经删掉**，只有开发者面板能改（名字还叫「营火强化」）。
+`getPlayerRegen`（+0.8/级）和三个庇护所数值读取，但**升级入口已经删掉**，只有开发者面板能改（名字还叫「营火强化」）。
 `rebuildState` 走 `{ ...initial, ...saved }`，所以**老存档保留着旧值、新存档恒为 0** —— 新老玩家战力不一致。
 
 **修法只有二选一**：给玩家补回这部分战力（把 `workshop` 的加成挪进套装 / 工坊，或给它补回升级入口），
@@ -970,7 +972,7 @@ export function foodItemIds(): number[] {
 **触发点只有一个：`enemyAttack` 末尾**
 
 ```
-enemyAttack → 扣血 → 血归零则撤回营地（return）→ tryAutoEat
+enemyAttack → 扣血 → 血归零则撤回庇护所（return）→ tryAutoEat
 ```
 
 - 挨打是**唯一会掉血**的时机，挂在这里最准。
@@ -1226,7 +1228,7 @@ wiki 的物品条目页**不单开「极致」小节**：那只是一个是 / �
 
 ⚠️ **改 `step` 前先算一遍这个数** —— `step` 越小，同一个上限要的道具越多（词条本身不会变弱，只是更难顶到）。掉落率那边同步压过一轮：`config/zones.ts` 里强化道具的 `chance` 统一 ×0.6（见该文件头部的说明）。
 
-**功能类不参与战斗**，只增益营地系统 —— 「勤务」加的是 `workshopRate`（每人每秒的工坊工时），在 `advanceLogistics` 里生效，不进任何战斗公式。后续这类「增益其他系统」的词条（研究速度、掉落加成…）都往这个类别加。
+**功能类不参与战斗**，只增益庇护所系统 —— 「勤务」加的是 `workshopRate`（每人每秒的工坊工时），在 `advanceLogistics` 里生效，不进任何战斗公式。后续这类「增益其他系统」的词条（研究速度、掉落加成…）都往这个类别加。
 
 `removeAffixHandler(category)` 按类别筛词条；同类有多条时返回 `pick-affix`，由 `pages/inventory.ts` 的词条选择窗口让玩家选。
 
@@ -1295,6 +1297,90 @@ wiki 的物品条目页**不单开「极致」小节**：那只是一个是 / �
 **「本次新增」怎么标**：比 `settings.changelogSeen` 新的那些记录加 `.is-new`（左侧主色竖线）。查不到已读 id（第一次带日志的版本、或那条记录已经被删掉）时只把最新一条当新内容。
 
 **展示层**：单例浮层挂 `body`（`#page-content` 有 `contain: layout`，见 §10-01），`z-index: 76`，三种关闭方式齐全（R12）。文案仍过 `escapeHtml()` 再进 `innerHTML`（正文里可能带 `<` / `&`）。
+
+---
+
+### 7.15 后勤小队与工坊制造（`game-state.ts` + `pages/workshop.ts`）
+
+**后勤总人数只有一个来源，不存档**：
+
+```ts
+/** 总人数 = 基础 1 + 主线每 2 个节点 +1 + 累计每 20 胜 +1。 */
+export function getLogisticsTotal(target: GameState = state): number { return 1 + Math.floor(target.mainlineIndex / 2) + Math.floor(target.totalWins / 20); }
+```
+
+存档里只记 `logistics.assigned`（分配），不记总数 —— 总数由上面两项换算，避免两处数据不同步。
+
+**人手是按「项」分配的，不存在工坊共用的池子**。下标布局（`LOGISTICS` / `fortSlot`）：
+
+| 下标 | 去处 |
+| --- | --- |
+| `LOGISTICS.camp` = 0 | 营垒修筑 |
+| `fortSlot(id)` = `LOGISTICS.fort + id` | 第 id 个制造项（`workshopItems`） |
+
+- **界面**：`pages/workshop.ts` 每张卡片一个 `stepperMarkup(fortSlot(id))`，操作的是**这一项自己**的人手；读数同样按 `fortSlot(id)` 取。
+- **推进**：`advanceLogistics()` 逐项取 `getLogisticsAssigned(fortSlot(id))`，各自算 `output = 人数 × getWorkshopRate()`、各自开工。两项同时在建也各走各的进度 —— 一个人只可能待在一个下标里，不会重复计入（`assignLogistics` 的上限是 `getIdleLogistics()`）。
+- **剩余时间**：`getWorkshopRemaining(id)` 必须用**这一项**的人手，否则卡上的倒计时会和真实进度对不上。
+- **新增制造项**：往 `workshopItems` 末尾追加就行，`fortSlot` 与 `logisticsTargets` 会自动跟上，**不要把下标写死**。
+- **旧存档**：`rebuildState` 按 `logisticsTargets` 的长度逐下标读，老存档那格「工坊制造」的总池子会落到下标 1（基础城防）名下。
+
+---
+
+### 7.16 庇护所：营火 / 事件波次 / 人口（`game-state.ts` + `pages/camp.ts`）
+
+**术语**：「庇护所」是页面与系统名（原「营地」），**只改文案** —— `state.camp` / `campWorkshop` 等字段名一律保留，
+存档格式零改动。「营火」（那堆火本身）与「营垒」（工事名）是另外两个词，不要跟着改。
+
+**营火机制已移除**（做过「花精华提升营火等级」，用来抬高远征队与庇护所的数值；后来整条撤掉）。现在的状态：
+
+- 那六个 getter（`getPlayerAttack` / `MaxHp` / `Regen` 与 `getCampMaxHp` / `Attack` / `Defense`）
+  **只由装备 / 套装 / 词条 / 工坊 / 营垒决定**，没有任何「全局等级」项。以后要加成长线请独立新增，
+  **别再借道 `state.workshop`**
+- **`state.workshop` 是遗留字段**：新存档恒为 0、只有老存档带着旧值，它现在**只剩 `getInventoryCapacity()`
+  一处引用**（`20 + workshop × 2`）。要不要彻底删掉取决于「老存档那几十格留不留」——
+  改之前先看 `庇护所扩展方案.md` §4.3
+- 精华仍然只有产出、**没有出口**（原来的出口就是营火）—— 已知缺口，见 `庇护所扩展方案.md` §2 的
+  「不引入没有出口的资源」原则
+- 精华与物品「余烬碎片」的数量仍要同步（`grantDrops` / `discardItem` / `finishCampBattle`）：
+  **加要一起加、减要一起减**，否则资源条和物品栏会各说各的
+
+**事件波次**（`CAMP_WAVE` / `CAMP_WAVE_KINDS` / `CAMP_EVENT_BASE`）：
+
+- 大事件**永远有下一场**：`getNextCampChallenge()` 不再返回 `null`，界面里没有「大事件已清空」这个状态
+- 每波 3 场（天灾 → 兽潮 → 异种）；`camp.stage` 记本波打到第几场，打完一场 +1，满 3 场进下一波
+- 强度按波次**等比**抬高：生命 / 攻击 `× CAMP_WAVE.growth^(wave-1)`（防御走线性、奖励只跟涨平方根，
+  理由都在常量注释里）。这个系数**决定「墙」在哪** —— 玩家侧是线性成长，等比迟早追上；
+  改它之前先看 `庇护所扩展方案.md` §8 的实测对照表
+- **大事件没有图鉴条目**：它们只差属性、不做内容差异化，所以 `campEventEntries` **只收随机事件**，
+  `campEventEntryId()` 对任何大事件都返回 `-1`。`pages/camp.ts` 的 `threatTitleMarkup()` 据此决定
+  是渲染成可点开的图鉴引用（随机事件）还是纯文本（大事件 —— 名字里已经带了波次）
+- 图鉴那个分类页的显示名是**「随机事件」**（页面 id 仍是 `events`）：别再叫回「事件」，
+  也别往里加大事件的条目
+- `disasterWins` / `tideWins` **仍然要照记**：主线「抵御第一场天灾」「击退第一次兽潮」看的是它们，不是波次
+- 新增 `CAMP_EVENT` 取值**只能追加**（它是 `camp.pendingKind` 的存档值）；
+  `campEventEntries`（图鉴条目表）的新条目也**只能追加到末尾**（条目 id 由它的下标算出）
+
+**人口与后勤**：
+
+- `camp.population` 来自事件奖励里的 `survivors`
+- `getLogisticsSources()` 是总人数三个来源（主线 / 胜场 / 人口）的**唯一出处**，界面要展示来源就调它，不要自己算
+- 每 `POP_PER_WORKER` 人换 1 名后勤
+
+**读档校验**：`camp` 的三个新字段（`wave` / `stage` / `population`）在 `rebuildState` 里**逐字段**夹上下限，
+不要退回 `{ ...initial.camp, ...saved.camp }` 一把梭 —— 那个写法拦不住被手改过的值。
+
+**一键清剿**（`countSafeCampFights()` / `sweepCampWaves()` / `simulateCampFight()`）：
+
+- 「能不能稳赢」靠**模拟**整场战斗，不是估公式：双方都是固定数值 + 固定间隔、没有随机数，所以结果是确定的
+- **`simulateCampFight()` 与 `advanceCampBattle()` 必须共用 `hitDamage()` 和同一套出手节奏** ——
+  各写一份就会出现「模拟说稳赢、真打却输」。改伤害公式只改 `hitDamage()`
+- **模拟从当前生命起步**（不是满血）：带伤时清剿会自动判定为不稳、拒绝执行，与 `beginCampBattle` 用
+  `getCampHp()` 开打一致。每打赢一场 `settleCampWin()` 会把防线修满，所以只有第一场看当前血量
+- 门槛是 `SAFE_FIGHT_HP`（全程生命不低于满血的 60%），单次上限 `SWEEP_LIMIT`（200 场）—— 两个都是可调常量
+- **账必须走 `settleCampWin()`**（单场战斗与清剿共用）：奖励、`disasterWins` / `tideWins`、人口、波次推进
+  只有这一份实现。它**只记账不播报**，播报交给调用方 —— 单场战斗一条日志、清剿只出一条汇总
+- 界面上的场次是**缓存过的参考值**（签名 = 波次 + 场次 + 四项数值 + 生命 10% 分档），
+  所以 `sweepCampWaves()` **每场都要重新验一遍**，不能照那个数字直接结算
 
 ---
 
@@ -1432,3 +1518,4 @@ wiki 的物品条目页**不单开「极致」小节**：那只是一个是 / �
 | 23 | 连续选同一个文件，`change` 不触发 | 读完文件立刻 `input.value = ''` | 值没变浏览器不派发 `change`（存档导入踩过） |
 | 24 | 导入一份无关的文本，提示「导入成功」但进度没了 | 先 `validateSave()` 挡一道，再 `parseSave()` | `parseSave` 对任何输入都会「成功」（补成初始存档），不校验就等于接受一切 |
 | 25 | 复制按钮点了没反应，也没提示 | `navigator.clipboard` 可能不存在（非 HTTPS / localhost），失败时退回「已选中，请手动 Ctrl+C」 | `writeText` 在非安全上下文不可用；静默失败会让玩家以为复制成功了 |
+| 26 | 工坊人手「串台」：给弩台分配人数，基础城防的人数也跟着涨；而且只有基础城防在推进 | 人手**按项分配**（`fortSlot(id)`，一项一个下标），推进时逐项取自己那一份 | 曾经是「工坊共用一个池子、按项顺序喂」的模型，而界面上每张卡各有一个步进器 —— 界面说 A、模型做 B，两边都是错的（见 §7.15） |

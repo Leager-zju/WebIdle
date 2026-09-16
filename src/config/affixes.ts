@@ -51,7 +51,7 @@ const AFFIX_DEFS = {
   emberBurst: { name: '余烬爆裂', desc: '出手时周期性打出一记爆发伤害', category: AFFIX_CATEGORY.offense, base: 100, step: 25, unit: '%', effect: { skill: SKILL.emberBurst }, summary: '赋予技能「余烬爆裂」（强度 {value}%/{cap}%）' },
   vitality: { name: '坚韧', desc: '增加一定生命上限', category: AFFIX_CATEGORY.survival, base: 12, step: 3, unit: '', effect: { hp: 1 }, summary: '生命上限 +{value}/{cap}' },
   bulwark: { name: '铁壁', desc: '增加一定防御力', category: AFFIX_CATEGORY.survival, base: 4, step: 1, unit: '', effect: { defense: 1 }, summary: '防御 +{value}/{cap}' },
-  /* 功能类：不加战斗属性，而是给营地系统加速。后续这类「增益其他系统」的词条都可以往这里加
+  /* 功能类：不加战斗属性，而是给庇护所系统加速。后续这类「增益其他系统」的词条都可以往这里加
      （研究速度、掉落加成……），它们在战斗里没有直接收益，价值在于把整条生产线推快。 */
   logistics: { name: '勤务', desc: '提高工坊的建造速度', category: AFFIX_CATEGORY.utility, base: 8, step: 2, unit: '%', effect: { workshopRate: 1 }, summary: '工坊工时 +{value}%/{cap}%' }
 } satisfies Record<string, { name: string; desc: string; category: number; base: number; step: number; unit: string; effect: AffixEffect; summary: string }>;

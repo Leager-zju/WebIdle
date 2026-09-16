@@ -19,21 +19,21 @@ import type { Enemy, Zone } from '../types';
    怎么算：净损失 ≈ 击杀耗时 T ×（怪物 DPS − 玩家回复），T = 玩家出手次数 × 出手间隔。
    所以「血厚 + 防高」的怪 T 天然更长，攻击必须相应压低，净损失才拉得平。
 
-   ⚠️ 各区域的玩家基准（穿齐上一区域的套装，见 config/sets.ts）。下面「设计」是按
-   「套装齐 + 营火 N 级」算的旧值，「实际」是按**当前代码**（攻 12 + 装备 + 套装 + 词条，
-   营火那一项恒为 0，见下）现算的 —— 后两个区域的差距很大，**现在都打不过**：
+   ⚠️ 各区域的玩家基准（穿齐上一区域的套装，见 config/sets.ts）。下面「设计」那一列是按
+   「套装齐 + 营火 N 级」算的，而**营火那条成长线已经整条移除**（见 庇护所扩展方案.md §4.3）
+   ⇒ 「设计」列现在只是**历史基准**；「实际」那一列才是按当前代码现算的
+   （攻 12 + 装备 + 套装 + 词条，没有任何全局等级项）—— 后两个区域的差距很大，**现在都打不过**：
      废弃边境  实际 = 设计：攻 12 / 防 0 / 血 100 / 回复 2 / 间隔 2.2（裸装）→ 净损失 16~23
      余烬矿脉  设计：攻 30 / 防 6 / 血 240 / 回复 5.4 → 净损失 65~78（27~33%）
                实际：攻 17 / 防 6 / 血 200 / 回复 3   → 净损失 305~451（153~226% 生命）
      核心深井  设计：攻 50 / 防 8 / 血 260 / 回复 6   → 净损失 84~116（32~45%）
                实际：攻 42 / 防 2 / 血 135 / 回复 2   → 净损失 261~468（193~347% 生命）
 
-   ⚠️ 差距的来源是 state.workshop（原「营火强化」）：它仍出现在 getPlayerAttack（+3/级）、
-   getPlayerMaxHp（+15/级）、getPlayerRegen（+0.8/级）与三个营地数值里，但**升级入口已经删掉**，
-   只有开发者面板能改（且名字还叫「营火强化」）。rebuildState 走 { ...initial, ...saved }，
-   所以**老存档保留着旧值、新存档恒为 0** —— 新老玩家战力不一致。
-   要修就得二选一：给玩家补回这部分战力，或按上面「实际」那一列重算这 10 只怪。
+   ⚠️ 这个缺口**还没有修**，但成因已经变了：以前是「state.workshop 新老存档不一致」，
+   现在是「这两档怪是按一条已经不存在的成长线设计的」。要修就得二选一：
+   把怪按上面「实际」那一列重算，或者给玩家补一条对应的成长线（批次 2 的待办）。
    别只调一个区域 —— 套装是玩家战力的主要来源，基准一漂整张表都偏。
+   （`state.workshop` 是遗留字段，现在只剩 getInventoryCapacity 一处引用，见那里的注释。）
 
    强化道具（锐化油 / 生命之种 / 铁壁涂层 / 余烬核心 / 勤务手册）的掉率统一按 ×0.6 压过一轮
    （08→05、06/07→04、09→05、10→06、20→12），配合 config/affixes.ts 里 step 的下调 ——
@@ -81,7 +81,7 @@ export const enemyTable: Enemy[] = Object.values(ENEMY_DEFS);
 export const ENEMY = Object.fromEntries(Object.keys(ENEMY_DEFS).map((name, id) => [name, id])) as { [K in keyof typeof ENEMY_DEFS]: number };
 
 /* 区域表：键顺序就是 zoneId。enemyIds 引用敌人表下标；
-   enemyIds 为空的区域是「非战斗区域」（营地），不刷怪、只按倍率回复生命值。
+   enemyIds 为空的区域是「非战斗区域」（庇护所），不刷怪、只按倍率回复生命值。
    unlockIndex 是进入所需的主线进度（mainlineIndex 达到这个值才算解锁）。
    icon 是区域在界面上的图标：区域引用（icon + 名称）与图鉴标题栏都用它。
    questItem 是这个区域的任务物品（见 config/items.ts 的 quest 类别）—— 研究基地的委托
@@ -89,7 +89,7 @@ export const ENEMY = Object.fromEntries(Object.keys(ENEMY_DEFS).map((name, id) =
    QUEST_DROP_CHANCE 掉它（见 game-state 的 grantQuestDrop）。
    这样委托的诉求是「去那个区域刷」，而不是「挑某只怪刷」。 */
 const ZONE_DEFS = {
-  camp: { name: '营地', icon: '🔥', description: '远征队的落脚点。营火不灭，这里不会遭遇敌人，生命恢复速度远高于野外。', enemyIds: [], unlockIndex: 0 },
+  camp: { name: '庇护所', icon: '🔥', description: '远征队的落脚点。营火不灭，这里不会遭遇敌人，生命恢复速度远高于野外。', enemyIds: [], unlockIndex: 0 },
   /* dropRefine：这个区域掉落的装备自带几级精炼。越早的区域给得越高 ——
      早期装备靠一件件喂太慢，直接送一档起步；后期区域基本靠自己喂，所以只有 +1。 */
   wasteBorder: { name: '废弃边境', icon: '🏚️', description: '营火以北，失去联络的旧哨站。锈蚀的机械单位仍在街区与哨塔之间徘徊。', enemyIds: [ENEMY.scavenger, ENEMY.brute, ENEMY.wirehound, ENEMY.scrapGolem, ENEMY.rustSentry], unlockIndex: 0, dropRefine: 10, questItem: ITEM.borderTag },
