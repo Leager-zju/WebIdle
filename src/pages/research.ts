@@ -51,7 +51,7 @@ const TABS = [['contracts', '委托与研究'], ['atlas', '勘探图']] as const
 const SLOT_COUNT = mapSets[0]?.tiles.length || 3;
 const atlasSlotMarkup = (index: number): string => `<button class="atlas-slot" type="button" data-slot="${index}"><span class="atlas-slot-icon" data-ref="icon" aria-hidden="true"></span><span class="atlas-slot-name" data-ref="name"></span></button>`;
 const atlasMarkup = `<div class="panel-heading"><div><span class="panel-kicker">RECON ATLAS</span><h3>勘探图</h3></div><span class="muted" data-ref="atlasState"></span></div>
-  <p class="atlas-hint">庇护所被大事件冲击时会带回来地图残片：天灾、兽潮、异种各一套（随机事件也会补一片，只是慢）。把同一张图的残片放进下面三个格子，就能派勘探队出去 —— 走通了，那张图指向的区域才会开放。</p>
+  <p class="atlas-hint">庇护所被大事件冲击时会带回来地图残片，按波次成套发放：第 1 波「矿脉图纸」→ 第 2 波「深井剖面」→ 第 3 波「裂谷坐标」（随机事件也会补一片，只是慢）。把同一张图的残片放进下面三个格子，就能派勘探队出去 —— 走通了，那张图指向的区域才会开放。</p>
   <div class="atlas-slots">${Array.from({ length: SLOT_COUNT }, (_, index) => atlasSlotMarkup(index)).join('')}</div>
   <div class="atlas-picker" data-ref="atlasPicker" hidden></div>
   <div class="requirement" data-ref="atlasRequirement"><span class="status-dot" data-ref="atlasDot"></span><span data-ref="atlasRequirementText"></span></div>

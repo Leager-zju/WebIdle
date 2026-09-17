@@ -105,7 +105,9 @@ export const ENEMY = Object.fromEntries(Object.keys(ENEMY_DEFS).map((name, id) =
    主线 / 地图 / 任意组合。区域开放的三处显示（冒险页的解锁提示、图鉴的「进入条件」、
    解锁公告）都直接读它，所以每种规则都必须给出可读的 text()。 */
 const ZONE_DEFS = {
-  camp: { name: '庇护所', icon: '🔥', description: '远征队的落脚点。营火不灭，这里不会遭遇敌人，生命恢复速度远高于野外。', enemyIds: [], unlock: unlockBy.mainline(0) },
+  /* 庇护所**不是开局就有的**：点亮第一座营火（主线第 1 节）之后才算挣下这片安全区域。
+     它同时也是「家园」那一页的解锁条件（见 game-state 的 isCampUnlocked）—— 判定只有这一处。 */
+  camp: { name: '庇护所', icon: '🔥', description: '远征队的落脚点。营火不灭，这里不会遭遇敌人，生命恢复速度远高于野外。', enemyIds: [], unlock: unlockBy.mainline(1) },
   /* dropRefine：这个区域掉落的装备自带几级精炼。越早的区域给得越高 ——
      早期装备靠一件件喂太慢，直接送一档起步；后期区域基本靠自己喂，所以只有 +1。 */
   wasteBorder: { name: '废弃边境', icon: '🏚️', description: '营火以北，失去联络的旧哨站。锈蚀的机械单位仍在街区与哨塔之间徘徊。', enemyIds: [ENEMY.scavenger, ENEMY.brute, ENEMY.wirehound, ENEMY.scrapGolem, ENEMY.rustSentry], unlock: unlockBy.mainline(0), dropRefine: 10, questItem: ITEM.borderTag },

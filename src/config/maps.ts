@@ -74,7 +74,3 @@ export const MAP_STATE = {
 export function fragmentMapOf(itemId: number): number {
   return mapSets.findIndex(entry => entry.tiles.some(tile => tile.itemId === itemId));
 }
-/** 哪张大事件掉哪张图的碎片；找不到返回 -1（理论上不会发生，每个 CAMP_WAVE_KINDS 都配了一张图）。 */
-export function mapOfEventKind(kind: number): number {
-  return mapSets.findIndex(entry => entry.kind === kind);
-}

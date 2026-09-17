@@ -1,14 +1,22 @@
 import {
-  workshopItems, fortSlot, getLogisticsAssigned, getIdleLogistics, getLogisticsTotal, getLogisticsSources,
+  workshopItems, fortSlot, getLogisticsAssigned, getIdleLogistics,
   getWorkshopCost, getWorkshopWorkTotal, getWorkshopRemaining, getWorkshopProgress, isWorkshopBusy, canStartWorkshop,
   assignLogistics, levelBonus, ITEM, isWorkshopUnlocked, isWorkshopItemUnlocked, formatNumber, formatDuration
 } from '../game-state';
 import { setText, setWidth, setClass, setDisabled, pick } from '../dom';
 import { itemRefMarkup } from '../codex-ref';
-import type { GameState, PageDefinition } from '../types';
+import type { GameState, PageDefinition, WorkshopItem } from '../types';
 
-/** 庇护所加成文案：只写数值，颜色由 CSS 给（等宽小字）。 */
-const campBonusText = (hp: number, attack: number, defense: number): string => `生命 +${hp} · 攻击 +${attack} · 防御 +${defense}`;
+/** 庇护所加成文案：只写数值，颜色由 CSS 给（等宽小字）。
+    数值走 formatNumber —— 等级高了之后这一串会到四位数（见 R03）。
+    **只列真的有加成的那几项**：每级的加成写在 `item.per*` 上，缺省 = 这一项不加成 ——
+    别为了填满形状去写 0，那会在卡片上多出一串「+0」。 */
+const campBonusText = (level: number, item: WorkshopItem): string => {
+  const parts: string[] = [];
+  const push = (label: string, per: number | undefined, unit = ''): void => { const value = levelBonus(level, per || 0); if (value > 0) parts.push(`${label} +${formatNumber(value)}${unit}`); };
+  push('生命', item.perHp); push('攻击', item.perAttack); push('防御', item.perDefense); push('生命回复', item.perRegen, '/秒');
+  return parts.length ? parts.join(' · ') : '尚未开工';
+};
 /** 材料一行：需要 / 现有，由 update 决定标红还是标绿。
     label 有两种：金币不是物品，直接写文字；废料与装甲板是物品表里的物品，传物品引用
     （icon + 名称 + 稀有度色 + 可点开图鉴）。红绿只作用在数值上——标签本身是 muted，
@@ -39,14 +47,12 @@ const page: PageDefinition<any> = {
   locked: (state: GameState) => !isWorkshopUnlocked(state),
   mount(root) {
     const view = root.querySelector<HTMLElement>('#workshop-view')!;
-    /* 后勤小队人数放在最上面一行；冒号后面的数值用 <b> 强调。
-       网格里全是制造项卡，由 update 按解锁状态追加（一开始可能一张都没有：基础城防开局就在，
-       所以正常情况下第一眼就是一张卡）。 */
-    view.innerHTML = `<p class="camp-hint shop-hint">后勤小队：<b data-ref="hint"></b></p>
-      <div class="shop-grid" data-ref="grid"></div>`;
+    /* 网格里全是制造项卡，由 update 按解锁状态追加（一开始可能一张都没有：基础城防开局就在，
+       所以正常情况下第一眼就是一张卡）。
+       小队人数不再在这里单占一行 —— 它在右侧概览栏的资源格里（「后勤小队 待命/总数」）。 */
+    view.innerHTML = `<div class="shop-grid" data-ref="grid"></div>`;
     const grid = view.querySelector<HTMLElement>('[data-ref="grid"]')!;
     const ctx: any = {
-      ...pick(view, 'hint'),
       grid,
       cards: collectCards(grid),
       signature: null
@@ -63,10 +69,6 @@ const page: PageDefinition<any> = {
     return ctx;
   },
   update(state: GameState, ctx: any) {
-    /* 人数的三个来源拆开写：玩家看得见「为什么又多了一个人」，
-       尤其是人口那一项 —— 它来自庇护所事件里救下来的幸存者（见 getLogisticsSources）。 */
-    const sources = getLogisticsSources(state);
-    setText(ctx.hint, `待命 ${getIdleLogistics(state)} / 总数 ${getLogisticsTotal(state)}（主线 ${sources.mainline} · 胜场 ${sources.wins} · 人口 ${sources.population}）`);
     /* 未解锁的制造项不渲染：按解锁状态同步网格，签名变了才重建。 */
     const visibleForts = workshopItems.map((_, id) => id).filter(id => isWorkshopItemUnlocked(id, state));
     const signature = visibleForts.join(',');
@@ -94,7 +96,7 @@ const page: PageDefinition<any> = {
       const owned: Record<string, number> = { gold: state.gold, scrap: state.scrap, plate: state.inventory[ITEM.armorPlate] || 0 };
       const need: Record<string, number> = { gold: cost.gold, scrap: cost.scrap, plate: cost.plate };
       setText(refs.level, `Lv.${level}`);
-      setText(refs.bonus, campBonusText(levelBonus(level, item.perHp), levelBonus(level, item.perAttack), levelBonus(level, item.perDefense)));
+      setText(refs.bonus, campBonusText(level, item));
       refs.mats.forEach((mat: any) => { setText(mat.value, `${formatNumber(need[mat.key])}/${formatNumber(owned[mat.key])}`); setClass(mat.wrap, 'ok', owned[mat.key] >= need[mat.key]); });
       const remaining = getWorkshopRemaining(id, state);
       setText(refs.work, busy ? `总工时 ${getWorkshopWorkTotal(id, state)}，已投入 ${state.campWorkshop[id].work.toFixed(0)}${workers ? `，预计剩余 ${formatDuration(remaining)}` : '，没有人手已暂停'}` : `本级总工时 ${getWorkshopWorkTotal(id, state)}；${workers ? (canStartWorkshop(id, state) ? '材料充足，自动开工中' : '材料不足，等待补给') : '分配人手后自动开工'}`);

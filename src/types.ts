@@ -40,9 +40,9 @@ export interface Item {
   useText?: string;
   /** 纯展示：这道具会给装备附加哪条词条（下标），用来在详情里列出首次 / 重复强化的效果。 */
   grantsAffix?: number;
-  /** 系统物品（剧情任务的奖励：图纸一类）。它是**钥匙**不是行李，所以三条特殊待遇：
-      不占物品栏负载、不能丢弃、只能由剧情任务发放（不进任何 dropTable）。
-      用掉它（右键 → 使用 → 安装浮层）之后才会解锁它对应的工坊项 / 研究项 —— 见 config/campaign.ts。 */
+  /** 系统物品（钥匙一类，不是行李）的两条特殊待遇：**不占物品栏负载、不能丢弃**。
+      ⚠️ 目前没有物品用到它 —— 原来用它的是第二章那两件图纸（已整章移除）。
+      重新引入系统物品时，把「发放 / 使用」那条链路（原 config/campaign.ts + src/install.ts）一起补上。 */
   system?: boolean;
 }
 
@@ -109,7 +109,7 @@ export interface WorkshopItemState { level: number; target: number; work: number
 /** 庇护所：hp 当前生命（脱战时按恢复速度回满）；worksiteProgress 是**已停用**的营垒修筑遗留字段（不再参与任何数值）；
     disasterWins / tideWins 是已通过的天灾、兽潮次数，决定下一场挑战与强度；
     randomTimer 是距离下一次随机事件的剩余秒数；pending* 是已触发、等待响应的事件（kind < 0 表示没有）。 */
-export interface CampState { hp: number; worksiteProgress: number; disasterWins: number; tideWins: number; randomTimer: number; pendingKind: number; pendingId: number; pendingExpires: number;
+export interface CampState { hp: number; worksiteProgress: number; disasterWins: number; tideWins: number; /** 异种通过次数（0 起）：主线「击退第一次异种」看的就是它。同样是**只追加**的存档字段。 */ mutantWins: number; randomTimer: number; pendingKind: number; pendingId: number; pendingExpires: number;
   /** 大事件波次（从 1 起）与本波打到第几场（0 起，对应 game-state 的 CAMP_WAVE_KINDS）。 */
   wave: number; stage: number;
   /** 庇护所人口：事件里救下来的幸存者，每 POP_PER_WORKER 人提供 1 名后勤人手。 */
@@ -126,7 +126,7 @@ export interface CampBattleState { kind: number; id: number; name: string; icon:
     nextInstanceId 单调递增，删掉实例后不复用 id。
     encountered 的下标是敌人表下标，1 表示击杀过（图鉴收录条件）。
     discoveredDrops[enemyId] 是这只怪物已经实际掉落过（玩家拿到手）的物品下标列表，图鉴据此逐条揭示掉落表。 */
-export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; /** 剧情任务进度，下标即 config/campaign.ts 的下标（取值见那里的 QUEST_STATE）。 */ quests: number[]; /** 已经看过的新手指引 id（见 guide.ts 的 GUIDES）。 */ guides: string[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
+export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; /** 逐物品的「不再拾取」开关（成就「精炼初学者」的奖励）：下标即物品下标，1 = 掉到地上也不捡。 */ noPickup: number[]; /** 后续章节的进度，下标即 game-state 的 storyChapters 下标（0 = 第二章）：与 mainlineIndex 同一套写法，下标在前 = 该节已完成。 */ chapters: number[]; /** 每个战斗区域的累计击杀数，下标即区域下标（主线第二章的「在该区域击杀 N 只」读它）。 */ zoneWins: number[]; workshop: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; /** 已经看过的新手指引 id（见 guide.ts 的 GUIDES）。 */ guides: string[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
   devOverrides: number[];
   /** 研究基地：研究点数、当前委托（itemId 为 -1 表示尚未发布）、各研究项等级。 */
   researchPoints: number; /** 当前委托已经刷新过几次：刷新费用按它递增，交委托后归零。 */ researchRefreshCount: number; researchTask: ResearchTaskState; researchLevels: number[]; /** 自动进食：研究项「自动进食」解锁后生效。 */ autoEat: AutoEatState; /** 曾经精炼到 100 级（【极致】）的物品下标。喂掉那件之后依然保留 —— 这是「达成过」的记录，不是持有状态。 */ perfectItems: number[]; }
@@ -160,9 +160,8 @@ export type UseOutcome =
   | { kind: 'done' }                                                          // 已生效（或没有可做的），流程结束
   | { kind: 'pick-equipment' }                                                // 需要玩家点选一件装备
   | { kind: 'pick-affix'; instanceId: number; affixIndices: number[] }        // 有多条可移除的词条，需要玩家选一条
-  /** 系统物品（剧情任务的图纸）：界面开「安装」浮层，代价与谜题都在浮层里处理。
-      **use 本身不消耗** —— 真正的消耗与解锁发生在 installQuest()（见 src/install.ts）。 */
-  | { kind: 'open-install' };
+  /* 第二章移除后没有「开安装浮层」这种结果了（原来是剧情任务的图纸用的）。
+     要重新加系统物品时：这里补一个分支 + 把 src/install.ts 那条链路一起补回来。 */
 /** 使用道具的行为。带 heal 标记的是「食物」—— 自动进食据此筛选，不用另维护一份 id 清单。 */
 export type UseHandler = ((context: UseContext) => UseOutcome) & { heal?: number };
 /** 自动进食：研究项「自动进食」解锁后生效。itemId 为 -1 表示还没指定食物。 */
@@ -184,6 +183,17 @@ export interface MainlineRequirement { text: (state: GameState) => string; done:
 export interface ResearchTaskState { itemId: number; /** 目标区域：任务物品由这个区域的怪物掉落。 */ zoneId: number; need: number; }
 /** condition 由 requirements 推导（全部 done），两处条件不会写歪。 */
 export interface MainlineQuest { title: string; description: string; condition: (state: GameState) => boolean; reward: string; requirements: MainlineRequirement[]; }
+/** 工坊的一个制造项（表在 game-state 的 `workshopItems`）。下标即 `campWorkshop` 的下标，**只能末尾追加**。
+    每级加成按 `per*` 逐项给：缺省 = 这一项不给那种加成（不要为了填满形状写 0 —— 工坊卡片会把它们列出来）。 */
+export interface WorkshopItem {
+  name: string; icon: string; desc: string; unlock: UnlockRule;
+  /** 每级提高的庇护所生命 / 防御 / 攻击。 */
+  perHp?: number; perDefense?: number; perAttack?: number;
+  /** 每级提高的庇护所生命回复（点/秒）。 */
+  perRegen?: number;
+  /** 造价与工时：第 n 级 = base + step × (n - 1)。 */
+  baseWork: number; workStep: number; baseGold: number; goldStep: number; baseScrap: number; scrapStep: number; basePlate: number; plateStep: number;
+}
 /** 成就：约定俗成的三段式——解锁条件（hint）+ 解锁后（reward）。
     secret 为 true 的成就，未解锁时条件一栏只显示「秘密成就，继续探索吧！」，奖励也留白。
     condition 一旦为真就自动解锁并记一条日志（见 game-state 的 checkAchievements）。 */
@@ -221,34 +231,8 @@ export interface HelpSection { title: string; lines: string[]; }
     帮助文案维护在 config/help.ts，键是页面的 id（同时也是标题右侧【帮助】按钮上的 data-help 值）。 */
 export interface HelpPage { name: string; sections: HelpSection[]; }
 
-/* ——— 剧情任务（config/campaign.ts）———
-   一条任务 = 一件系统物品：条件达成 → 自动把物品发进物品栏 → 玩家在物品栏里**使用**它，
-   走完那种安装形态之后，它指向的工坊项 / 研究项才解锁（见 UI开发规范 §7.19）。 */
-/** 安装代价：三种资源都是可选的，缺省 0。 */
-export interface QuestCost { gold?: number; scrap?: number; plate?: number; }
-/** 安装形态 —— **一件物品一种形态**，这是"可插拔"的接缝：
-    新增一种玩法（信号输入、多步确认…）= 这里加一个联合分支 + src/install.ts 加一个渲染分支 + 样式一个块，
-    game-state 的 installQuest() 与剧情任务表都不用动。
-    公平性护栏（写死在规范里）：线索与答案都要能从**浮层里给出的信息**推出来，
-    不依赖游戏外的知识、记忆或跨页查找；答错无惩罚，可以无限重试。 */
-export type QuestInstall =
-  | { mode: 'pay'; cost: QuestCost }                                                                          // 单纯支付资源
-  /** 解读线索：从 hint 与选项里推出答案。cost 可选 —— 要"答对 + 付资源"的双重形态时直接写在这里。 */
-  | { mode: 'choice'; hint: string; options: { id: number; label: string }[]; answer: number; cost?: QuestCost };
-export interface CampaignQuest {
-  /** 奖励物品（config/items.ts 里 category: 'consumable' + system: true 的那件）。 */
-  itemId: number;
-  /** 任务名（和物品名保持一致，两处写的是同一件事）。 */
-  name: string;
-  icon: string;
-  /** 右上的小标签，如 'QUEST 01'。 */
-  kicker: string;
-  /** 达成条件：和区域解锁同一套规则（跑 config/unlock.ts 的 unlockBy。**条件原文只写在这里**）。 */
-  requirement: UnlockRule;
-  install: QuestInstall;
-  /** 世界观描述，显示在档案与安装浮层里。 */
-  desc: string;
-}
-/* ⚠️ 「这条任务解锁了哪一项」**不写在这里**，而是写在被解锁的那一项上（`workshopItems[].quest` /
-   `researchItems[].quest`）。理由：条目表住在 game-state，campaign 表不能反向依赖它（会成环）；
-   反查由 game-state 的 questTarget() 提供，档案页 / 图鉴 / 物品详情共用那一处。 */
+/* ——— 剧情任务（第二类「远征档案」章节）已整章移除 ———
+   原来这里放 QuestCost / QuestInstall / CampaignQuest 三个类型，配套的是
+   config/campaign.ts（任务表）、src/install.ts（安装浮层）、items.ts 的两件系统物品，
+   以及 game-state 里的 getQuestState / canInstallQuest / installQuest / checkQuests。
+   要重新做这条线时，按同样的形状补回来即可（跨域接缝的位置见 UI开发规范 §7.19）。 */

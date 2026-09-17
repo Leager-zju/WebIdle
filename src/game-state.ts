@@ -1,7 +1,6 @@
 import { zones, enemyTable, ENEMY, ZONE, zoneOfEnemy, zoneOfMap, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
-import { mapSets, MAP, MAP_STATE, fragmentMapOf, mapOfEventKind } from './config/maps';
-import { setMainlineTitles, setQuestNames, unlockBy, QUEST_STATE } from './config/unlock';
-import { campaignQuests, QUEST, questOfItem } from './config/campaign';
+import { mapSets, MAP, MAP_STATE, fragmentMapOf } from './config/maps';
+import { setMainlineTitles, setMainlineCount, setChapterTitles, unlockBy } from './config/unlock';
 import { sets, setTable, SET, setOfZone, setOfItem } from './config/sets';
 import { items, ITEM, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, SOLVENT_IDS } from './config/items';
 import { affixes, AFFIX, affixCap, affixMarkup, affixCategoryClass, affixCategories, AFFIX_CATEGORY, skills, SKILL, AFFIX_MAX_MULTIPLIER } from './config/affixes';
@@ -12,8 +11,8 @@ import { CAMP_EVENT, randomEventDefs, campEventDef } from './config/events';
    - 进存档（日志的 message）：写 itemTag / enemyTag / zoneTag 标记，渲染时由 renderCodexTags 解析；
    - 不进存档（主线条件文案，每次都由 text() 现算）：直接用 itemRefMarkup 拼出 HTML。
    存档里不能存 HTML，所以日志那条路必须走标记。 */
-import { itemTag, itemRefMarkup, enemyTag, zoneTag, pageRefMarkup } from './codex-ref';
-import type { Achievement, AdventureState, AutoEatState, CampBattleState, EquipmentInstance, GameState, LogType, MainlineQuest, MainlineRequirement, QuestCost, ResearchTaskState, SetBonus, SettingsState, UnlockRule, UseOutcome } from './types';
+import { itemTag, itemRefMarkup, enemyTag, zoneTag, zoneRefMarkup, pageRefMarkup } from './codex-ref';
+import type { Achievement, AdventureState, AutoEatState, CampBattleState, EquipmentInstance, GameState, LogType, MainlineQuest, MainlineRequirement, ResearchTaskState, SetBonus, SettingsState, UnlockRule, UseOutcome, WorkshopItem } from './types';
 
 export const MAX_OFFLINE_SECONDS = 8 * 60 * 60;
 
@@ -107,16 +106,21 @@ function devOverride(index: number, target: GameState): number | null {
   const value = target.devOverrides?.[index];
   return typeof value === 'number' && value >= 0 ? value : null;
 }
-export { zones, enemyTable, items, ITEM, ENEMY, ZONE, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, affixes, AFFIX, affixCap, affixMarkup, skills, SKILL, AFFIX_MAX_MULTIPLIER, CAMP_EVENT, randomEventDefs, sets, setTable, SET, setOfItem, setOfZone, mapSets, MAP, MAP_STATE, fragmentMapOf, mapOfEventKind, zoneOfMap, campaignQuests, QUEST, QUEST_STATE, questOfItem };
+export { zones, enemyTable, items, ITEM, ENEMY, ZONE, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, affixes, AFFIX, affixCap, affixMarkup, skills, SKILL, AFFIX_MAX_MULTIPLIER, CAMP_EVENT, randomEventDefs, sets, setTable, SET, setOfItem, setOfZone, mapSets, MAP, MAP_STATE, fragmentMapOf, zoneOfMap };
 
 /* 主线节点的标题注入给 config/unlock.ts：那边的 unlockBy.mainline() 要把节点名写进解锁文案，
    而它不能反向 import 本模块（zones → unlock → game-state 会成环）。注入式做法同 codex-ref 的
    setWikiUnlocked —— 启动时给一次，之后按需取用。 */
 setMainlineTitles(index => mainline[index - 1]?.title || '');
-/* 剧情任务名同理：unlockBy.quest() 的文案要写任务名，而 config/campaign.ts 依赖 unlock.ts。 */
-setQuestNames(index => campaignQuests[index]?.name || '');
+/* 章节名 / 节名同理（注入式，理由同上）：`unlockBy.chapter()` 的文案要写
+   「完成第 2 章「愈深之处」的第 1 节「扫清矿脉」」。**章号与节号都从 1 起**。 */
+setChapterTitles(
+  chapter => chapter <= 1 ? FIRST_CHAPTER.title : storyChapters[chapter - 2]?.title || '',
+  (chapter, node) => (chapter <= 1 ? mainline : storyChapters[chapter - 2]?.nodes || [])[node - 1]?.title || ''
+);
 
-/** 初始区域：庇护所（不刷怪，只休整）。 */
+/** 庇护所区域（不刷怪，只休整）。⚠️ 它**不是初始区域**：开局是「原地待命」（`adventure.zoneId = -1`），
+    点亮第一座营火之后远征队才入驻这里（见 updateMainline 末尾的入驻逻辑与 isCampUnlocked）。 */
 const CAMP_ZONE_ID = ZONE.camp;
 /** 初始战斗区域与初始敌人。 */
 const FIRST_COMBAT_ZONE_ID = ZONE.wasteBorder;
@@ -127,8 +131,15 @@ const progressText = (current: number, need: number): string => `${Math.min(Math
 /** 组一个主线节点：condition 由 requirements 推导，具体条件只写一处。 */
 const quest = (title: string, description: string, reward: string, requirements: MainlineRequirement[]): MainlineQuest => ({ title, description, reward, requirements, condition: (state: GameState) => requirements.every(entry => entry.done(state)) });
 
+/** 第一章的展示名（档案页的章节树用它）。后续章节的 kicker / 标题跟着 storyChapters 走 ——
+    两处都不做备份，避免改一半。 */
+export const FIRST_CHAPTER = { kicker: 'CHAPTER 01 / ASHEN ROAD', title: '灰烬之路' };
+
 export const mainline: MainlineQuest[] = [
-  quest('点亮第一座营火', '让远征队完成第一次战斗，确认荒原边缘仍然可以被穿越。', '获得初始远征资格', [
+  /* 这是**真解锁**：清完怪物挣下一片安全区域 → 幸存者开始建立家园。
+     庇护所页面与区域都挂在这一节上（区域规则 `unlockBy.mainline(1)`，页面读 isCampUnlocked），
+     做完它远征队还会从「原地待命」自动入驻庇护所（见 updateMainline 末尾）。 */
+  quest('点亮第一座营火', '让远征队完成第一次战斗，确认荒原边缘仍然可以被穿越。', '解锁「庇护所」，幸存者开始建立自己的家园', [
     { text: (state: GameState) => `击杀${pageRefMarkup('enemies', '任意怪物')} ${progressText(state.totalWins, 1)} 只`, done: (state: GameState) => state.totalWins >= 1 }
   ]),
   quest('清理废弃边境', '击退一批盘踞在旧哨站的机械单位，庇护所才有空间继续扩建。', '解锁「工坊」系统', [
@@ -143,13 +154,107 @@ export const mainline: MainlineQuest[] = [
   quest('追踪核心信号', '余烬碎片正在指向更深处的区域。第一章的下一段道路已经出现。', '解锁研究项「信号放大 I」', [
     { text: (state: GameState) => `收集${itemRefMarkup(ITEM.emberShard)} ${progressText(state.inventory[ITEM.emberShard], 2)} 个`, done: (state: GameState) => state.inventory[ITEM.emberShard] >= 2 }
   ]),
-  quest('抵御第一场天灾', '把工坊造出来的城防和后勤小队都压上去，让庇护所在沙暴里站住。', '庇护所进入长期战备，荒野开始注意到这里（解锁随机事件）', [
+  /* ⚠️ 「解锁后」必须把这一节解锁的**所有**系统都点名：随机事件与勘探图共用同一个门槛
+     （isCampEventTimerRunning / isAtlasUnlocked 都读 mainlineIndex >= 6），
+     而这一行是玩家在**做这一节时**能看到的唯一预告（远征档案右栏 + 概览栏的主线卡）——
+     勘探图原来就漏在这里，玩家只能等解锁那一刻的提示条。 */
+  quest('抵御第一场天灾', '把工坊造出来的城防和后勤小队都压上去，让庇护所在沙暴里站住。', '庇护所进入长期战备，荒野开始注意到这里（解锁随机事件、研究基地「勘探图」）', [
     { text: (state: GameState) => `成功应对天灾 ${progressText(state.camp.disasterWins, 1)} 次`, done: (state: GameState) => state.camp.disasterWins >= 1 }
   ]),
-  quest('击退第一次兽潮', '兽潮不打算绕路。庇护所攻防与工坊造出来的城防决定了这堵墙能不能撑到最后。', '完成庇护所战备阶段', [
+  /* 兽潮是这一波的第 2 场（天灾 → 兽潮 → 异种）。「勘探仪」挂在这一节上：
+     它要的是「第一章全通」这个语义，而第一章的最后一节是 1-8 —— 别把它改挂到别的节点上。 */
+  quest('击退第一次兽潮', '兽潮不打算绕路。庇护所攻防与工坊造出来的城防决定了这堵墙能不能撑到最后。', '完成庇护所战备阶段（解锁研究项「勘探仪」）', [
     { text: (state: GameState) => `成功应对兽潮 ${progressText(state.camp.tideWins, 1)} 次`, done: (state: GameState) => state.camp.tideWins >= 1 }
+  ]),
+  /* 第一章真正的收尾：一波三场全打完，荒野才算暂时安静下来，第二章从这里接上。
+     ⚠️ 它是**最后一条** —— 第一章的节点只能往这里追加（R24：下标即存档值，不能插队）。 */
+  quest('击退第一次异种', '荒野深处的东西终于亲自来了。它比天灾与兽潮更懂得挑防线的缝隙。', '幸存者士气高涨，为了更好的明天而战（解锁第二章「愈深之处」）', [
+    { text: (state: GameState) => `成功应对异种 ${progressText(state.camp.mutantWins, 1)} 次`, done: (state: GameState) => state.camp.mutantWins >= 1 }
   ])
 ];
+
+/* ——— 远征档案：第二章起的章节表 ———
+   第一章的节点就是 `mainline`（进度 = `mainlineIndex`）；这里放**第一章之后**的每一章，
+   进度存在 `state.chapters[chapter - 2]`（0 = 还没开始那一章），写法与 mainlineIndex 一致：
+   **下标在前 = 该节已完成**。章号从 1 起（第一章 = 1），与玩家看到的编号一致。
+
+   两条铁律（R31，别再走第二章的老路）：
+   1. **章内严格顺序推进** —— 上一节没做完，下一节就是 `???`，条件一个字都不许露；
+   2. **整章要等前面每一章都走完才出现**（见 isChapterVisible，唯一判定点）。
+
+   第二章起的基调是「区域探索 + 后面的 Boss」：节点要求都是「在某个区域刷够击杀数 + 收够常规掉落物」，
+   数值刻意往大里放 —— 第一章教玩法，从第二章开始是**放置**。
+   ⚠️ 收集项**只用怪物 dropTable 里的常规材料**（余烬碎片 / 装甲板 / 余烬核心…），
+   **不要用任务物品**：那三种只在研究基地的委托指向该区域时才掉，等于把一条玩家控制不了的线绑进主线。
+   Boss（2-4 之后的内容）还没做，所以 2-3 的「解锁 BOSS 区域」暂时只有文案、没有机制（见那一节的注释与 §7.19）。
+
+   新增一章 = 往这个数组**末尾**追加一条；新增一节 = 往那一章的 nodes 末尾追加。 */
+export const storyChapters: { kicker: string; title: string; nodes: MainlineQuest[] }[] = [
+  {
+    kicker: 'CHAPTER 02 / DEEPER STILL', title: '愈深之处',
+    nodes: [
+      /* 2-1：余烬矿脉。两个要求：在该区域刷够击杀 + 收集**该区独占的掉落物**。
+         ⚠️ 只用怪物 dropTable 里的东西，**不要用任务物品**：结晶样本那三种只在研究基地的委托指向该区域时
+         才掉，把委托状态绑进主线，玩家会被一条自己控制不了的线卡住（见 §7.19）。
+         ⚠️ 收集项要选**这一区独占**的：「余烬碎片」原来用在这里，但废弃边境的「重装拾荒者」也会掉它 ——
+         那是第一章「追踪核心信号」的出口（那一节在 1-6 之前就要凑够 2 个），它不算余烬矿脉的特产，
+         于是换成只有余烬水蛭掉的「生命之种」。它同时是「强化」消耗品（刻「坚韧」）：收集项只数库存、
+         用掉就退进度 —— 与 2-3 的「余烬核心」同一种取舍，刻意留着。
+         数值口径：3 秒一只 ≈ 1200 杀/小时；生命之种 = 余烬水蛭 5%、五只轮换 → 每杀约 1% ≈ 12~14 个/小时。 */
+      quest('扫清矿脉', '矿道比地图上画得深得多。把还在动的结晶化单位清掉，顺手把那些缓缓搏动的种荚带回来。', '解锁工坊制造「医护帐篷」', [
+        { text: (state: GameState) => `在${zoneRefMarkup(ZONE.emberVein)}击杀怪物 ${progressText(state.zoneWins[ZONE.emberVein] || 0, 1200)} 只`, done: (state: GameState) => (state.zoneWins[ZONE.emberVein] || 0) >= 1200 },
+        { text: (state: GameState) => `收集${itemRefMarkup(ITEM.lifeSeed)} ${progressText(state.inventory[ITEM.lifeSeed], 35)} 个`, done: (state: GameState) => state.inventory[ITEM.lifeSeed] >= 35 }
+      ]),
+      /* 2-2：核心深井（每小时约产装甲板 1440）。 */
+      quest('下探深井', '井壁上的读数越来越密。再往下走一段，信号就清晰到能被认出来了。', '解锁研究项「回收精炼」', [
+        { text: (state: GameState) => `在${zoneRefMarkup(ZONE.coreDeep)}击杀怪物 ${progressText(state.zoneWins[ZONE.coreDeep] || 0, 1800)} 只`, done: (state: GameState) => (state.zoneWins[ZONE.coreDeep] || 0) >= 1800 },
+        { text: (state: GameState) => `收集${itemRefMarkup(ITEM.armorPlate)} ${progressText(state.inventory[ITEM.armorPlate], 4000)} 片`, done: (state: GameState) => state.inventory[ITEM.armorPlate] >= 4000 }
+      ]),
+      /* 2-3：熔火裂谷（每小时约产余烬核心 50 —— 这一节刻意最长，是给「放一晚上」的那一段）。
+         ⚠️ 奖励只有文案 —— 「BOSS 区域」还没做（见 storyChapters 的注释）。
+         等 Boss 落地时：给这一节补一个 boss 区域的解锁规则，并把文案里的「尚未开放」去掉。 */
+      quest('穿过裂谷', '裂谷尽头不是尽头，是一扇门。门后的东西从很早就开始听着这片荒野。', '裂谷尽头的路已经打开，但那边的东西还没有露面（BOSS 区域尚未开放）', [
+        { text: (state: GameState) => `在${zoneRefMarkup(ZONE.magmaRift)}击杀怪物 ${progressText(state.zoneWins[ZONE.magmaRift] || 0, 2400)} 只`, done: (state: GameState) => (state.zoneWins[ZONE.magmaRift] || 0) >= 2400 },
+        { text: (state: GameState) => `收集${itemRefMarkup(ITEM.emberCore)} ${progressText(state.inventory[ITEM.emberCore], 250)} 个`, done: (state: GameState) => state.inventory[ITEM.emberCore] >= 250 }
+      ])
+      /* 2-4「打 Boss」：等 Boss 区域做好之后再追加（Boss 要先有 `Zone.kind = 'boss'`，见庇护所扩展方案 §4.6）。 */
+    ]
+  }
+];
+
+/* ——— 章节查询：界面与解锁规则都走这几个函数，不要各自去读 `state.chapters` ——— */
+/** 某章的进度（已完成几节）。**章号从 1 起**：1 = 第一章，2 = 第二章… */
+export function getChapterProgress(chapter: number, target: GameState = state): number {
+  if (chapter <= 1) return Math.min(Math.max(0, target.mainlineIndex), mainline.length);
+  const index = chapter - 2;
+  const nodes = storyChapters[index]?.nodes.length || 0;
+  return Math.min(Math.max(0, Math.floor(Number(target.chapters?.[index]) || 0)), nodes);
+}
+/** 某章一共几节。 */
+export function getChapterNodeCount(chapter: number): number { return chapter <= 1 ? mainline.length : storyChapters[chapter - 2]?.nodes.length || 0; }
+/** 某章是否已经**全部**走完。 */
+export function isChapterDone(chapter: number, target: GameState = state): boolean { return getChapterProgress(chapter, target) >= getChapterNodeCount(chapter); }
+/** 某章是否已出现：**前面每一章都走完**才出现（第一章永远在）。这是章节可见性的唯一判定点。 */
+export function isChapterVisible(chapter: number, target: GameState = state): boolean {
+  for (let index = 1; index < chapter; index++) if (!isChapterDone(index, target)) return false;
+  return true;
+}
+/** 某章第 nodeIndex 节是否已完成（nodeIndex **从 0 起**，与 `index < mainlineIndex` 同一套写法）。 */
+export function isStoryNodeDone(chapter: number, nodeIndex: number, target: GameState = state): boolean { return nodeIndex < getChapterProgress(chapter, target); }
+/** 当前正在进行的那一节（跨章）：第一章没走完就是第一章的当前节，之后接到第二章、第三章……
+    全部走完返回 null（概览栏与档案页的「阶段完成」文案看它）。 */
+export function currentStoryNode(target: GameState = state): { chapter: number; index: number; node: MainlineQuest } | null {
+  for (let chapter = 1; chapter <= storyChapters.length + 1; chapter++) {
+    if (!isChapterVisible(chapter, target)) return null;
+    const progress = getChapterProgress(chapter, target);
+    const nodes = chapter <= 1 ? mainline : storyChapters[chapter - 2].nodes;
+    if (progress < nodes.length) return { chapter, index: progress, node: nodes[progress] };
+  }
+  return null;
+}
+/* 节点数注入给 config/unlock.ts 的 unlockBy.mainlineDone()（「第一章全通」）：
+   它必须等到数组建好才读得到长度，所以放在这里而不是上面那组注入里。 */
+setMainlineCount(mainline.length);
 
 /* ——— 庇护所 / 后勤小队 / 工坊制造 ———
    庇护所不直接升级，它靠「其他系统」变强：工坊把资源造成实物（基础城防），后勤小队把人力换成进度。
@@ -193,18 +298,25 @@ const CAMP_EVENT_BASE: Record<number, { hp: number; attack: number; defense: num
 /** 人口换算：每 3 人提供 1 名后勤。人口只来自事件奖励（救下来的人）。 */
 export const POP_PER_WORKER = 3;
 /** 工坊的制造项：下标即 state.campWorkshop 的下标，追加新项要放在末尾。
-   `unlock` 是**可组合的解锁规则**（见 config/unlock.ts）：主线、剧情任务、任意组合都行 ——
-   判定只有 isWorkshopItemUnlocked 一处，页面 / 后勤自动流程 / 图鉴都读它。
-   `quest` 表示这一项由哪条剧情任务解锁（反查用：档案页 / 图鉴 / 物品详情都要说「用它能开出什么」）。 */
-export const workshopItems = [
+   `unlock` 是**可组合的解锁规则**（见 config/unlock.ts）：主线、地图、波次、任意组合都行 ——
+   判定只有 isWorkshopItemUnlocked 一处，页面 / 后勤自动流程 / 图鉴都读它。 */
+export const workshopItems: WorkshopItem[] = [
   { name: '基础城防', unlock: unlockBy.mainline(0), icon: '🛡️', desc: '加固庇护所外围的挡墙与射击位。每级提高庇护所生命、防御与攻击。', perHp: 25, perDefense: 2, perAttack: 1.5, baseWork: 40, workStep: 30, baseGold: 60, goldStep: 45, baseScrap: 20, scrapStep: 15, basePlate: 1, plateStep: .5 },
   /* 第二支小队到位后才有人值守：弩台偏攻击，造价与工时都比城防高一档。
-     两条路都能开：主线推到第 4 个节点，或在档案里做完「哨塔蓝图」。
-     ⚠️ 用 any 并行、**不要**换成只留 quest —— 老存档可能已经把它造到好几级，
-     只留任务这条路会让它从工坊里凭空消失（而等级还在给它加数值）。 */
-  { name: '哨戒弩台', unlock: unlockBy.any(unlockBy.mainline(4), unlockBy.quest(QUEST.sentryBlueprint)), quest: QUEST.sentryBlueprint, icon: '🏹', desc: '在庇护所四角架起自动弩台。每级提高庇护所攻击，并小幅提高防御与生命。',
-    perHp: 10, perDefense: 1, perAttack: 3, baseWork: 55, workStep: 35, baseGold: 90, goldStep: 70, baseScrap: 30, scrapStep: 22, basePlate: 2, plateStep: .7 }
+     解锁只看主线第 4 个节点 —— 原来还有一条「装好哨塔蓝图」的并行通道（第二章已移除）：
+     那条通道生效的前提就是第一章走完，所以任何走通它的存档此时 mainlineIndex ≥ 7，
+     砍掉那条路不会让任何人的弩台凭空消失（R24 / §7.15 的老存档顾虑在这条上不成立）。 */
+  { name: '哨戒弩台', unlock: unlockBy.mainline(4), icon: '🏹', desc: '在庇护所四角架起自动弩台。每级提高庇护所攻击，并小幅提高防御与生命。',
+    perHp: 10, perDefense: 1, perAttack: 3, baseWork: 55, workStep: 35, baseGold: 90, goldStep: 70, baseScrap: 30, scrapStep: 22, basePlate: 2, plateStep: .7 },
+  /* 第二章第 1 节「扫清矿脉」的奖励：庇护所的生命回复。造价与工时比弩台再高一档 —— 它是第二章的产出。
+     ⚠️ 解锁规则**故意不给 notice**（同勘探仪）：解锁提示手写在 unlockNotices 的末尾，见那条注释。 */
+  { name: '医护帐篷', unlock: unlockBy.chapter(2, 1), icon: '⛑️', desc: '给伤员一个干净的地方躺着。每级提高庇护所的生命恢复速度。', perRegen: .75,
+    baseWork: 70, workStep: 45, baseGold: 120, goldStep: 95, baseScrap: 40, scrapStep: 30, basePlate: 3, plateStep: 1 }
 ];
+/** 制造项的下标（`workshopItems` 的下标，**只能末尾追加**）。老代码里还有 `campWorkshop[0]` 这类字面量，
+    新代码一律走这个名字 —— 免得再出现「第 2 项到底是哪个」要靠数数。 */
+export const WORKSHOP_ITEM = { fort: 0, ballista: 1, healer: 2 };
+
 /** 后勤小队的可分配去处：下标即 state.logistics.assigned 的下标，**顺序不能动**。
     每个制造项各占一个下标（见 fortSlot）—— 人手是「派给这一项的人」，不是工坊共用一个池子：
     分给弩台的人不会跑去修城防，两项也就能同时开工。
@@ -276,8 +388,8 @@ export function refreshResearchTask(): boolean {
   return true;
 }
 /** 研究项：下标即 state.researchLevels 的下标，追加新项要放在末尾。
-    `unlock` 与工坊的制造项同一套规则（可组合）；`quest` 表示由哪条剧情任务解锁。 */
-export const RESEARCH_ITEM = { taskNeed: 0, reward: 1, autoEat: 2, surveyor: 3 };
+    `unlock` 与工坊的制造项同一套规则（可组合）。 */
+export const RESEARCH_ITEM = { taskNeed: 0, reward: 1, autoEat: 2, surveyor: 3, recycle: 4 };
 export const researchItems = [
   {
     name: '任务需求降低 I', icon: '📉', maxLevel: 10, unlock: unlockBy.mainline(3),
@@ -295,24 +407,29 @@ export const researchItems = [
     desc: '把口粮分发流程固化下来：远征队会在生命值过低时自己吃掉指定的食物。',
     effect: (level: number): string => level ? '已解锁：在冒险页指定食物与触发阈值' : '尚未研究：研究后可在冒险页指定食物与触发阈值'
   },
-  /* 唯一一个**只靠剧情任务**解锁的研究项：条件是「装好测绘仪零件」（远征档案第二章「余烬之外」）。 */
+  /* 解锁时机 = 击退第一次兽潮（第一章第 7 节，原来是靠剧情任务「装好测绘仪零件」）。
+     ⚠️ **别改挂到「第一章全通」**：1-8 是后加的一节，改挂会把「打完兽潮、还没打异种」的存档
+     重新锁上（研究等级还在、那一项却从列表里消失）。
+     ⚠️ 这条规则**故意不给 notice**：解锁提示手写在 unlockNotices 的末尾 —— 带上 notice 会被
+     entryNotices 收进研究项那一组、插到表的中段，旧存档的 notices 下标会整体错位（见 §6.12）。 */
   {
-    name: '勘探仪', icon: '🧭', maxLevel: 3, unlock: unlockBy.quest(QUEST.surveyParts), quest: QUEST.surveyParts,
+    name: '勘探仪', icon: '🧭', maxLevel: 3,
+    /* 判据用「兽潮通过次数」而不是节点下标：语义就是这一条任务，也不写死第几节。 */
+    unlock: { text: () => '完成主线「击退第一次兽潮」', done: target => target.camp.tideWins >= 1 },
     desc: '把带回来的仪表装进基地：勘探队出发前能先算一遍路线。',
     effect: (level: number): string => level ? `勘探远征的成功率 +${level * 5}%` : '尚未研究：研究后每级让勘探远征的成功率 +5%'
+  },
+  /* 第二章第 2 节「下探深井」的奖励：掉落的装备有概率多一级精炼（掷点在 zoneDropRefine）。
+     ⚠️ 解锁规则同样**故意不给 notice**（解锁提示手写在 unlockNotices 的末尾，见那条注释）。 */
+  {
+    name: '回收精炼', icon: '♻️', maxLevel: 10, unlock: unlockBy.chapter(2, 2),
+    desc: '把战利品里还能用的部件拆下来，当场补到新装备上。',
+    effect: (level: number): string => level ? `掉落的装备有 ${level}% 概率精炼等级 +1` : '尚未研究：研究后每级让掉落的装备有 1% 概率精炼等级 +1'
   }
 ];
 /** 研究项是否已解锁（**唯一判定点**）：没解锁时卡片锁着、点了也没反应（见 UI开发规范 §6.11）。 */
 export function isResearchItemUnlocked(id: number, target: GameState = state): boolean { return !!researchItems[id] && researchItems[id].unlock.done(target); }
-/** 这条剧情任务装上之后解锁了哪一项（反查：档案页 / 图鉴 / 物品详情三处共用）。
-    没找到返回 null —— 任务表与该条目上的 quest 字段必须成对，漏写只影响展示，不影响解锁。 */
-export function questTarget(index: number): { kind: 'workshop' | 'research'; id: number; name: string; icon: string } | null {
-  const workshopId = workshopItems.findIndex(entry => entry.quest === index);
-  if (workshopId >= 0) return { kind: 'workshop', id: workshopId, name: workshopItems[workshopId].name, icon: workshopItems[workshopId].icon };
-  const researchId = researchItems.findIndex(entry => entry.quest === index);
-  if (researchId >= 0) return { kind: 'research', id: researchId, name: researchItems[researchId].name, icon: researchItems[researchId].icon };
-  return null;
-}
+
 /** 一份委托的研究点数：基础值 + 「信号放大」等级。奖励不再随区域或难度浮动 ——
     越深的区域靠怪物本身的金币与掉落拉开收益差，不需要再加一层倍率。 */
 export function getResearchReward(target: GameState = state): number {
@@ -414,13 +531,14 @@ export function assignLogistics(index: number, delta: number): void {
 /* ——— 庇护所数值：基础值 + 工坊制造项（城防 / 弩台）的等级加成。
    这里是庇护所变强的**唯一一条通道** —— 它要花材料，所以推进节奏由资源说了算（见 logisticsTargets）。 */
 /** 工坊所有制造项的等级加成之和：按各自等级 × 各自系数累加。 */
-function workshopBonus(target: GameState, key: 'perHp' | 'perAttack' | 'perDefense'): number {
-  return workshopItems.reduce((total, item, id) => total + levelBonus(target.campWorkshop[id]?.level || 0, item[key]), 0);
+function workshopBonus(target: GameState, key: 'perHp' | 'perAttack' | 'perDefense' | 'perRegen'): number {
+  return workshopItems.reduce((total, item, id) => total + levelBonus(target.campWorkshop[id]?.level || 0, item[key] ?? 0), 0);
 }
 export function getCampMaxHp(target: GameState = state): number { return Math.round(CAMP_BASE.hp + workshopBonus(target, 'perHp')); }
 export function getCampAttack(target: GameState = state): number { return Math.round(CAMP_BASE.attack + workshopBonus(target, 'perAttack')); }
 export function getCampDefense(target: GameState = state): number { return Math.round(CAMP_BASE.defense + workshopBonus(target, 'perDefense')); }
-export function getCampRegen(target: GameState = state): number { return 1.5; }
+/** 庇护所每秒回多少生命：基础 1.5 + 工坊「医护帐篷」每级 +0.75。 */
+export function getCampRegen(target: GameState = state): number { return 1.5 + workshopBonus(target, 'perRegen'); }
 export function getCampHp(target: GameState = state): number { return Math.max(0, Math.min(getCampMaxHp(target), target.camp.hp)); }
 /* ——— 工坊制造 ——— */
 /** 这一级需要的总工时；实际耗时 = 总工时 ÷ 分配人数（见 getWorkshopRemaining）。 */
@@ -573,7 +691,7 @@ export function getExpedition(target: GameState = state): { mapId: number; name:
     **出发时算一次并锁进存档**，途中等候区再招到人也不改这一趟的结果。 */
 export function getExpeditionRate(target: GameState = state): number {
   const extra = Math.max(0, getIdleLogistics(target) - EXPEDITION.minWorkers);
-  /* 研究项「勘探仪」（剧情任务奖励解锁的那一项）也加成：等级越高，越不靠人多。 */
+  /* 研究项「勘探仪」也加成：等级越高，越不靠人多。 */
   const research = getResearchLevel(RESEARCH_ITEM.surveyor, target) * EXPEDITION.ratePerResearch;
   return Math.min(EXPEDITION.maxRate, EXPEDITION.baseRate + extra * EXPEDITION.ratePerWorker + research);
 }
@@ -623,22 +741,30 @@ function resolveExpedition(target: GameState): void {
     addLog(target, `勘探队照着${name}走了一圈，没找到能过去的路。地图还在，可以再派一次。`, 'defeat');
   }
 }
-/** 掉一片地图碎片：**大事件按事件类型分套**（哪张图由什么事件产出见 config/maps.ts），
-    每场给那一套里**还没拿到手的第一片**；三片齐了就停，拼好之后更不再掉 ——
+/** 掉一片地图碎片：**按波次分套** —— 第 1 波的大事件掉「矿脉图纸」、第 2 波掉「深井剖面」、第 3 波掉「裂谷坐标」，
+    三套都发过一遍之后掉任意还没集齐的那一套；那一套集齐了就换下一套、全齐了就不再掉 ——
     免得背包里堆一堆没有出口的碎片。
-    **随机事件不挑套，补最靠前的那个缺口**：随机事件每小时来一次、和波次进度无关，
+    每场给选定那一套里**还没拿到手的第一片**（不会重复发）。
+    **随机事件不挑波次，补最靠前的那个缺口**：随机事件每小时来一次、和波次进度无关，
     卡在某一波的玩家因此还有一条靠时间慢慢磨的路（放置游戏该有的兜底节奏）。
     返回这一场新拿到的碎片物品下标；没掉返回 -1。
 
+    ⚠️ **不要再退回「按事件类型分套」**（天灾 → 矿脉图纸 / 兽潮 → 深井剖面 / 异种 → 裂谷坐标）：
+    那样每一波的天灾都在发同一套，第二、三张图只能等「兽潮」「异种」那两个特定场次 ——
+    区域解锁的顺序（矿脉 → 深井 → 裂谷）会和波次进度错开，玩家得反复等同一场（见 UI开发规范 §7.17）。
+
     **勘探图还没解锁时不掉**（同任务物品的那道闸门）：大事件开局就能打，但那时候玩家
     还不知道碎片是干什么用的，掉出来只会白占物品栏、还得反过来解释它是干嘛的。 */
-function grantMapFragment(target: GameState, kind: number): number {
+function grantMapFragment(target: GameState): number {
   if (!isAtlasUnlocked(target)) return -1;
   const needs = (mapId: number): boolean => getMapState(mapId, target) === MAP_STATE.none
     && mapSets[mapId].tiles.some(entry => !(target.inventory[entry.itemId] > 0));
-  const mapId = kind === CAMP_EVENT.random ? mapSets.findIndex((_, id) => needs(id)) : mapOfEventKind(kind);
+  /* 先看这一波该发的那一套（波次从 1 起，套按下标 0 起），那一套齐了就退到「任意还没集齐的一套」。 */
+  const byWave = campWave(target) - 1;
+  const mapId = needs(byWave) ? byWave : mapSets.findIndex((_, id) => needs(id));
   if (mapId < 0 || !needs(mapId)) return -1;
-  const tile = mapSets[mapId].tiles.find(entry => !(target.inventory[entry.itemId] > 0));
+  /*「不再拾取」在这一条通道也生效：残片装进包里的那一步同样要过闸门（关掉它等于自己放弃那张图）。 */
+  const tile = mapSets[mapId].tiles.find(entry => !(target.inventory[entry.itemId] > 0) && !isItemNoPickup(entry.itemId, target));
   if (!tile) return -1;
   target.inventory[tile.itemId] += 1;
   trimInventoryOverflow(target, tile.itemId);
@@ -660,7 +786,12 @@ export function markChangelogSeen(version: string): void {
    条件一旦为真就自动解锁并记一条日志。目前只有「开始游戏」这一条。 */
 export const achievements: Achievement[] = [
   { id: 'start', name: '开始游戏', icon: '💋', hint: '进入游戏', reward: '作者的一个飞吻', condition: () => true },
-  { id: 'firstBlood', name: '初次冒险', icon: '⚔️', hint: '首次击杀一个怪物', reward: '解锁【图鉴】', condition: (target: GameState) => target.totalWins >= 1, rewardUnlock: { id: 'wiki', icon: '📖', category: '系统', name: '图鉴' } }
+  { id: 'firstBlood', name: '初次冒险', icon: '⚔️', hint: '首次击杀一个怪物', reward: '解锁【图鉴】', condition: (target: GameState) => target.totalWins >= 1, rewardUnlock: { id: 'wiki', icon: '📖', category: '系统', name: '图鉴' } },
+  /* 两条【精炼】成就。判据都从 perfectItems 现算（那是「达成过」的记录，喂掉那件也保留）：
+     一件极致 → 图鉴的物品页多一个「不再拾取」开关；一套全极致 → 掉落时精炼 +1 的概率 +2%。
+     ⚠️ 第二条的奖励在 zoneDropRefine 里生效，别把判据写在那里 —— 成就是成、掉落是掉落。 */
+  { id: 'refineFirst', name: '精炼初学者', icon: '🔩', hint: '把任意一件装备培养到【极致】（精炼 +100）', reward: '图鉴的物品页多一个「不再拾取」开关：关掉之后那件东西掉在地上也不进物品栏', condition: (target: GameState) => (target.perfectItems?.length || 0) > 0 },
+  { id: 'refineMaster', name: '精炼专家', icon: '⚙️', hint: '把任意一套套装的全部部件都培养到【极致】', reward: '所有装备在掉落时额外 +2% 概率精炼等级 +1', condition: (target: GameState) => setTable.some(entry => entry.pieces.length > 0 && entry.pieces.every(itemId => isPerfectItem(itemId, target))) }
 ];
 /* ——— 解锁提示 ———
    机制（工坊、研究基地…）与条目（制造项、研究项、区域…）解锁时都弹一条顶部 tips，
@@ -676,8 +807,8 @@ interface UnlockNotice { id: string; icon: string; category: string; name: strin
     补语再写一遍会变成「解锁：……解锁」。 */
 function noticeHint(entry: UnlockNotice): string { return typeof entry.hint === 'function' ? entry.hint() : entry.hint; }
 /** 条目级解锁（制造项 / 研究项）：条件文案由**规则自己**给（`unlock.notice`），
-    没给 = 开局就满足 ⇒ 不进提示列表（基础城防、由剧情任务解锁的那些都是这样）。
-    规则里的 notice 由 unlockBy 组合出来，所以「完成主线「XXX」，或装好「哨塔蓝图」」这种并列条件不用在这里拼。 */
+    没给 = 开局就满足 ⇒ 不进提示列表（基础城防是这样；勘探仪也是为了不挪动 notices 下标而刻意不给，见它那条注释）。
+    规则里的 notice 由 unlockBy 组合出来，所以并列条件（`any` / `all`）不用在这里拼。 */
 function entryNotices<T extends { icon: string; name: string; unlock: UnlockRule }>(entries: T[], category: string, prefix: string, isUnlocked: (id: number, target: GameState) => boolean): UnlockNotice[] {
   return entries.flatMap((entry, id) => entry.unlock.notice
     ? [{ id: `${prefix}:${id}`, icon: entry.icon, category, name: entry.name, hint: entry.unlock.notice, unlocked: (target: GameState) => isUnlocked(id, target) }]
@@ -702,10 +833,14 @@ export const unlockNotices: UnlockNotice[] = [
   /* 新内容追加在**整张表的末尾** —— 插在中间会让旧存档 notices 的下标整体错位。
      勘探图住在研究基地里（第二个页签），所以分类写「研究基地」，提示读作「解锁：研究基地「勘探图」」。 */
   { id: 'atlas', icon: '🗺️', category: '研究基地', name: '勘探图', hint: '完成「抵御第一场天灾」', unlocked: isAtlasUnlocked },
-  /* 由剧情任务解锁的条目也追加在末尾（理由同上）。它们的 `unlockBy.quest()` **故意不给 notice**，
-     所以不会被 entryNotices 收进上面那两组里、插到表格中段去 —— 这里手写一条即可。
-     新增「剧情任务解锁的条目」时，照这一条的写法在末尾再补一行。 */
-  { id: `research:${RESEARCH_ITEM.surveyor}`, icon: researchItems[RESEARCH_ITEM.surveyor].icon, category: '研究基地', name: researchItems[RESEARCH_ITEM.surveyor].name, hint: `装好「${campaignQuests[QUEST.surveyParts].name}」`, unlocked: target => isResearchItemUnlocked(RESEARCH_ITEM.surveyor, target) }
+  /* 勘探仪（第二条）也追加在末尾，理由同上：它的规则**故意不给 notice**（见 researchItems 里那条注释），
+     所以不会被 entryNotices 收进研究项那一组、插到表格中段去 —— 提示条件在这里手写。
+     新增「没有 notice 的解锁条件」时，照这一条的写法在末尾再补一行。 */
+  { id: `research:${RESEARCH_ITEM.surveyor}`, icon: researchItems[RESEARCH_ITEM.surveyor].icon, category: '研究基地', name: researchItems[RESEARCH_ITEM.surveyor].name, hint: '完成主线「击退第一次兽潮」', unlocked: target => isResearchItemUnlocked(RESEARCH_ITEM.surveyor, target) },
+  /* 由**后续章节**解锁的两个条目，同样追加在末尾（理由同上）。它们的 `unlockBy.chapter()` 故意不给 notice，
+     所以不会被 entryNotices 收进上面那两组里、插到表格中段去 —— 提示条件在这里手写。 */
+  { id: `workshop:${WORKSHOP_ITEM.healer}`, icon: workshopItems[WORKSHOP_ITEM.healer].icon, category: '工坊', name: workshopItems[WORKSHOP_ITEM.healer].name, hint: '完成第二章第 1 节「扫清矿脉」', unlocked: target => isWorkshopItemUnlocked(WORKSHOP_ITEM.healer, target) },
+  { id: `research:${RESEARCH_ITEM.recycle}`, icon: researchItems[RESEARCH_ITEM.recycle].icon, category: '研究基地', name: researchItems[RESEARCH_ITEM.recycle].name, hint: '完成第二章第 2 节「下探深井」', unlocked: target => isResearchItemUnlocked(RESEARCH_ITEM.recycle, target) }
 ];
 /** 解锁事件：界面（unlock-toast.ts）订阅它来弹 tips，新手指引（guide.ts）也订阅它来放该系统的引导。
     id 与 guide.ts 的 GUIDES 键对应（没有对应引导的会被忽略）；
@@ -733,72 +868,6 @@ function checkUnlocks(target: GameState): void {
   if (unlockedAny) saveState();
 }
 
-/* ——— 剧情任务（远征档案 → 主线剧情 → 第二章「余烬之外」）———
-   整条链路：条件达成（checkQuests）→ 奖励物品自动进物品栏 → 玩家在物品栏里「使用」它 →
-   走完那种安装形态（src/install.ts 按 install.mode 渲染）→ installQuest() 扣代价、把物品用掉、
-   任务转「已安装」→ 它指向的工坊项 / 研究项解锁（isWorkshopItemUnlocked / isResearchItemUnlocked）。
-
-   表在 config/campaign.ts；「这条任务解锁了哪一项」由 questTarget() 从条目表反查（单一出处）。 */
-/** 这条任务的进度：0 未达成 / 1 奖励已发 / 2 已安装（取值见 config/unlock.ts 的 QUEST_STATE）。 */
-export function getQuestState(index: number, target: GameState = state): number {
-  return Math.max(0, Math.min(QUEST_STATE.installed, Math.floor(Number(target.quests?.[index]) || 0)));
-}
-/** 安装这件东西要花的资源：缺省项一律补 0，界面直接照着渲染（不用自己判 undefined）。 */
-export function getQuestCost(index: number): Required<QuestCost> {
-  const cost = campaignQuests[index]?.install?.cost;
-  const value = (raw: number | undefined): number => Math.max(0, Math.floor(Number(raw) || 0));
-  return { gold: value(cost?.gold), scrap: value(cost?.scrap), plate: value(cost?.plate) };
-}
-/** 现在能不能装：任务已发奖励 + 图纸还在包里 + 资源够 + 解题型形态答对了。
-    **界面状态不可信**：谜题的选择也要在这里复验（R30）—— 直接调 installQuest(0, 猜一个) 必须失败。 */
-export function canInstallQuest(index: number, choiceId = -1, target: GameState = state): boolean {
-  const entry = campaignQuests[index];
-  if (!entry || getQuestState(index, target) !== QUEST_STATE.granted) return false;
-  if (!(target.inventory[entry.itemId] > 0)) return false;
-  if (entry.install.mode === 'choice' && choiceId !== entry.install.answer) return false;
-  const cost = getQuestCost(index);
-  return target.gold >= cost.gold && target.scrap >= cost.scrap && target.inventory[ITEM.armorPlate] >= cost.plate;
-}
-/** 开始安装：扣代价、把图纸用掉、任务转「已安装」。返回是否真的装了（没装成不改任何状态）。 */
-export function installQuest(index: number, choiceId = -1): boolean {
-  if (!canInstallQuest(index, choiceId)) return false;
-  const entry = campaignQuests[index];
-  const cost = getQuestCost(index);
-  state.gold -= cost.gold; state.scrap -= cost.scrap; state.inventory[ITEM.armorPlate] -= cost.plate;
-  state.inventory[entry.itemId] -= 1;
-  state.quests[index] = QUEST_STATE.installed;
-  addLog(state, `「${entry.name}」安装完成。`, 'progress');
-  /* notify → checkUnlocks 会把「解锁：工坊「哨戒弩台」」弹出来，这里不用自己发提示。 */
-  saveState(); notify();
-  return true;
-}
-/** 每帧检查条件：达成就把奖励物品发进物品栏。**不做"回来领取"** —— 放置游戏不该要求盯屏幕；
-    条件本身在档案里提前写明，玩家不会觉得是"突然冒出来的"。 */
-function checkQuests(target: GameState): void {
-  campaignQuests.forEach((entry, index) => {
-    const current = getQuestState(index, target);
-    if (current === QUEST_STATE.locked) {
-      if (!entry.requirement.done(target)) return;
-      target.quests[index] = QUEST_STATE.granted;
-      target.inventory[entry.itemId] = (target.inventory[entry.itemId] || 0) + 1;
-      addLog(target, `剧情任务「${entry.name}」达成：${itemTag(entry.itemId)}已经带回庇护所，在物品栏里用它。`, 'progress');
-      emitUnlock({ id: `quest:${index}`, icon: entry.icon, category: '远征档案', name: entry.name, detail: '奖励已到手：在物品栏里使用它' });
-      return;
-    }
-    /* 兜底：标记说奖励已发、但物品不在包里（手改存档 / 异常）→ 重发。
-       安装完成会把状态置成 2，所以这里不会误判成"该重发"。 */
-    if (current === QUEST_STATE.granted && !(target.inventory[entry.itemId] > 0)) {
-      target.inventory[entry.itemId] = 1;
-      addLog(target, `「${entry.name}」的奖励重新发了回来。`, 'system');
-    }
-  });
-}
-/** 剧情任务进度数组对齐任务表长度（读档、手改存档都可能给出越界值），取值夹进 0~2。 */
-function syncQuests(target: GameState): void {
-  const quests = Array.isArray(target.quests) ? target.quests : (target.quests = []);
-  quests.length = campaignQuests.length;
-  for (let index = 0; index < quests.length; index++) quests[index] = getQuestState(index, target);
-}
 /* ——— 新手指引的进度 ———
    引导本身在 guide.ts（UI 层），这里只存「看过哪些」。
    存 id 字符串而不是下标：以后新增引导不会让旧存档的标记整体错位。 */
@@ -815,6 +884,21 @@ export function isAchievementUnlockedById(id: string, target: GameState = state)
 /** 图鉴（wiki）的解锁条件就是成就「初次冒险」，所以直接复用它的状态。
     未解锁时所有图鉴引用降级成纯文本（icon + 颜色，不可点），见 codex-ref.ts 的 setWikiUnlocked。 */
 export function isWikiUnlocked(target: GameState = state): boolean { return isAchievementUnlockedById('firstBlood', target); }
+/* ——— 逐物品的「不再拾取」（成就「精炼初学者」的奖励） ———
+   关掉之后，那件东西**掉在地上也不进物品栏**（掉落的四个通道都过这一道，见 grantDrops 那几处）：
+   主要用途是别再捡同名垃圾装备 —— 装备按**实例**占物品栏格数，材料只按种类占，捡不捡都不占新格。
+   ⚠️ 大事件的资源奖励（金币 / 废料 / 精华）不走这道闸门：那是「结算奖励」，不是从地上捡的。 */
+/** 拿到「精炼初学者」之后，图鉴的物品页才会出现这个开关（R29：没解锁就没有这东西）。 */
+export function isItemFilterUnlocked(target: GameState = state): boolean { return isAchievementUnlockedById('refineFirst', target); }
+/** 这件物品是不是被设成了「不再拾取」。 */
+export function isItemNoPickup(itemId: number, target: GameState = state): boolean { return !!target.noPickup?.[itemId]; }
+/** 切换「不再拾取」。界面上的唯一入口是图鉴物品页的那个开关，所以这里也复验一遍成就（R30）。 */
+export function setItemNoPickup(itemId: number, off: boolean): void {
+  if (!isItemFilterUnlocked() || !items[itemId]) return;
+  state.noPickup[itemId] = off ? 1 : 0;
+  addLog(state, off ? `图鉴：${itemTag(itemId)} 设为不再拾取。` : `图鉴：${itemTag(itemId)} 恢复拾取。`, 'system');
+  saveState(); notify();
+}
 /** 解锁数量，用于界面上的「已解锁 x / y」。 */
 export function getUnlockedAchievementCount(target: GameState = state): number { return achievements.reduce((total, _, index) => total + (isAchievementUnlocked(index, target) ? 1 : 0), 0); }
 function checkAchievements(target: GameState): void {
@@ -839,11 +923,15 @@ export const fontScales = [
 ];
 
 const freshAdventure = (): AdventureState => ({
-  zoneId: CAMP_ZONE_ID, running: false, enemyId: FIRST_ENEMY_ID, enemyHp: enemyTable[FIRST_ENEMY_ID].maxHp, spawnTimer: 0,
+  /* 开局在荒野上**原地待命**（`-1` = 没有驻扎任何区域）：不刷怪、也不享受庇护所的休整加成，
+     直到点亮第一座营火、挣下庇护所那片安全区域。 */
+  zoneId: -1, running: false, enemyId: FIRST_ENEMY_ID, enemyHp: enemyTable[FIRST_ENEMY_ID].maxHp, spawnTimer: 0,
   playerHp: 100, playerAttackTimer: 0, enemyAttackTimer: 0, autoPush: true, battleCount: 0, attackCount: 0
 });
 const freshState = (): GameState => ({
   gold: 45, scrap: 24, essence: 0, totalWins: 0, mainlineIndex: 0,
+  /* 后续章节的进度（0 = 还没开始那一章）与各区域击杀数：都是**只追加**的存档数组，下标即章 / 区域下标。 */
+  chapters: storyChapters.map(() => 0), zoneWins: zones.map(() => 0),
   workshop: 0, researchPoints: 0, researchRefreshCount: 0, researchTask: { itemId: -1, zoneId: -1, need: 0 }, researchLevels: researchItems.map(() => 0), autoEat: { itemId: -1, threshold: AUTO_EAT.defaultThreshold }, equipped: equipTypes.map(type => new Array(type.baseSlots).fill(-1)), settings: { fontScale: 0, notify: true, numberFormat: 0, changelogSeen: '' },
   inventory: new Array(items.length).fill(0),
   /* 开局送一把拾荒者短刃（+0，攻击 +6）。两处刻意的限制：
@@ -859,10 +947,10 @@ const freshState = (): GameState => ({
   logistics: { assigned: logisticsTargets.map(() => 0) },
   campWorkshop: workshopItems.map(() => ({ level: 0, target: -1, work: 0 })),
   /* worksiteProgress 是已停用的「营垒修筑」遗留字段（见 logisticsTargets），留着只为不动存档格式。 */
-  camp: { hp: CAMP_BASE.hp, worksiteProgress: 0, disasterWins: 0, tideWins: 0, randomTimer: RANDOM_EVENT_INTERVAL, pendingKind: -1, pendingId: -1, pendingExpires: 0, wave: 1, stage: 0, population: 0, maps: mapSets.map(() => MAP_STATE.none), expeditionMap: -1, expeditionEnds: 0, expeditionRate: 0 },
+  camp: { hp: CAMP_BASE.hp, worksiteProgress: 0, disasterWins: 0, tideWins: 0, mutantWins: 0, randomTimer: RANDOM_EVENT_INTERVAL, pendingKind: -1, pendingId: -1, pendingExpires: 0, wave: 1, stage: 0, population: 0, maps: mapSets.map(() => MAP_STATE.none), expeditionMap: -1, expeditionEnds: 0, expeditionRate: 0 },
   achievements: achievements.map(() => 0),
+  noPickup: new Array(items.length).fill(0),
   notices: unlockNotices.map(() => 0),
-  quests: campaignQuests.map(() => QUEST_STATE.locked),
   guides: [],
   devOverrides: new Array(Object.keys(DEV_STAT).length).fill(-1),
   log: [], lastTick: Date.now()
@@ -874,7 +962,7 @@ let lastSave = Date.now();
 
 export function getState(): GameState { return state; }
 export function subscribe(listener: (state: GameState) => void): () => void { listeners.add(listener); return () => listeners.delete(listener); }
-function notify(): void { syncEquipSlots(state); syncLogistics(state); syncCamp(state); syncQuests(state); checkAchievements(state); checkQuests(state); checkUnlocks(state); listeners.forEach(listener => listener(state)); }
+function notify(): void { syncEquipSlots(state); syncLogistics(state); syncCamp(state); checkAchievements(state); checkUnlocks(state); listeners.forEach(listener => listener(state)); }
 /** 一格勘探图状态归一：只留「未勘探 / 已勘探」两个合法值。
     旧版的 1（`MAP_STATE.charted`，拼好的地图）按「未勘探」处理 —— 碎片由 rebuildState 退还（见那里）。 */
 function normalizeMapState(value: unknown): number {
@@ -920,9 +1008,20 @@ export function getInstanceItemId(instanceId: number, target: GameState = state)
 /** 新增 count 个装备实例：每件都是独立个体，id 不复用。 */
 function addEquipment(target: GameState, itemId: number, count: number, refine = 0): void { const level = Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(refine) || 0))); for (let index = 0; index < count; index++) target.equipment.push({ id: target.nextInstanceId++, itemId, refine: level }); }
 /** 某个区域掉落的装备自带几级精炼（见 config/zones.ts 的 dropRefine）。 */
-function zoneDropRefine(enemyId: number): number { const zone = zones[zoneOfEnemy(enemyId)]; return Math.max(0, Math.floor(Number(zone?.dropRefine) || 0)); }
-/** 持有数量：可堆叠物品看数量，装备数实例个数。物品栏上限按「种类」算，用它判断是不是新种类。 */
-export function getOwnedCount(itemId: number, target: GameState = state): number { return items[itemId].stackable ? target.inventory[itemId] || 0 : target.equipment.reduce((total, instance) => (instance.itemId === itemId ? total + 1 : total), 0); }
+function zoneDropRefine(target: GameState, enemyId: number): number {
+  const zone = zones[zoneOfEnemy(enemyId)];
+  const base = Math.max(0, Math.floor(Number(zone?.dropRefine) || 0));
+  /* 研究项「回收精炼」：每级 1% 概率让**这一件**掉落物再多一级精炼（10 级封顶 10%）。按件各掷一次。
+     成就「精炼专家」在这之上再给 2% —— 它是全局加成，和区域的基础精炼、研究项是加在一起算的。 */
+  const chance = getResearchLevel(RESEARCH_ITEM.recycle, target) * .01 + (isAchievementUnlockedById('refineMaster', target) ? .02 : 0);
+  return base + (chance > 0 && Math.random() < chance ? 1 : 0);
+}
+/** 持有数量：**装备数实例个数，其它一律看物品栏里的数量** —— `stackable` 只管显示（按件 / 写 ×N），
+    不管计数（图纸就是「按件显示、但按数量计数」的那种）。物品栏上限按「种类」算，用它判断是不是新种类。 */
+export function getOwnedCount(itemId: number, target: GameState = state): number {
+  if (items[itemId].category !== 'equipment') return target.inventory[itemId] || 0;
+  return target.equipment.reduce((total, instance) => (instance.itemId === itemId ? total + 1 : total), 0);
+}
 /** 把某个装备实例从所有槽位上摘掉。正常流程下一个实例只占一个槽位，这里逐槽扫描做兜底。 */
 function unequipEverywhere(target: GameState, instanceId: number): void { target.equipped.forEach(slots => { for (let index = 0; index < slots.length; index++) if (slots[index] === instanceId) slots[index] = -1; }); }
 /** 精炼等级上限。每级让这件装备的自身属性 +1%，所以满级是「属性翻倍」。
@@ -1084,27 +1183,44 @@ export function getAffixTotals(target: GameState = state): AffixTotals {
 export function getWorkshopRate(target: GameState = state): number { return 1 + getAffixTotals(target).workshopRate / 100; }
 /** 装备栏加成面板的取值键。flat 来自装备自身与固定数值词条，pct 来自百分比词条。 */
 export type EquipBonusKey = 'attack' | 'hp' | 'defense' | 'attackPct' | 'hpPct';
-/** 装备栏加成面板要列哪几项：下标即面板里的行顺序。flat 表示固定值，pct 表示百分比。 */
-export const equipBonusStats: { key: EquipBonusKey; label: string; kind: 'flat' | 'pct' }[] = [
-  { key: 'attack', label: '装备攻击力', kind: 'flat' },
-  { key: 'hp', label: '装备生命', kind: 'flat' },
-  { key: 'defense', label: '装备防御', kind: 'flat' },
-  { key: 'attackPct', label: '攻击加成', kind: 'pct' },
-  { key: 'hpPct', label: '生命加成', kind: 'pct' }
+/** 装备栏加成面板要列哪几项：下标即面板里的行顺序。
+    key 取固定值来源（装备自身 / 固定词条 / 套装），pctKey 取百分比来源（百分比词条 / 套装【极致】）——
+    界面把两者合成一行「总 X」：合计 = 固定值合计 ×（1 + 百分比合计 / 100）。
+    防御没有百分比通道，pctKey 给 null。 */
+export const equipBonusStats: { key: 'attack' | 'hp' | 'defense'; pctKey: 'attackPct' | 'hpPct' | null; label: string }[] = [
+  { key: 'attack', pctKey: 'attackPct', label: '总攻击力' },
+  { key: 'hp', pctKey: 'hpPct', label: '总生命' },
+  { key: 'defense', pctKey: null, label: '总防御' }
 ];
-/** 某一项加成的逐件来源：装备自身一条、每条词条一条，没有贡献的不列（悬停详情用）。
-    colorClass 是给这一行着色的类名 —— 装备自身用稀有度色，词条用类别色。 */
+/** 某一项加成的逐条来源：装备自身一条、每条词条一条、生效中的套装一条，没有贡献的不列。
+    colorClass 是给这一行着色的类名 —— 装备自身用稀有度色，词条用类别色，套装用主色（`.set-source`）。
+    ⚠️ 只算「身上这套东西」给的：基础值（攻击 12 / 生命 100）与工坊都不在这里。 */
 export function getEquipBonusSources(key: EquipBonusKey, target: GameState = state): { name: string; value: number; colorClass: string }[] {
   const sources: { name: string; value: number; colorClass: string }[] = [];
+  const worn = new Set<number>();
   for (const slots of target.equipped) for (const instanceId of slots) {
     const instance = instanceId >= 0 ? findEquipment(instanceId, target) : undefined;
     if (!instance) continue;
     const item = items[instance.itemId];
+    worn.add(instance.itemId);
     const base = key === 'attackPct' || key === 'hpPct' ? 0 : getInstanceBonus(instance)[key];
     /* colorClass 直接给出类名：装备自身走稀有度色，词条走类别色（进攻红 / 生存绿 / 功能蓝），
        消费方不需要知道这两套颜色是从哪来的。 */
     if (base) sources.push({ name: item.name, value: base, colorClass: rarityClass(item.rarity) });
     for (const affix of instance.affixes || []) { const definition = affixes[affix.id]; const value = (definition.effect[key] || 0) * affix.value; if (value) sources.push({ name: `${item.name} · ${definition.name}`, value, colorClass: affixCategoryClass(definition.category) }); }
+  }
+  /* 套装也各算一条来源：凑齐给的是固定值、【极致】给的是百分比，两边各自只出自己那一半。
+     判据与 getSetBonus / getPerfectBonus **必须一致** —— 凑齐要整套穿在身上，【极致】是永久解锁、不看现在还穿不穿着。 */
+  const perfect = target.perfectItems || [];
+  for (const entry of setTable) {
+    if (!entry.pieces.length) continue;
+    if (key === 'attackPct' || key === 'hpPct') {
+      const value = (key === 'attackPct' ? entry.perfectBonus.attackPct : entry.perfectBonus.hpPct) || 0;
+      if (value && entry.pieces.every(itemId => perfect.includes(itemId))) sources.push({ name: `${entry.name}套装【极致】`, value, colorClass: 'set-source' });
+      continue;
+    }
+    const value = entry.bonus[key] || 0;
+    if (value && entry.pieces.every(itemId => worn.has(itemId))) sources.push({ name: `${entry.name}套装`, value, colorClass: 'set-source' });
   }
   return sources;
 }
@@ -1138,8 +1254,8 @@ export function getInventoryCapacity(target: GameState = state): number { return
 /** 已占用格数：可堆叠物品按「种类」算一类一格；不可堆叠（装备）一件一格，同名的每一件都要各自占一格。
     例外一：**已经穿在身上的装备不算占格** —— 穿戴本身就该腾出背包空间。
     否则凑齐套装（5 件）反而会把物品栏挤爆，装备越多越没地方放东西。
-    例外二：**系统物品（剧情任务的图纸）不算占格** —— 它们是"钥匙"不是行李，
-    而且这样就不会在满负载时被 trimInventoryOverflow 丢掉（丢了解锁会卡在"待安装"）。 */
+    例外二：**系统物品（`item.system`）不算占格** —— 它们是"钥匙"不是行李，而且这样就不会在满负载时被
+    trimInventoryOverflow 丢掉。目前没有物品用到这个标记（第二章的系统物品已移除），守卫留着给之后的系统物品。 */
 export function getInventoryUsed(target: GameState = state): number {
   let kinds = 0;
   for (let itemId = 0; itemId < target.inventory.length; itemId++) if (target.inventory[itemId] > 0 && !items[itemId]?.system) kinds += 1;
@@ -1147,10 +1263,17 @@ export function getInventoryUsed(target: GameState = state): number {
   for (const slots of target.equipped) for (const instanceId of slots) if (instanceId >= 0) worn.add(instanceId);
   return kinds + target.equipment.filter(instance => !worn.has(instance.id)).length;
 }
-export function currentZoneId(target: GameState = state): number { return zones[target.adventure.zoneId] ? target.adventure.zoneId : CAMP_ZONE_ID; }
+/** 当前驻扎的区域；**-1 = 原地待命**（没有驻扎任何区域，开局与庇护所解锁之前都是这个状态）。 */
+export function currentZoneId(target: GameState = state): number { return zones[target.adventure.zoneId] ? target.adventure.zoneId : -1; }
 export function currentZone(target: GameState = state) { return zones[currentZoneId(target)]; }
-/** 庇护所这类没有敌人的区域：不刷怪，只按倍率回复生命值。 */
-export function isCampZone(zoneId: number): boolean { return !zones[zoneId] || zones[zoneId].enemyIds.length === 0; }
+/** 原地待命：还没驻扎任何区域。不刷怪，也**不**吃庇护所那份休整加成（那是庇护所区域的事）。 */
+export function isIdleZone(zoneId: number): boolean { return !zones[zoneId]; }
+/** 庇护所这类没有敌人的区域：不刷怪，只按倍率回复生命值。
+    ⚠️ 「原地待命」（-1）**不是**这一类 —— 见 isIdleZone，两者要分开判。 */
+export function isCampZone(zoneId: number): boolean { return !!zones[zoneId] && zones[zoneId].enemyIds.length === 0; }
+/** 庇护所是否已解锁（页面 + 区域 + 入驻）。**判定只有一处**：它就是 zone 表里的庇护所区域，
+    条件是 `unlockBy.mainline(1)`（完成「点亮第一座营火」）—— 页面锁定、解锁公告、入驻逻辑都读这里。 */
+export function isCampUnlocked(target: GameState = state): boolean { return isZoneUnlocked(CAMP_ZONE_ID, target); }
 /** 该怪物是否已经遭遇过（击杀过）：只有击杀过的怪物才会被图鉴收录。 */
 export function isEncountered(enemyId: number, target: GameState = state): boolean { return !!target.encountered?.[enemyId]; }
 /** 这只怪物的这条掉落是否已经被玩家实际拿到过：图鉴据此逐条揭示掉落表。 */
@@ -1164,7 +1287,7 @@ export function isItemDiscovered(itemId: number, target: GameState = state): boo
   if ((target.inventory?.[itemId] || 0) > 0) return true;
   return !!target.equipment?.some(instance => instance.itemId === itemId);
 }
-export function currentEnemy(target: GameState = state) { return enemyTable[target.adventure.enemyId] || enemyTable[zones[currentZoneId(target)].enemyIds[0]] || enemyTable[FIRST_ENEMY_ID]; }
+export function currentEnemy(target: GameState = state) { const zone = zones[currentZoneId(target)]; return enemyTable[target.adventure.enemyId] || (zone ? enemyTable[zone.enemyIds[0]] : undefined) || enemyTable[FIRST_ENEMY_ID]; }
 export function getEnemyAttackInterval(target: GameState = state): number { return currentEnemy(target).attackInterval; }
 /** 区域是否解锁：走它自己的解锁规则（可组合，见 config/unlock.ts）——
     这里仍然是**全游戏唯一的判定点**，界面不要另写一套比较。 */
@@ -1173,8 +1296,23 @@ export function isZoneUnlocked(zoneId: number, target: GameState = state): boole
    现在只有图鉴的「进入条件」在渲染它 —— 直接读 `zone.unlock.text()` 即可（见 UI开发规范 §7.15）。 */
 
 function addLog(target: GameState, message: string, type: LogType = 'system'): void { target.log = [{ time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), message, type }, ...target.log].slice(0, 160); }
-function updateMainline(target: GameState): void { while (target.mainlineIndex < mainline.length && mainline[target.mainlineIndex].condition(target)) { target.mainlineIndex += 1; const messages: Record<number, string> = { 2: '旧工坊重新亮起。现在可以把冒险带回的废料变成长期战力。', 3: '研究台接入了旧电池。新的升级路线已经开放。', 4: '你收到了幸存者的回应。伙伴系统已经可以使用。', 5: '余烬碎片指向更深处的道路。边境调查阶段完成。', 6: '庇护所挡下了第一场天灾，防线经验开始积累。', 7: '兽潮退去，庇护所战备阶段完成。荒野深处还有更大的信号。' }; addLog(target, messages[target.mainlineIndex] || '主线记录已更新。', 'progress'); } }
-function chooseEnemyId(target: GameState): number { const ids = zones[currentZoneId(target)].enemyIds; return ids.length ? ids[Math.floor(Math.random() * ids.length)] : FIRST_ENEMY_ID; }
+function updateMainline(target: GameState): void { while (target.mainlineIndex < mainline.length && mainline[target.mainlineIndex].condition(target)) { target.mainlineIndex += 1; const messages: Record<number, string> = { 1: '营火点起来了。远征队有了第一个落脚点。', 2: '旧工坊重新亮起。现在可以把冒险带回的废料变成长期战力。', 3: '研究台接入了旧电池。新的升级路线已经开放。', 4: '你收到了幸存者的回应。伙伴系统已经可以使用。', 5: '余烬碎片指向更深处的道路。边境调查阶段完成。', 6: '庇护所挡下了第一场天灾，防线经验开始积累。', 7: '兽潮退去，庇护所战备阶段完成。荒野深处还有更大的信号。' }; addLog(target, messages[target.mainlineIndex] || '主线记录已更新。', 'progress'); }
+  /* 庇护所解锁（点亮第一座营火）之后，还在**原地待命**的远征队自动入驻 —— 这就是「解锁庇护所后把默认区域改成庇护所」。
+     只动「待命」这一种状态：玩家要是已经自己选了区域，就继续待在原地，不把他拽回来。 */
+  if (isIdleZone(target.adventure.zoneId) && isCampUnlocked(target)) { target.adventure.zoneId = CAMP_ZONE_ID; target.adventure.running = false; target.adventure.spawnTimer = 0; addLog(target, `远征队入驻${zoneTag(CAMP_ZONE_ID)}。`, 'system'); }
+  /* 第一章走完之后接上后续章节：**章内严格顺序推进**，条件不满足就停在那儿。
+     ⚠️ 不要在这里放宽成「上一节没做完也检查下一节」—— 那正是 R31 明令禁止的特例来源。 */
+  for (let index = 0; index < storyChapters.length; index++) {
+    const chapter = index + 2;
+    if (!isChapterVisible(chapter, target)) break;
+    const nodes = storyChapters[index].nodes;
+    while (getChapterProgress(chapter, target) < nodes.length && nodes[getChapterProgress(chapter, target)].condition(target)) {
+      const node = nodes[getChapterProgress(chapter, target)];
+      target.chapters[index] = getChapterProgress(chapter, target) + 1;
+      addLog(target, `第 ${chapter} 章「${storyChapters[index].title}」·「${node.title}」完成，新的路已经打开。`, 'progress');
+    }
+  } }
+function chooseEnemyId(target: GameState): number { const ids = zones[currentZoneId(target)]?.enemyIds ?? []; return ids.length ? ids[Math.floor(Math.random() * ids.length)] : FIRST_ENEMY_ID; }
 function prepareEnemy(target: GameState, enemyId = chooseEnemyId(target)): void { const enemy = enemyTable[enemyId]; const shouldRestore = !Number.isFinite(target.adventure.playerHp) || target.adventure.playerHp <= 0; target.adventure.enemyId = enemyId; target.adventure.enemyHp = enemy.maxHp; target.adventure.spawnTimer = 0; if (shouldRestore) target.adventure.playerHp = getPlayerMaxHp(target); target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; }
 /** 敌人离场（被击杀或进入区域）后进入刷新冷却，冷却结束才会 prepareEnemy 出新敌人。 */
 function startSpawnCooldown(target: GameState): void { target.adventure.spawnTimer = getSpawnCooldown(target); }
@@ -1182,8 +1320,8 @@ function randomAmount(min: number, max: number): number { return min + Math.floo
 /** 记录「这只怪物的这条掉落已经拿到过」，图鉴据此揭示对应条目。 */
 function revealDrop(target: GameState, enemyId: number, itemId: number): void { const list = target.discoveredDrops[enemyId] || (target.discoveredDrops[enemyId] = []); if (!list.includes(itemId)) list.push(itemId); }
 /* 只有真正进了包才算「获得」：被物品栏上限拒收的不揭示。 */
-function grantDrops(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; enemy.dropTable.forEach(drop => { if (Math.random() > drop.chance) return; const item = items[drop.itemId]; /* 可堆叠的进数量，装备每件都建成独立实例；拿完如果超出上限，就丢掉刚拿到的这一件。 */
-const amount = randomAmount(drop.min, drop.max); /* 装备每件都建成独立实例，可堆叠的进数量。 */ if (item.stackable) { target.inventory[drop.itemId] += amount; if (drop.itemId === ITEM.scrap) target.scrap += amount; if (drop.itemId === ITEM.emberShard) target.essence += amount; } else addEquipment(target, drop.itemId, amount, zoneDropRefine(enemyId)); revealDrop(target, enemyId, drop.itemId); addLog(target, `掉落：${itemTag(drop.itemId)} ×${amount}`, 'drop'); /* 超上限就把刚拿到的这件丢掉，不动玩家原有的东西。 */ trimInventoryOverflow(target, drop.itemId); }); }
+function grantDrops(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; enemy.dropTable.forEach(drop => { /* 图鉴里关掉「拾取」的东西：掉在地上也不捡（见 setItemNoPickup）。 */ if (isItemNoPickup(drop.itemId, target)) return; if (Math.random() > drop.chance) return; const item = items[drop.itemId]; /* 可堆叠的进数量，装备每件都建成独立实例；拿完如果超出上限，就丢掉刚拿到的这一件。 */
+const amount = randomAmount(drop.min, drop.max); /* 装备每件都建成独立实例，其余一律按数量进包（`stackable` 只管显示）。 */ if (item.category !== 'equipment') { target.inventory[drop.itemId] += amount; if (drop.itemId === ITEM.scrap) target.scrap += amount; if (drop.itemId === ITEM.emberShard) target.essence += amount; } else addEquipment(target, drop.itemId, amount, zoneDropRefine(target, enemyId)); revealDrop(target, enemyId, drop.itemId); addLog(target, `掉落：${itemTag(drop.itemId)} ×${amount}`, 'drop'); /* 超上限就把刚拿到的这件丢掉，不动玩家原有的东西。 */ trimInventoryOverflow(target, drop.itemId); }); }
 /** 任务物品掉落：**当且仅当这个区域正是当前委托的目标时**才判定，掉率区域内所有怪物统一
     （QUEST_DROP_CHANCE），与各自的 dropTable 无关。和套装掉落一样独立成一步 ——
     不占「同一只怪物最多 3 条掉落」的名额。
@@ -1196,6 +1334,8 @@ function grantQuestDrop(target: GameState, enemyId: number): void {
   const itemId = questItemOf(zoneId);
   if (itemId < 0 || Math.random() > QUEST_DROP_CHANCE) return;
   if (!isResearchUnlocked(target) || getResearchTask(target).zoneId !== zoneId) return;
+  /* 「不再拾取」对这条通道同样有效 —— 它也是掉在地上的东西（只是判定条件多一层委托）。 */
+  if (isItemNoPickup(itemId, target)) return;
   target.inventory[itemId] += 1;
   revealDrop(target, enemyId, itemId);
   addLog(target, `掉落：${itemTag(itemId)} ×1`, 'drop');
@@ -1220,19 +1360,21 @@ function grantSetDrop(target: GameState, enemyId: number): void {
   const entry = setId >= 0 ? setTable[setId] : undefined;
   if (!entry || !entry.pieces.length || Math.random() > entry.dropChance) return;
   const itemId = entry.pieces[Math.floor(Math.random() * entry.pieces.length)];
-  addEquipment(target, itemId, 1, zoneDropRefine(enemyId));
+  /* 这一件被设成「不再拾取」就整次跳过（不换别的部件：玩家的意思是「这件别捡」）。 */
+  if (isItemNoPickup(itemId, target)) return;
+  addEquipment(target, itemId, 1, zoneDropRefine(target, enemyId));
   addLog(target, `掉落：${itemTag(itemId)} ×1（${entry.name}套装）`, 'drop');
   trimInventoryOverflow(target, itemId);
 }
 /* 击杀才记入图鉴：仅仅遇到（prepareEnemy）不算。 */
-function defeatEnemy(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; target.gold += enemy.gold; target.totalWins += 1; target.adventure.battleCount += 1; target.encountered[enemyId] = 1; addLog(target, `击败${enemyTag(enemyId)}，获得 ${enemy.gold} 金币。`, 'battle'); grantDrops(target, enemyId); grantSetDrop(target, enemyId); grantQuestDrop(target, enemyId); grantSolventDrop(target, enemyId); updateMainline(target); startSpawnCooldown(target); }
+function defeatEnemy(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; target.gold += enemy.gold; target.totalWins += 1; target.adventure.battleCount += 1; target.encountered[enemyId] = 1; /* 区域击杀数：第二章的任务要求看它（只统计战斗区域）。 */ const killZone = currentZoneId(target); if (killZone >= 0) target.zoneWins[killZone] = (target.zoneWins[killZone] || 0) + 1; addLog(target, `击败${enemyTag(enemyId)}，获得 ${enemy.gold} 金币。`, 'battle'); grantDrops(target, enemyId); grantSetDrop(target, enemyId); grantQuestDrop(target, enemyId); grantSolventDrop(target, enemyId); updateMainline(target); startSpawnCooldown(target); }
 /* 伤害 = 攻击力 − 对方防御，至少 1 点：防御只能减免，不能完全免伤。
    词条赋予的技能按出手次数触发，额外叠一记倍率伤害（强度取词条数值的百分比）。 */
 function playerAttack(target: GameState): void { const enemy = currentEnemy(target); target.adventure.attackCount += 1; const attack = getPlayerAttack(target); let damage = Math.max(1, attack - (enemy.defense || 0)); const triggered = []; for (const entry of getAffixTotals(target).skills) { const skill = skills[entry.skill]; if (!skill || target.adventure.attackCount % skill.interval !== 0) continue; damage += Math.round(attack * skill.multiplier * entry.value / 100); triggered.push(skill.name); } target.adventure.enemyHp = Math.max(0, target.adventure.enemyHp - damage); addLog(target, `${triggered.length ? `${triggered.join('、')}触发！` : ''}你攻击${enemyTag(target.adventure.enemyId)}，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.enemyHp <= 0) defeatEnemy(target, target.adventure.enemyId); }
 function enemyAttack(target: GameState): void { const enemy = currentEnemy(target); const damage = Math.max(1, enemy.attack - getPlayerDefense(target)); target.adventure.playerHp = Math.max(0, target.adventure.playerHp - damage); addLog(target, `${enemyTag(target.adventure.enemyId)}反击，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.playerHp <= 0) { target.adventure.running = false; target.adventure.playerHp = getPlayerMaxHp(target); target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; target.adventure.spawnTimer = 0; target.adventure.zoneId = CAMP_ZONE_ID; addLog(target, '远征队生命值归零，已撤回庇护所并恢复状态。', 'defeat'); return; } /* 挨完这一下才判断要不要自动进食：放在这里最准 —— 一次 tick 可能推进多秒，挂在外层会出现「先死再吃」。 */ tryAutoEat(target); }
 /** 按当前区域的回复倍率回血：庇护所是野外的 CAMP_REGEN_MULTIPLIER 倍。 */
 function applyRegen(target: GameState, seconds: number): void { if (!(seconds > 0)) return; target.adventure.playerHp = Math.min(getPlayerMaxHp(target), target.adventure.playerHp + getPlayerRegen(target) * getRegenMultiplier(target) * seconds); }
-function advanceAdventure(target: GameState, seconds: number): void { if (isCampZone(currentZoneId(target))) { applyRegen(target, seconds); return; } if (!target.adventure.running) return; let remaining = Math.max(0, seconds); while (remaining > 0 && target.adventure.running) { /* 刷怪冷却：场上没有敌人，只回复生命值。 */ if (target.adventure.spawnTimer > 0) { const wait = Math.min(remaining, target.adventure.spawnTimer); target.adventure.spawnTimer -= wait; applyRegen(target, wait); remaining -= wait; if (target.adventure.spawnTimer > 0) break; prepareEnemy(target); continue; } const enemy = currentEnemy(target); const playerInterval = getPlayerAttackInterval(target); const playerWait = Math.max(0, playerInterval - target.adventure.playerAttackTimer); const enemyWait = Math.max(0, enemy.attackInterval - target.adventure.enemyAttackTimer); const step = Math.min(remaining, playerWait, enemyWait); target.adventure.playerAttackTimer += step; target.adventure.enemyAttackTimer += step; applyRegen(target, step); remaining -= step; if (target.adventure.playerAttackTimer >= playerInterval - .0001) { target.adventure.playerAttackTimer = 0; playerAttack(target); } if (target.adventure.running && target.adventure.enemyAttackTimer >= enemy.attackInterval - .0001) { target.adventure.enemyAttackTimer = 0; enemyAttack(target); } if (step === 0 && target.adventure.running) { target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; } } }
+function advanceAdventure(target: GameState, seconds: number): void { const zoneId = currentZoneId(target); /* 庇护所与「原地待命」都不刷怪：只回血（待命没有休整加成，见 getRegenMultiplier）。 */ if (isCampZone(zoneId) || isIdleZone(zoneId)) { applyRegen(target, seconds); return; } if (!target.adventure.running) return; let remaining = Math.max(0, seconds); while (remaining > 0 && target.adventure.running) { /* 刷怪冷却：场上没有敌人，只回复生命值。 */ if (target.adventure.spawnTimer > 0) { const wait = Math.min(remaining, target.adventure.spawnTimer); target.adventure.spawnTimer -= wait; applyRegen(target, wait); remaining -= wait; if (target.adventure.spawnTimer > 0) break; prepareEnemy(target); continue; } const enemy = currentEnemy(target); const playerInterval = getPlayerAttackInterval(target); const playerWait = Math.max(0, playerInterval - target.adventure.playerAttackTimer); const enemyWait = Math.max(0, enemy.attackInterval - target.adventure.enemyAttackTimer); const step = Math.min(remaining, playerWait, enemyWait); target.adventure.playerAttackTimer += step; target.adventure.enemyAttackTimer += step; applyRegen(target, step); remaining -= step; if (target.adventure.playerAttackTimer >= playerInterval - .0001) { target.adventure.playerAttackTimer = 0; playerAttack(target); } if (target.adventure.running && target.adventure.enemyAttackTimer >= enemy.attackInterval - .0001) { target.adventure.enemyAttackTimer = 0; enemyAttack(target); } if (step === 0 && target.adventure.running) { target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; } } }
 /* ——— 庇护所 / 后勤小队的推进 ———
    分配出去的每个人每秒贡献 1 工时，换成对应制造项的建造进度。
    这份工时会被功能类词条「勤务」放大（getWorkshopRate）。
@@ -1312,13 +1454,15 @@ function settleCampWin(target: GameState, stats: { kind: number; rewards: { gold
   /* 精华同时是物品「余烬碎片」的数量：两边一起加，否则资源条和物品栏会各说各的。 */
   target.essence += stats.rewards.essence;
   target.inventory[ITEM.emberShard] = (target.inventory[ITEM.emberShard] || 0) + stats.rewards.essence;
-  /* disasterWins / tideWins 仍然记着：主线「抵御第一场天灾」「击退第一次兽潮」看的就是它们。 */
+  /* 三种大事件的通过次数都要记：主线「抵御第一场天灾」「击退第一次兽潮」「击退第一次异种」看的就是它们。 */
   if (stats.kind === CAMP_EVENT.disaster) target.camp.disasterWins += 1;
   if (stats.kind === CAMP_EVENT.tide) target.camp.tideWins += 1;
+  if (stats.kind === CAMP_EVENT.mutant) target.camp.mutantWins += 1;
   /* 幸存者进人口，人口按 POP_PER_WORKER 换后勤人手（见 getLogisticsSources）。 */
   target.camp.population = Math.max(0, Number(target.camp.population) || 0) + stats.rewards.survivors;
-  /* 地图碎片：按事件类型分套，每场给对应那套里还没到手的一片（见 grantMapFragment）。 */
-  const fragment = grantMapFragment(target, stats.kind);
+  /* 地图碎片：**按波次**分套（第 1 波 → 矿脉图纸，第 2 波 → 深井剖面，第 3 波 → 裂谷坐标），
+     见 grantMapFragment。这里必须在推进波次**之前**取，否则「本波第三场」会按下一波算。 */
+  const fragment = grantMapFragment(target);
   /* 波次推进：本波三场打完就进下一波（异种是波末）。 */
   target.camp.stage = (Number(target.camp.stage) || 0) + 1;
   const waveDone = target.camp.stage >= CAMP_WAVE_KINDS.length;
@@ -1455,6 +1599,10 @@ function rebuildState(saved: any): GameState {
       wave: Math.max(1, Math.floor(Number(saved.camp?.wave) || 1)),
       stage: Math.max(0, Math.min(CAMP_WAVE_KINDS.length - 1, Math.floor(Number(saved.camp?.stage) || 0))),
       population: Math.max(0, Math.floor(Number(saved.camp?.population) || 0)),
+      /* 三种大事件的通过次数（旧存档没有 mutantWins，从 0 起）。 */
+      disasterWins: Math.max(0, Math.floor(Number(saved.camp?.disasterWins) || 0)),
+      tideWins: Math.max(0, Math.floor(Number(saved.camp?.tideWins) || 0)),
+      mutantWins: Math.max(0, Math.floor(Number(saved.camp?.mutantWins) || 0)),
       /* 勘探图与勘探队逐字段校验：不要退回「...saved.camp 一把梭」，那个写法拦不住手改过的值
          （旧存档没有这几个字段，从 freshState 的初始值来）。 */
       maps: mapSets.map((_, mapId) => normalizeMapState(saved.camp?.maps?.[mapId])),
@@ -1463,8 +1611,12 @@ function rebuildState(saved: any): GameState {
       expeditionRate: expeditionMap >= 0 ? Math.max(0, Math.min(1, Number(saved.camp?.expeditionRate) || 0)) : 0
     }, perfectItems: (Array.isArray(saved.perfectItems) ? saved.perfectItems : []).map((itemId: number) => Math.floor(Number(itemId) || -1)).filter((itemId: number) => itemId >= 0 && !!items[itemId]),
 achievements: achievements.map((_, index) => (saved.achievements?.[index] ? 1 : 0)), notices: unlockNotices.map((_, index) => (saved.notices?.[index] ? 1 : 0)),
-/* 剧情任务进度：按下标对齐任务表，取值夹进 0~2（旧存档没有这个字段，从「未达成」起）。 */
-quests: campaignQuests.map((_, index) => Math.max(0, Math.min(QUEST_STATE.installed, Math.floor(Number(saved.quests?.[index]) || 0)))), devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)), ...readResearchState(saved), autoEat: readAutoEat(saved), log: [] };
+/* 「不再拾取」的开关：按下标对齐物品表（旧存档没有这个字段，默认全开）。 */
+noPickup: items.map((_, itemId) => (saved.noPickup?.[itemId] ? 1 : 0)),
+/* 后续章节的进度与各区域击杀数：按下标对齐表和区域表，越界值夹回合法区间（旧存档没有这两个字段，从 0 起）。 */
+chapters: storyChapters.map((chapter, index) => Math.max(0, Math.min(chapter.nodes.length, Math.floor(Number(saved.chapters?.[index]) || 0)))),
+zoneWins: zones.map((_, index) => Math.max(0, Math.floor(Number(saved.zoneWins?.[index]) || 0))),
+devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)), ...readResearchState(saved), autoEat: readAutoEat(saved), log: [] };
   /* 兼容一次：上一版把「拼合地图」做成独立一步 —— 那时 camp.maps 记 1、三片残片已经扣掉。
      现在三格槽位就是拼合，所以把 1 退回「未勘探」并**把那三片还给玩家**：
      不还的话那份存档会卡在「残片没了、图又不是已勘探」的空档里，只能重新去刷。
@@ -1475,9 +1627,10 @@ quests: campaignQuests.map((_, index) => Math.max(0, Math.min(QUEST_STATE.instal
   });
   /* 区域 / 敌人这类字段存的是配置表下标，配置删项后可能指向不存在的位置，进来先对齐一次。
      顺带修掉「停在还没解锁的区域里」的存档：那种档（改过档、或解锁规则调整过）会让冒险页
-     顶着一个进不去的区域打，而下拉框里根本没有它 —— 一并退回庇护所。 */
-  if (!zones[rebuilt.adventure.zoneId] || !isZoneUnlocked(rebuilt.adventure.zoneId, rebuilt)) rebuilt.adventure.zoneId = CAMP_ZONE_ID;
-  if (isCampZone(rebuilt.adventure.zoneId)) rebuilt.adventure.running = false;
+     顶着一个进不去的区域打，而下拉框里根本没有它 —— 一并退回**原地待命**（-1，不是庇护所：
+     庇护所本身也可能是锁着的，比如刚到第 1 节的存档）。 */
+  if (!zones[rebuilt.adventure.zoneId] || !isZoneUnlocked(rebuilt.adventure.zoneId, rebuilt)) rebuilt.adventure.zoneId = -1;
+  if (isCampZone(rebuilt.adventure.zoneId) || isIdleZone(rebuilt.adventure.zoneId)) rebuilt.adventure.running = false;
   if (!Number.isFinite(rebuilt.adventure.spawnTimer)) rebuilt.adventure.spawnTimer = 0;
   if (rebuilt.adventure.spawnTimer <= 0 && (!enemyTable[rebuilt.adventure.enemyId] || !rebuilt.adventure.enemyHp)) prepareEnemy(rebuilt);
   return rebuilt;
@@ -1534,9 +1687,13 @@ function applyOfflineProgress(target: GameState): void {
       const before = target.totalWins;
       advanceAdventure(target, seconds);
       addLog(target, `你离开了 ${formatDuration(seconds)}。远征队完成了 ${formatNumber(target.totalWins - before)} 场战斗。`, 'system');
-    } else if (isCampZone(currentZoneId(target))) {
-      advanceAdventure(target, seconds);
-      addLog(target, `你离开了 ${formatDuration(seconds)}。远征队在庇护所休整。`, 'system');
+    } else {
+      /* 脱战且没在庇护所：要么在庇护所里休整，要么（还没解锁庇护所时）在荒野上原地待命。 */
+      const zoneId = currentZoneId(target);
+      if (isCampZone(zoneId) || isIdleZone(zoneId)) {
+        advanceAdventure(target, seconds);
+        addLog(target, `你离开了 ${formatDuration(seconds)}。${isCampZone(zoneId) ? '远征队在庇护所休整。' : '远征队在原地待命。'}`, 'system');
+      }
     }
   }
   advanceLogistics(target, seconds);
@@ -1576,7 +1733,7 @@ function hydrate(): void {
   hadSave = stored !== null && stored !== undefined;
   try { state = parseSave(stored); } catch { state = freshState(); hadSave = false; }
   applyOfflineProgress(state);
-  state.lastTick = Date.now(); syncEquipSlots(state); syncLogistics(state); syncCamp(state); syncQuests(state); checkAchievements(state); checkQuests(state); checkUnlocks(state);
+  state.lastTick = Date.now(); syncEquipSlots(state); syncLogistics(state); syncCamp(state); checkAchievements(state); checkUnlocks(state);
   /* 旧存档（或改过的存档）可能带着超过上限的负载：进来先压回上限。 */
   trimInventoryOverflow(state);
 }
@@ -1749,29 +1906,29 @@ export function upgradeResearchItemToMax(id: number): void {
   saveState(); notify();
 }
 /** 丢弃可堆叠物品（资源、消耗品）。装备请用 discardEquipment —— 每一件都是独立实例。 */
-export function discardItem(itemId: number, amount = 1): void { const item = items[itemId]; const owned = state.inventory[itemId] || 0; const count = Math.min(owned, Math.max(1, Math.floor(amount))); /* 系统物品（剧情任务的图纸）不给丢弃：丢了就装不了，任务会永远卡在「待安装」。界面也不给它入口，这里再挡一道。 */ if (!item || !item.stackable || item.system || !count) return; state.inventory[itemId] = owned - count; if (itemId === ITEM.scrap) state.scrap = Math.max(0, state.scrap - count); if (itemId === ITEM.emberShard) state.essence = Math.max(0, state.essence - count); addLog(state, `丢弃了 ${itemTag(itemId)} ×${count}。`, 'system'); saveState(); notify(); }
+export function discardItem(itemId: number, amount = 1): void { const item = items[itemId]; const owned = state.inventory[itemId] || 0; const count = Math.min(owned, Math.max(1, Math.floor(amount))); /* 系统物品（剧情任务的图纸）不给丢弃：丢了就装不了，任务会永远卡在「待安装」。界面也不给它入口，这里再挡一道。 */ if (!item || item.category === 'equipment' || item.system || !count) return; state.inventory[itemId] = owned - count; if (itemId === ITEM.scrap) state.scrap = Math.max(0, state.scrap - count); if (itemId === ITEM.emberShard) state.essence = Math.max(0, state.essence - count); addLog(state, item.stackable ? `丢弃了 ${itemTag(itemId)} ×${count}。` : `丢弃了 ${itemTag(itemId)}。`, 'system'); saveState(); notify(); }
 /* ——— 物品栏上限 ———
    负载必须 ≤ 上限。旧存档、开发者面板都可能把负载顶到上限以上，所以超出时直接丢弃多出来的部分：
    先丢装备实例（一件一格、最容易超），再整类丢可堆叠物品。 */
 function dropStack(target: GameState, itemId: number): void {
   const item = items[itemId];
-  const count = target.inventory[itemId] || 0;
-  if (!item || !item.stackable || count <= 0) return;
-  target.inventory[itemId] = 0;
+  const owned = target.inventory[itemId] || 0;
+  if (!item || item.category === 'equipment' || owned <= 0) return;
+  const count = item.stackable ? owned : 1;   /* 可堆叠的整类丢；按件显示的（图纸）只丢一片。 */
+  target.inventory[itemId] = owned - count;
   if (itemId === ITEM.scrap) target.scrap = Math.max(0, target.scrap - count);
   if (itemId === ITEM.emberShard) target.essence = Math.max(0, target.essence - count);
-  addLog(target, `物品栏已满，${itemTag(itemId)} ×${count} 被丢弃。`, 'system');
+  addLog(target, `物品栏已满，${itemTag(itemId)}${item.stackable ? ` ×${count}` : ''} 被丢弃。`, 'system');
 }
 /** 把负载压回上限。
     preferItemId 是「刚获得的那件物品」：优先把它丢掉（丢新不丢旧）——
-    装备实例从末尾出栈（最后加进来的就是最新那件），可堆叠物品则整类丢掉刚拿到的那种。
-    没给 preferItemId（例如读档时清理旧存档）就按老顺序：先丢装备实例，再丢最靠前的可堆叠种类。 */
+    装备实例从末尾出栈（最后加进来的就是最新那件），物品栏里的东西则丢掉刚拿到的那种（可堆叠整类丢，图纸只丢一片）。
+    没给 preferItemId（例如读档时清理旧存档）就按老顺序：先丢装备实例，再丢最靠前的种类。 */
 export function trimInventoryOverflow(target: GameState = state, preferItemId = -1): void {
   let overflow = getInventoryUsed(target) - getInventoryCapacity(target);
   if (overflow <= 0) return;
-  /* 系统物品（剧情任务的图纸）不占负载，也就永远不会是被丢的那一方：它一旦被清掉，
-     对应的剧情任务会卡在「待安装」。 */
-  if (preferItemId >= 0 && items[preferItemId]?.stackable && !items[preferItemId].system && target.inventory[preferItemId] > 0) { dropStack(target, preferItemId); overflow -= 1; }
+  /* 系统物品不占负载，也就永远不会是被丢的那一方（见 getInventoryUsed 的「例外二」）。 */
+  if (preferItemId >= 0 && !items[preferItemId]?.system && target.inventory[preferItemId] > 0) { dropStack(target, preferItemId); overflow -= 1; }
   while (overflow > 0 && target.equipment.length) {
     const instance = target.equipment.pop()!;
     unequipEverywhere(target, instance.id);
@@ -1840,6 +1997,12 @@ export const devStats = [
   { name: '庇护所生命', get: (target: GameState) => Math.floor(target.camp.hp), set: (target: GameState, value: number) => { target.camp.hp = Math.min(getCampMaxHp(target), value); } },
   { name: '天灾通过', get: (target: GameState) => target.camp.disasterWins, set: (target: GameState, value: number) => { target.camp.disasterWins = value; } },
   { name: '兽潮通过', get: (target: GameState) => target.camp.tideWins, set: (target: GameState, value: number) => { target.camp.tideWins = value; } },
+  { name: '异种通过', get: (target: GameState) => target.camp.mutantWins, set: (target: GameState, value: number) => { target.camp.mutantWins = value; } },
+  /* 大事件的节奏是「1 小时一件、还要手动点应对」—— 调试时不可能干等，而波次类门槛（`unlockBy.wave`）
+     与区域强度都读它。这两项直接写 camp.wave / camp.stage：波次决定强度与波次门槛，
+     阶段决定下一场是哪一件（0 天灾 / 1 兽潮 / 2 异种，见 CAMP_WAVE_KINDS）。 */
+  { name: '大事件波次', get: (target: GameState) => campWave(target), set: (target: GameState, value: number) => { target.camp.wave = Math.max(1, Math.floor(Number(value)) || 1); } },
+  { name: '波内阶段（0天灾 1兽潮 2异种）', get: (target: GameState) => campWaveStage(target), set: (target: GameState, value: number) => { target.camp.stage = Math.max(0, Math.min(CAMP_WAVE_KINDS.length - 1, Math.floor(Number(value)) || 0)); } },
   { name: '城防等级', get: (target: GameState) => target.campWorkshop[0].level, set: (target: GameState, value: number) => { target.campWorkshop[0].level = value; } },
   { name: '城防工时', get: (target: GameState) => Math.floor(target.campWorkshop[0].work), set: (target: GameState, value: number) => { target.campWorkshop[0].work = value; } },
   { name: '庇护所人口', get: (target: GameState) => target.camp.population, set: (target: GameState, value: number) => { target.camp.population = value; } },
@@ -1859,11 +2022,21 @@ export const devStats = [
 ];
 /** 直接发物品：废料与余烬碎片要同步累加到对应的资源字段上，否则会和物品栏脱节；
     装备则生成等量的独立实例，所以发 5 件就是 5 张卡片。 */
-export function devGrantItem(itemId: number, amount: number): void { const item = items[itemId]; if (!item) return; const count = Math.max(1, Math.floor(amount)); if (item.stackable) { state.inventory[itemId] += count; if (itemId === ITEM.scrap) state.scrap += count; if (itemId === ITEM.emberShard) state.essence += count; } else addEquipment(state, itemId, count); addLog(state, `[DEV] 获得 ${itemTag(itemId)} ×${count}。`, 'system'); trimInventoryOverflow(state, itemId); saveState(); notify(); }
+export function devGrantItem(itemId: number, amount: number): void { const item = items[itemId]; if (!item) return; const count = Math.max(1, Math.floor(amount)); if (item.category !== 'equipment') { state.inventory[itemId] += count; if (itemId === ITEM.scrap) state.scrap += count; if (itemId === ITEM.emberShard) state.essence += count; } else addEquipment(state, itemId, count); addLog(state, `[DEV] 获得 ${itemTag(itemId)} ×${count}。`, 'system'); trimInventoryOverflow(state, itemId); saveState(); notify(); }
 /** entry.float 的项（回复、两个间隔）保留两位小数，其余按整数取整。 */
 export function devSetStat(index: number, value: number): void { const entry = devStats[index]; if (!entry || !Number.isFinite(value)) return; const safe = Math.max(0, entry.float ? Math.round(value * 100) / 100 : Math.floor(value)); entry.set(state, safe); trimInventoryOverflow(state); addLog(state, `[DEV] ${entry.name} 设为 ${entry.display ? entry.display(state) : formatNumber(entry.get(state))}。`, 'system'); saveState(); notify(); }
 /** 一键解锁全部系统（等价于把主线推到底）。 */
 export function devUnlockSystems(): void { state.mainlineIndex = mainline.length; addLog(state, '[DEV] 已解锁全部系统。', 'progress'); saveState(); notify(); }
+/** 完成**当前这一节**主线：条件不满足也照推 —— 这就是它和 devUnlockSystems 的分工。
+    推完走一遍正常的推进流程（`updateMainline`）：下一节的条件本来就成立时它会继续往前，跟正常游玩一致；
+    第 1 节还带着「待命队伍入驻庇护所」那一步，也由它一起走。 */
+export function devCompleteMainline(): void {
+  if (state.mainlineIndex >= mainline.length) { addLog(state, '[DEV] 第一章已经走完了。', 'progress'); saveState(); notify(); return; }
+  addLog(state, `[DEV] 已完成主线「${mainline[state.mainlineIndex].title}」。`, 'progress');
+  state.mainlineIndex += 1;
+  updateMainline(state);
+  saveState(); notify();
+}
 
 /** 重置存档。返回**是否真的重置了** —— 玩家在 confirm 里点取消时返回 false，
     调用方（main.ts）据此决定要不要重放首次引导：取消了就不该弹引导。 */

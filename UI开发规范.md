@@ -39,12 +39,13 @@ SOURCE    本文件由现有代码反向整理，每条规则对应既有实现�
 
 | 路径 | 职责 | 代理可否修改 |
 | --- | --- | --- |
-| `index.html` | 应用外壳：header / sidebar / `#page-content` | 仅新增 `.nav-item` |
+| `index.html` | 应用外壳：header / sidebar / `#page-content` / 右侧概览栏 `#hud` | 仅新增 `.nav-item` / 往 `#hud` 里加块 |
 | `src/style.css` | 全部样式（约 580 行，分区注释） | 是，追加式 |
 | `src/dom.ts` | DOM 写入工具，**唯一写入通道** | 仅新增通用工具 |
 | `src/format.ts` | 数值 / 时长格式化，**唯一出口** | 仅新增格式化函数 |
 | `src/page-controller.ts` | 模板加载 / 挂载 / rAF 合并刷新 / 高度测量 | 一般不改 |
 | `src/main.ts` | 注册页面、订阅状态、导航同步、启动全局模块 | 是（注册新页面） |
+| `src/hud.ts` | 右侧常驻概览栏（`#hud`：资源 / 冒险状态 / 当前主线）的取引用与每帧更新 | 是 |
 | `src/game-state.ts` | 状态 + 动作函数 | 是（新增动作） |
 | `src/hover-tip.ts` | 悬停详情跟随鼠标 | 仅改 `HOST_SELECTOR` / `TIP_SELECTOR` |
 | `src/unlock-toast.ts` | 解锁提示（顶部堆叠） | 一般不改 |
@@ -56,7 +57,7 @@ SOURCE    本文件由现有代码反向整理，每条规则对应既有实现�
 | `src/types.ts` | 类型定义 | 是 |
 | `src/globals.d.ts` | 构建期常量声明 | 新增常量时改 |
 | `src/config/*.ts` | 静态配置表（items / affixes / rarity / zones / events / maps / unlock） | 仅末尾追加 |
-| `src/pages/*.ts` | 页面逻辑（8 个） | 是 |
+| `src/pages/*.ts` | 页面逻辑（7 个：庇护所 / 冒险 / 物品栏 / 工坊 / 研究基地 / 远征档案 / 设置） | 是 |
 | `public/pages/*.html` | 页面静态骨架（fetch 加载） | 是 |
 
 ### 数据流（唯一方向）
@@ -64,6 +65,8 @@ SOURCE    本文件由现有代码反向整理，每条规则对应既有实现�
 ```
 game-state 变更 → notify() → main.ts subscribe 回调
   ├─ updateSharedHeader()            顶部状态 + 导航锁定/高亮
+  ├─ updateNavLoad()                 物品栏入口的负载徽标
+  ├─ updateHud()                     右侧概览栏（资源 / 冒险状态 / 当前主线）
   ├─ applyFontScale()                根字号
   ├─ applyNumberFormat()             数字档位
   ├─ pageController.renderCurrent()  → rAF 合并 → page.update(state, ctx)   每 ~500ms
@@ -97,6 +100,7 @@ game-state 变更 → notify() → main.ts subscribe 回调
 | R30 | 未解锁的内容**禁止**参与游戏逻辑：动作入口（`canStartWorkshop`…）自带解锁判定，自动流程（`advanceLogistics`…）跳过未解锁项。详见 §6.11 |
 | R31 | wiki 未解锁时，所有图鉴引用**必须**降级为纯文本（保留 icon 与类型色，去掉下划线、不可点、无 `data-codex`）。解锁状态由 `main.ts` 同步给 `setWikiUnlocked()`，渲染层不要自己判断。详见 §6.10 |
 | R32 | 新手指引**必须**用「外层遮罩 + 高亮区拦截层」两层模型：引导层自身 `pointer-events: none`，高亮区**默认整体不可点**，只有 `step.click` 指定的元素被让出来。**禁止**用 SVG mask / `box-shadow` 挖孔。详见 §6.12 |
+| R33 | **玩家可见的说明性文字只在明确要求时写**：按钮 / 开关下方的解释、面板页脚与页面说明、图鉴 / 帮助里的补充段都算 —— 没明说就不加，也不要「顺手补一句」。缺文案就留空，要加先问 |
 
 ### 交互
 
@@ -134,11 +138,12 @@ game-state 变更 → notify() → main.ts subscribe 回调
 
 | 区间 | 用途 |
 | --- | --- |
+| 1 / 0 | 页面内容列 `.page-content` / 右侧概览栏 `.hud`（内容列压住概览栏 —— 悬停浮层住在内容列里，`contain: layout` 让它跑不出这一列，见 §10-36） |
 | 6 / 7 | 悬停浮层 / 悬停宿主（`z-index: 7` 给宿主） |
 | 40 | `.zone-menu` 自绘下拉 |
 | 60 | `.item-context-menu` 右键菜单 |
 | 65 | `.enhance-hint` 底部提示条 |
-| 70 | 遮罩类弹窗（`.stats-layer` / `.dev-modal-layer` / `.affix-picker-layer` / `.help-layer` / `.install-layer`） |
+| 70 | 遮罩类弹窗（`.stats-layer` / `.dev-modal-layer` / `.affix-picker-layer` / `.discard-layer` / `.help-layer` / `.install-layer`） |
 | 75 | `.event-prompt-layer` |
 | 76 | `.changelog-layer` 版本更新日志 / 更新公告 |
 | 78 | `.wiki-layer` 内置 wiki（图鉴：物品 / 怪物 / 区域） |
@@ -197,7 +202,7 @@ export default page;
 <div id="xxx-view"></div>
 ```
 
-编号沿用 `HOME / 01` … `SETTINGS / 08` 的两位数格式。
+编号沿用 `ARCHIVE / 01` … `SETTINGS / 07` 的两位数格式。
 
 ### 2.3 `index.html` 导航项 + `main.ts` 注册
 
@@ -209,11 +214,18 @@ export default page;
 ```ts
 // main.ts
 import xxxPage from './pages/xxx';
-[homePage, campPage, /* ... */, xxxPage].forEach(page => pageController.register(page));
+[campPage, adventurePage, /* ... */, xxxPage].forEach(page => pageController.register(page));
 ```
 
-⚠️ 导航项数量变化时同步 `style.css` 的 900px 断点：`.main-nav { grid-template-columns: repeat(N, 1fr) }`（当前 N=8）。
-导航顺序由 `index.html` 决定，页面右侧的 `page-code` 编号（`HOME / 01` …）也要跟着顺延。
+⚠️ 导航项数量变化时同步 `style.css` 的 900px 断点：`.main-nav { grid-template-columns: repeat(N, 1fr) }`（当前 N=7）。
+导航顺序由 `index.html` 决定，页面右侧的 `page-code` 编号（`ADVENTURE / 01` …）也要跟着顺延。
+当前顺序：**远征档案 / 冒险 / 庇护所 / 物品栏 / 工坊 / 研究基地 / 设置**（只有「设置」固定在最下面，
+`style.css` 里那一行 `order: 1` 只管它一项 —— 新系统的导航项插在它之前）。
+
+⚠️ **新系统的导航项一律插在「设置」之前**：只有「设置」固定在最下面（`style.css` 用
+`.nav-item[data-page="settings"] { order: 1 }` 兜底，防止新项被直接追加到末尾把它挤到中间去）。
+「远征档案」现在排在最上面（自己一行，不再钉在底部 —— 别再把它加回那条 `order` 规则）。
+侧栏高度跟着导航项数量走（不写 `min-height`），所以加减导航项不需要动侧栏的高度。
 
 ⚠️ **新内容优先做成已有页面的页签，而不是新页面**：多一个导航项就要同步断点、`page-code` 与手机端列数。
 「勘探图」原来是自己一个页面，后来并进研究基地做成了页签（见 §7.17）—— 页签的写法与结构照 §6.2 的「页签的标准接法」来。
@@ -319,7 +331,7 @@ function close(): void { if (layer) layer.hidden = true; }
 <!-- 条件行（达成条件 / 任务进度通用） -->
 <div class="requirement done"><span class="status-dot"></span><span>条件文案</span></div>
 
-<!-- 日志条目（默认三列；两列容器加 .home-log，如主界面那块） -->
+<!-- 日志条目（三列：时间 / 类型 / 正文） -->
 <div class="log-entry log-battle"><span class="log-time">12:03</span><span class="log-kind">battle</span><span>……</span></div>
 
 <!-- 空态 -->
@@ -358,13 +370,14 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | --- | --- | --- |
 | 新增页面 | §2.1 §2.2 §2.3 §5 §7.18 | `public/pages/*.html`、`src/pages/*.ts`、`src/config/help.ts`（补一条帮助）、`main.ts`、`index.html`、`style.css` |
 | 改页面上的一句话说明 | §7.18 | 氛围句在 `public/pages/*.html` 的 `<p>`；操作说明在 `src/config/help.ts` |
+| 改右侧概览栏（`#hud`）显示的内容 | §6.14 §5.3 | `index.html` 的 `#hud`、`src/hud.ts`、`style.css`、本文件 §6.14 |
 | 新增卡片 / 网格 | §2.4 §6.5 | `src/pages/*.ts`、`style.css` |
 | 文案里要出现物品 / 怪物 / 区域名 | §6.10 §1-R26 R27 | `src/codex-ref.ts`（引用）、`src/pages/*.ts`、`src/game-state.ts`（日志） |
 | 新增区域（含图标） | §6.10 §4.2 §7.17 | `src/config/zones.ts`（末尾追加，必须给 `icon` 与 `unlock`）、`src/types.ts` |
 | 新增区域解锁规则 | §7.17 | `src/config/unlock.ts`（`unlockBy`）、`src/config/zones.ts`（在 `unlock:` 里组合） |
+| 新增一节**第一章**的主线 | §6.7 §7.19 | `src/game-state.ts`（`mainline` **末尾**追加 —— 下标即存档值，不能插队）、`src/pages/story.ts`（`chapterStory[0]` 补一行旁白） |
+| 新增一章 / 后续章节的一节 | §6.7 §7.19 | `src/game-state.ts`（`storyChapters` 末尾追加 + 奖励条目写 `unlockBy.chapter(章, 节)`）、`src/pages/story.ts`（`chapterStory` 补一张旁白表）、`unlockNotices` **末尾**手写一条提示 |
 | 新增勘探图 / 地图残片 | §7.17 | `src/config/maps.ts`（追加到末尾）、`src/config/items.ts`（残片实物）、`src/pages/research.ts`（勘探图页签） |
-| 新增剧情任务 / 系统物品 | §7.19 | `src/config/campaign.ts`（追加到末尾 —— 章节树会自动多出一节）、`src/config/items.ts`（图纸实物）、被解锁条目上的 `quest` + `unlockBy.quest`、`unlockNotices` 末尾手写一条提示 |
-| 新增一种安装玩法（解谜 / 多步…） | §7.19 | `src/types.ts`（`QuestInstall` 加分支）、`src/install.ts`（加渲染分支）、`src/style.css`（一个样式块）、`src/config/campaign.ts`（把某条任务的 `install.mode` 换过去） |
 | 新增有解锁门槛的内容 | §6.11 §7.17 §1-R29 R30 | 制造项 / 研究项给 `unlockIndex`，**区域给 `unlock` 规则**（见 §7.17）；`src/pages/*.ts`（列表同步）；`src/game-state.ts`（`unlockNotices` 自动收录、动作函数加判定） |
 | 改内置 wiki 内容 | §6.10 | `src/wiki.ts`、`style.css` |
 | 新增事件（天灾 / 兽潮 / 随机事件） | §6.10 | `src/config/events.ts`（末尾追加；随机事件会自动进 `campEventEntries`） |
@@ -417,7 +430,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 3 | `.rarity-green` | 绿色 | `--rarity-3` | 熔火裂谷 |
 | 14 | `.rarity-fireRed` | 火红色 | `--rarity-14` | 特殊渠道物品（清洗剂、地图碎片） |
 | 15 | `.rarity-amber` | 琥珀色 | `--rarity-15` | 任务物品（跨区域，单独占最高档） |
-| 16 | `.rarity-indigo` | 靛蓝色 | `--rarity-16` | 系统物品（剧情任务的奖励：图纸一类，见 §7.19） |
+| 16 | `.rarity-indigo` | 靛蓝色 | `--rarity-16` | 系统物品（钥匙一类，见 §7.19；**当前没有物品使用**，档位留着） |
 
 4~13 档（橙 / 浅红 / 粉红 / 浅紫 / 青柠 / 黄 / 青 / 红 / 紫 / 彩虹）是留给后续区域的空位，颜色已经在 `:root` 里备好 —— **加区域时往上取一档即可，不用回来改 CSS**。分配规则因此只有一条：**越后期能拿到的物品，档位越高**。三档「特殊渠道」（14 / 15 / 16）不和区域抢位置：它们的物品不是按区域进度拿到的（走独立通道），谁先拿到谁后拿到都一样。**再往上加档就往后取（17、18…），但别插在中间** —— 色板与档位语义都是只追加。
 
@@ -446,8 +459,8 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 等宽数字选择器（R20，新增同类元素追加到这一条）：
 
 ```css
-.resource-value, .mini-stat b, .combatant-stats b, .codex-stats b, .camp-stat-grid b,
-.item-stats b, .equip-stat-value, .dev-stat-value, .camp-timer, .capacity-summary { font-variant-numeric: tabular-nums; }
+.mini-stat b, .hud-row b, .nav-load, .combatant-stats b, .codex-stats b, .camp-stat-grid b,
+.item-stats b, .equip-stat-value, .dev-stat-value, .camp-timer, .capacity-summary, .discard-owned { font-variant-numeric: tabular-nums; }
 ```
 
 ### 4.5 尺寸惯用值
@@ -461,6 +474,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | 磁贴图标框 | 物品栏 `min(60px, calc(100% - 25px))` / 小号 `min(46px, calc(100% - 10px))`，与字号同比（见 §6.5、§10-27）
 | 栅格间距 | 主布局 `18px`，网格内 `10–14px`，紧凑行 `6–8px` |
 | 边框 | 块 `1px solid var(--line)`；块内 `1px solid var(--line-soft)` |
+| 概览栏列宽 | `--hud-width`：展开 `400px` / 收起 `44px`（`.hud-collapsed`），见 §6.14 |
 | 面板阴影 | `0 18px 42px rgba(0,0,0,.14)` |
 | 浮层阴影 | `0 16px 34px rgba(0,0,0,.4)` ~ `0 24px 60px rgba(0,0,0,.55)` |
 | 过渡 | 交互 `.16s ease`；进度条 `.25s–.3s`；浮层 `opacity .14s` |
@@ -485,40 +499,56 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 ### 5.1 外壳
 
 ```
-.app-shell    width: min(1240px, calc(100% - 40px)); margin: 0 auto; padding: 46px 0 28px
+.app-shell    width: 100%; padding: 46px 32px 28px   /* 铺满视口，两侧只留 32px（≤600px 收到 12px） */
   .game-header    品牌区 + #game-status（flex, space-between, 底部 1px --line）
-  .app-body       grid: 210px minmax(0, 1fr); gap: 18px
+  .app-body       grid: 210px minmax(0, 1fr) var(--hud-width); gap: 18px   /* ≤1300px 收回两列，概览栏变横条 */
     .sidebar        .sidebar-heading / .main-nav / .sidebar-foot
     .page-content   min-height: var(--page-min-height)  /* 620px 只是下限 */
+    .hud (#hud)     右侧常驻概览栏：资源 / 冒险状态 / 当前主线（见 §6.14）
 ```
 
+默认落点是**冒险页**（`page-controller` 的 `currentId`、`main.ts` 的启动 `switchTo`、被锁页面的退回目标，三处都是 `'adventure'`）。
+⚠️ 它必须是**任何存档都不会被锁**的页面：庇护所是挣来的（§7.16），落点不能放它。
+
+**导航项右侧的负载徽标**（`.nav-load`，只有物品栏那一项有）：`已占格数/上限`，由 `main.ts` 的 `updateNavLoad()` 每帧写。
+
+- 口径与物品栏页那条容量条**必须一致**：`getInventoryUsed()` / `getInventoryCapacity()`，压力档也是同一套（`<50%` 原色 → `50~80%` `.load-mid` 暖色 → `>80%` `.load-high` 红色）。两处的阈值分头写会立刻出现「侧栏说红了、页里还是黄的」。
+- 它与 `updateNavLocks` 分开写：那个函数是「状态没变就整段跳过」的，而负载每帧都可能变。
+- **折叠态（`.nav-collapsed`）与 `≤900px` 都不显示**（`.nav-load { display: none }`）：那两种形态下导航项只剩图标 + 三字标签，塞不下。
+
 - 折叠：`.app-shell.nav-collapsed` → 列宽 `64px`，隐藏 `.sidebar-label` / `.panel-kicker` / `.sidebar-foot`。
+- 侧栏高度**跟着导航项走**：`align-self: start` + 不写 `min-height`（grid 子项默认拉伸成整行高，不 start 就又跟内容一样长），
+  项少时侧栏就短，设置底下不留空档。
+- 导航最后一项固定是「设置」（`order: 1`）：新系统插在它之前，见 §2.3。
+- 概览栏收起：`.app-shell.hud-collapsed` → `--hud-width` 变 `44px`，三个 `.hud-block` 全部 `display: none`，
+  只留栏内顶部那个 `.hud-toggle`（窄屏横条形态同理，收起后只剩开关那一行）。
+  两个折叠状态都**不进存档**（刷新回到展开），也互不影响（列定义分别读 `64px` 与 `var(--hud-width)`）。
 - ⚠️ **页面不要自己设 `min-height`**：`page-controller` 会记录最高页的 `scrollHeight` 回写到 `#page-content`，防止切页高度跳动。
 
 ### 5.2 栅格骨架
 
 | 骨架类 | 列定义 | 用途 |
 | --- | --- | --- |
-| `.home-grid` | `repeat(2, minmax(0, 1fr))` | 主界面（`.home-log` 用 `grid-column: 1 / -1`） |
 | `.camp-layout` | `repeat(2, minmax(0, 1fr))`（默认 stretch） | 庇护所：两块**等宽等高** —— 里面的 `.mini-stat` 才会逐格一样大（血条由 `margin-top: auto` 压到底部对齐） |
 | `.archive-layout` | `repeat(2, minmax(0, 1fr))` + `align-items: start` | 两个面板并排：远征档案的主线页签、研究基地的委托页签。**只有一个面板的页签（成就 / 勘探图）不套这一层** —— 面板自己占满整行 |
 | `.inventory-layout` | `212px minmax(0, 1fr)` + `align-items: start` | 物品栏 |
 | `.battle-arena` | `minmax(0, 1fr) 70px minmax(0, 1fr)` | 战斗（中间 VS） |
-| `.shop-grid` | `repeat(auto-fill, minmax(320px, 1fr))` | 工坊 |
+| `.shop-grid` | `repeat(2, minmax(0, 1fr))`（≤600px 降为 `1fr`） | 工坊：制造项只有两项，**固定两列**、卡片自适应吃掉整行宽度；**不要**用 `auto-fill` / `auto-fit`（宽屏会摊成 3~5 条窄卡，概览栏开合还会让宽度跳） |
 | `.atlas-slots` | `repeat(3, minmax(0, 1fr))` | 勘探图的三格槽位（残片数由配置表给，见 §7.17） |
 | `.item-grid` | `repeat(6, minmax(0, 1fr))` | 磁贴（物品储藏） |
 | `.storage-grid` | 列数随断点降级（6 / 5 / 3），见 §5.3 | 图标磁贴：正方形，卡面只有图标 + 数量 |
 | `.storage-grid.tile-compact` | `repeat(auto-fill, 76px)` | 小号磁贴：研究项 / 成就共用，列宽**写死**（不随容器摊开，见 §6.5） |
-| `.resource-strip` / `.hero-stats` / `.camp-event-track` | `grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr)` | 等分条（R21） |
+| `.camp-event-track` | `grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr)` | 等分条（R21） |
 
 ### 5.3 响应式（只有两个断点）
 
 | 断点 | 行为 |
 | --- | --- |
-| `max-width: 900px` | 侧栏 → 顶部横向导航 `repeat(8, 1fr)`（导航项数量变化时同步 N）；`.home-grid` / `.inventory-layout` / `.archive-layout` / `.camp-layout` 单列；`.storage-grid` 5 列；`.battle-arena` 中列 `44px` |
-| `max-width: 600px` | `.app-shell` 收边距；`.game-header` 纵向；导航 `repeat(4, 1fr)`；资源条 2 列（末项 `1 / -1`）；`.battle-arena` 单列；`.storage-grid` 3 列；`.atlas-slots` 单列（三格横排在手机上放不下残片名）；工具栏纵向 |
+| `max-width: 1300px` | 概览栏从右列改**整行横条**、排到内容**上方**（`order: -1` + `grid-column: 1 / -1` + `position: static` + 三块并排）；`.app-body` 回到两列。**不能直接藏掉**，也不能落在内容下方 —— 金币 / 废料 / 精华与远征状态只剩这一处显示，而 `#page-content` 带着「最高页」的 min-height |
+| `max-width: 900px` | 侧栏（`order: -2`，仍排在概览栏之前）→ 顶部横向导航 `repeat(7, 1fr)`（导航项数量变化时同步 N）；`.inventory-layout` / `.archive-layout` / `.camp-layout` 单列；`.storage-grid` 5 列；`.battle-arena` 中列 `44px` |
+| `max-width: 600px` | `.app-shell` 侧边距 32px → 12px；`.game-header` 纵向；导航 `repeat(4, 1fr)`；概览栏三块改单列；`.battle-arena` 单列；`.storage-grid` 3 列；`.atlas-slots` 单列（三格横排在手机上放不下残片名）；工具栏纵向 |
 
-新增多列布局**必须**在这两处给出降级规则。
+新增多列布局**必须**在这几处给出降级规则。
 
 **磁贴格子的基线（§10-27）**：列数就是「格子有多大」的唯一来源，格子里**不能放写死尺寸的元素**。
 两档磁贴的取值（字号与图标框同比）：
@@ -542,7 +572,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 ### 6.1 面板与标题
 
 ```html
-<section class="page-heading"><div><span class="panel-kicker">COMMAND CENTER</span><h2>主界面</h2><p>氛围句</p></div><div class="page-heading-side"><span class="page-code">HOME / 01</span><button class="help-button" type="button" data-help="home">帮助</button></div></section>
+<section class="page-heading"><div><span class="panel-kicker">AUTO ADVENTURE / LIVE COMBAT</span><h2>冒险</h2><p>氛围句</p></div><div class="page-heading-side"><span class="page-code">ADVENTURE / 01</span><button class="help-button" type="button" data-help="camp">帮助</button></div></section>
 <section class="panel xxx-panel" id="xxx-view"></section>
 ```
 
@@ -567,6 +597,7 @@ ctx.cardRefs.forEach(e => { if (e.quantity) setText(e.quantity, `×${formatNumbe
 | `.filter-button` | 日志过滤器 | 小号 DM Mono，`.active` 转 accent |
 | `.tab` | 页签（`.tab-bar` 包裹） | `margin-bottom: -1px` 与 `.tab-bar` 的下划线咬合，`.active` 与下方面板连成一体；接法见下 |
 | `.help-button` | 页面标题右侧的【帮助】 | 小号 DM Mono 描边按钮；**每个页面都要有**（`data-help="<页面 id>"`，见 §7.18） |
+| `.nav-toggle` / `.hud-toggle` | 折叠开关（侧栏 ☰ / 概览栏 `›` `‹`） | 30×30 描边方块，**外观共用一条规则**（hover 与 `:focus-visible` 都转主色），只有定位各自写（flex 排 / grid 排）；≤600px 一起缩到 28×28 |
 
 禁用：`disabled` + `.xx:disabled { opacity: .4; cursor: not-allowed }`（R13）。
 
@@ -641,27 +672,44 @@ ctx.panes.forEach(pane => setHidden(pane, pane.dataset.pane !== ctx.tab));
 
 ### 6.6 日志列表
 
-- 默认三列 `66px 46px 1fr`；`.home-log` 覆盖为两列 `66px minmax(0, 1fr)`。
-  **日志只有两处**：主界面（`.home-log`，两列）与冒险页（`#adventure-log`，带筛选按钮）—— 不要在第三页再放一块（庇护所页原来那块已删除）。
+- 三列 `66px 46px 1fr`（时间 / 类型 / 正文）。
+  **日志只有一处**：冒险页（`#adventure-log`，带筛选按钮）—— 不要在第二页再放一块（主界面与庇护所页原来那两块都已删除）。
 - 类型着色：`.log-battle`(blue) / `.log-drop`(warm) / `.log-progress`(accent) / `.log-defeat`(red)。
-- 高度上限：`.event-log` 310px，`.event-log.compact` 210px。
+- 高度上限：`.event-log` 310px。
 - 空态 `.log-empty`。增量刷新见 §2.8。
 
 ### 6.7 树与条件列表
 
 - `.tree` > `.tree-branch`（`.collapsed`）> `.tree-node` + `.tree-children` > `.tree-leaf`（`.done` / `.current` / `.unlock` / `.selected`）；连接线用 `::before/::after`；`▾` 用 `transform: rotate` 表展开态。
-- **门控在「章」这一级，不在「节」**：第 N 章要在第 N-1 章**全部完成**后才出现（`pages/story.ts` 的 `chapterVisible()` 是唯一判定点）。
-  未出现的章整块 `hidden`（**不是变灰** —— 连 `.tree-node` 的标题都不给）；已出现的章里**每一节都渲染**，不要在章内再藏节。
+- **树上一次只展开一章**：`ctx.openChapter` 记着展开的那一章（从 1 起，`-1` = 全折起）。点章节标题 = 展开它（**其他章自动折起**），
+  再点同一章 = 全折起。初值是**当前这一章**（`currentStoryNode()` 所在的那章；全部走完时是最后一章）。
+- **章节数据在 game-state**：第一章 = `mainline`（进度 `state.mainlineIndex`），第二章起 = `storyChapters`
+  （进度 `state.chapters[章号 - 2]`）；`FIRST_CHAPTER` 放第一章的 kicker / 标题，后续章节的跟着 `storyChapters` 走 ——
+  档案页只把它们拼成渲染用的表，**不另存一份标题**。查询一律走 `getChapterProgress` / `getChapterNodeCount` /
+  `isChapterVisible` / `isStoryNodeDone` / `currentStoryNode`，页面不要自己去读 `state.chapters`。
+- **门控在「章」这一级，不在「节」**：第 N 章要在第 N-1 章**全部完成**后才出现（`isChapterVisible()` 是唯一判定点，
+  在 game-state）。未出现的章整块 `hidden`（**不是变灰** —— 连 `.tree-node` 的标题都不给）；已出现的章里**每一节都渲染**，不要在章内再藏节。
 - 章内的节三态**互斥、必居其一**：`done`（实心绿点）/ `current`（暖色点 + 底色，正在推进的那一节）/ `unlock`（虚线 + `opacity: .45`，还没轮到）。
-  **两种节都**不剧透：没走到的节标题写「未解锁记录」、奖励写「??? 待恢复」（主线与剧情任务一个口径），
-  右栏的标题 / 正文 / 条件 / 奖励也一并遮成 `???`。剧情任务那一节在「条件达成（图纸到手）」之后才露出来（见 §7.19）。
-- `ctx.selected` 只认**已出现**的章：选中的键落在隐藏的章里就落回主线当前节（重开 / 改档后不悬空）。
+- ⚠️ **没轮到的节一律遮成 `???`，没有例外**：树上写「未解锁记录 / ??? 待恢复」，右栏的标题 / 正文 / **解锁条件** / 奖励**全部**遮住
+  （`pages/story.ts` 的 `known` 分支）。**只以第一章为准** —— 第一章怎么做，后面每一章就怎么做，
+  不要为「这一章的条件比较特殊」开任何特例（第二章就是这么走歪的：先是给未达成的节露出条件，接着整套节奏都散了，见 §7.19）。
+  唯一可见的是**当前这一节**（`currentStoryNode()` 指的那一节，跨章取）：它必须写全条件，那是唯一的方向牌。
+- **章内严格顺序推进**，「还没轮到」永远只等于「上一节没做完」—— 所以遮住条件不会让人没方向。
+  想让某一节各自独立门槛（谁先做都行）= 先改这一条设计，不要在渲染层打补丁。
+- 章节旁白（右栏那段正文）是 `pages/story.ts` 的 `chapterStory[章号 - 1][节序号]`，**一章一张表**；
+  新章还没写旁白就留空，不要去别的章借句子。
+- `ctx.selected` 只认**已出现**的章：选中的键落在隐藏的章里就落回**第一个还没走完的节**
+  （重开 / 改档后不悬空；全部走完时停在最后一节）。⚠️ 门控放行之后（例如新一章刚出现）**不要让右栏停在刚做完的那一节上** —— 树上高亮的是新的那一节，两处说的得是同一件事。
 - 达成条件统一 `.requirement`（`.done` 转 accent）+ `.status-dot`（默认 accent 带光晕，`.pending` 灰且无光晕，`.paused` 转 warm）。
 - **已走完的节，条件行要「封存」**（`.requirement.done.settled` → `<s>条件原文</s> <b>已完成</b>`）：
   **不要再调 `done()` / 不要再看背包**。条件是「达成过」，不是「此刻仍然成立」——
   卖掉了装甲板、花掉了精华，都不该让一条早就走完的主线反过来显示「未完成」（远征档案踩过，见 §10-32）。
   原文里的进度数字仍是实时的（规则只给一个 `text()`，没有「达成时的快照」），所以它必须划掉：
   要读的是后面那个「已完成」。
+- **主线节点的「解锁后」（`mainline[].reward`）必须点名这一节真正解锁的东西** —— 它对玩家来说是
+  **这一节唯一的预告**（远征档案右栏的「解锁后」+ 概览栏主线卡），漏一个就等于那个系统凭空冒出来。
+  第 1 节「点亮第一座营火」写「解锁「庇护所」」是**真解锁**：庇护所页面与区域都挂在这一节上（`unlockBy.mainline(1)`），
+  做完它远征队还会从「原地待命」自动入驻庇护所（见 §7.16）。
 
 ### 6.8 自绘下拉（区域选择）
 
@@ -727,14 +775,14 @@ addLog(state, `远征队进入${zoneTag(zoneId)}，…`);                     //
 | 会进存档（日志 `message`） | `itemTag` / `enemyTag` / `zoneTag` 标记 | **必须**过 `renderCodexTags` |
 | 不进存档（主线条件 `MainlineRequirement.text()` 这类现算文案） | `itemRefMarkup` / `enemyRefMarkup` / `zoneRefMarkup` 直接出 HTML | 直接 `setHtml` 即可；**建议也过一遍** `renderCodexTags` 兜底 |
 
-⚠️ 兜底那一步不是可选项的等价物：`renderCodexTags` 只在文本含 `[[` 时才做事，已渲染的 HTML 会原样返回。**渲染点漏掉解析 → 页面上就会直接显示 `[[item:1]]`**（踩过一次：`home.ts` 的主线卡与 `story.ts` 的章节详情）。
+⚠️ 兜底那一步不是可选项的等价物：`renderCodexTags` 只在文本含 `[[` 时才做事，已渲染的 HTML 会原样返回。**渲染点漏掉解析 → 页面上就会直接显示 `[[item:1]]`**（踩过一次：当时主界面那张主线卡，以及 `story.ts` 的章节详情）。
 
 | 项 | 规则 |
 | --- | --- |
 | R26 | 物品 / 怪物 / 区域名**必须**通过 `itemRefMarkup` / `enemyRefMarkup` / `zoneRefMarkup`（渲染层）或 `itemTag` / `enemyTag` / `zoneTag`（存档文本）生成；**禁止**在文案里直接拼 `item.name` / `enemy.name` / `zone.name`（例外：`workshopItems` / `researchItems` / 庇护所事件名这类不在三张表里的条目） |
 | R27 | **会写进存档**的字符串**只能**存 `[[kind:id]]` 标记，**禁止**存 HTML；**渲染任何可能含标记的文本时都要过 `renderCodexTags`**（无标记的旧文本、以及早期格式 `[[12]]`（按物品解析）都原样兼容）。渲染 `MainlineRequirement.text()` 的每个地方都不能漏 |
 
-**引用不能放进高频重绘的 innerHTML**：`setHtml` 只在内容变化时重绘，但若字符串里混了每 500ms 都在变的数值，引用会被反复重建、悬停与点击都会被打断。做法是把段落拆成「稳定部分（含引用，`setHtml`）+ 变动部分（`setText`）」，见 `home.ts` 的 `copyMain` / `copyHp`。
+**引用不能放进高频重绘的 innerHTML**：`setHtml` 只在内容变化时重绘，但若字符串里混了每 500ms 都在变的数值，引用会被反复重建、悬停与点击都会被打断。做法是把段落拆成「稳定部分（含引用，`setHtml`）+ 变动部分（`setText`）」，见 `hud.ts`：目标是区域 / 敌人（`setHtml`，只在换目标时才变）与生命值（`setText`，每 tick 都动）分属两行。
 
 **边界（不属于图鉴引用，保持原样）**
 
@@ -742,9 +790,9 @@ addLog(state, `远征队进入${zoneTag(zoneId)}，…`);                     //
 | --- | --- |
 | 冒险页：区域下拉、战斗卡上的区域 / 怪物名 | 该页是实时战斗视图，保持原有形态；怪物资料统一由 wiki 提供（原先的「怪物图鉴」面板已移除） |
 | 物品栏里的卡片、右键菜单、悬停浮层 | 卡面形态，不走 `.codex-ref` |
-| 装备加成窗口的「装备名 · 词条名」（`getEquipBonusSources`） | 已按稀有度着色，名字是拼接结果，不改成引用 |
+| 装备加成窗口的来源行（`getEquipBonusSources`：「装备名 · 词条名」与「XX套装」） | 已按稀有度 / 类别 / 主色着色，名字是拼接结果，不改成引用 |
 | 开发者面板的物品发放按钮 | 点击语义是「发放物品」，不能变成 wiki 链接 |
-| 主界面资源条（金币 / 废料 / 精华）、物品栏分区标题 | HUD 聚合数值与类别标签，不是图鉴引用 |
+| 右侧概览栏的资源格（金币 / 废料 / 精华 / 后勤小队）、物品栏分区标题 | HUD 聚合数值与类别标签，不是图鉴引用 |
 | 庇护所事件名（天灾 / 兽潮 / 流民求助…） | 不在物品 / 怪物 / 区域三张表里 |
 
 **内置 wiki（`src/wiki.ts`）：页面路由 + 路径**
@@ -776,6 +824,20 @@ addLog(state, `远征队进入${zoneTag(zoneId)}，…`);                     //
 - 为什么不直接让 `codex-ref` 读 state：`game-state` 反过来要引用 `itemTag` / `pageRefMarkup` 拼文案，直接依赖会成环，所以走注入式状态。
 - 状态翻转回未解锁（如重置存档）时，`onWikiUnlockChange` 会通知 wiki 自己关掉弹窗。
 - 解锁条件就是成就「初次冒险」（`isWikiUnlocked`），成就的 `rewardUnlock` 会额外弹一条「解锁：系统「图鉴」」。
+- **成就的奖励可以是真的机制**，不只是文案：「初次冒险」解锁图鉴、「精炼初学者」给物品页加下面那个开关、
+  「精炼专家」给掉落精炼 +2%。写这类奖励时判据一律用 `isAchievementUnlockedById('id', target)` **现算**，
+  不要另存一个标记位（成就表本身就是那条记录）。
+
+**物品页的「不再拾取」开关**（成就「精炼初学者」的奖励，`itemFilterMarkup`）：
+
+| 项 | 规则 |
+| --- | --- |
+| 出现条件 | 拿到成 **并且** 这件物品已经发现过（`isItemFilterUnlocked()` + `isItemDiscovered(id)`）—— 没解锁就没有这东西（R29） |
+| 状态 | `state.noPickup[itemId]`（0 拾取 / 1 不拾取，**存档值，只能追加**）；读写走 `isItemNoPickup` / `setItemNoPickup` |
+| 动作 | 按钮只负责显示与调用；动作函数自己再复验一遍成就与物品下标（R30），改完写日志 + `saveState` + `notify` |
+| 生效点 | **掉落的四个通道都要过闸门**：怪物掉落（`grantDrops`）、套装部件（`grantSetDrop`）、委托任务物品（`grantQuestDrop`）、地图残片（`grantMapFragment`）。新增掉落通道时**必须**一起加 —— 漏一条这个开关就是假的 |
+| 不生效的 | 大事件的资源奖励（金币 / 废料 / 精华）与开发者面板发物品：那是「结算奖励」，不是从地上捡的 |
+| 用途 | 主要是**别再捡同名垃圾装备** —— 装备按实例占物品栏格数，材料只按种类占、捡不捡都不占新格 |
 
 ### 6.11 wiki 的页面层级与「是否达成」（`wiki.ts`）
 
@@ -816,7 +878,8 @@ function statusLine(text: string, done: boolean): string {
 - **「极致效果」是「收益 + 进度」**：上面同样是数值网格（数据来自 `perfectBonusEntries()`），下面跟一条 `statusLine('当前进度：N / 5')`。**这条进度不能删** —— 套装列表的角注只有「已穿 / 总数」、不含极致数，删了就真没地方看了。两者之间的间距由 `.codex-stats + .requirement` 给。
 - **不要把收益做成 `wiki-cell`**：格子是「点得开 / 指向某个条目」的东西，收益没有可点开的条目，硬套只会得到一个点不动、却会亮起悬停边框的假按钮。
 
-属性增益的**标签与数值统一由 `game-state.ts` 的 `setBonusEntries()` / `perfectBonusEntries()` 给出**，标签跟装备条目页对齐（`攻击力` / `生命上限` / `防御力` / `生命恢复` / `出手间隔`）。只能放一行的**散文**位置（物品栏的装备加成面板、达成日志）才用 `setBonusText()` / `perfectBonusText()` 拼，**不要各写一份标签**。
+属性增益的**标签与数值统一由 `game-state.ts` 的 `setBonusEntries()` / `perfectBonusEntries()` 给出**，标签跟装备条目页对齐（`攻击力` / `生命上限` / `防御力` / `生命恢复` / `出手间隔`）。只能放一行的**散文**位置（如达成日志的 `perfectBonusText()`）才用 `setBonusText()` / `perfectBonusText()` 拼，**不要各写一份标签**。
+（`setBonusText()` 目前没有调用点 —— 装备加成窗口的套装收益已经由来源列表给出，见 §6.16；留着是给之后的散文位置用。）
 
 **物品条目页的「掉落来源」不用 `statusLine`**（`dropSourceMarkup()`）：一行汇总（「已在 N 种怪物身上确认到」）会把逐条揭示的信息压缩成一个数字，而玩家真正要的是「哪几只知道」。改成 **`wiki-cell` 格子**（`wiki-grid` + `entryCellMarkup('enemy', id)`，和列表页同一套骨架）—— 已经真的从它身上掉出来过的给可点格子，遭遇过但还没掉过的给 `lockedCellMarkup()` 占位，一条都没确认到时也留一个占位格而不是整段隐藏。边界仍是「已遭遇过的怪物」，没见过的怪不参与，不剧透还有几处来源。
 
@@ -830,6 +893,13 @@ function statusLine(text: string, done: boolean): string {
 | --- | --- |
 | R29 | 未解锁的内容**禁止**渲染占位 / 置灰 / 锁图标；**必须**按解锁状态同步列表（未解锁的不在 DOM 里，解锁后追加）。解锁提示统一由 `game-state` 的 `unlockNotices` + `checkUnlocks` 驱动（`unlock-toast.ts` 消费），页面不要自己弹 |
 | R30 | 未解锁的内容**禁止**参与游戏逻辑：`canStartWorkshop` 这类动作入口要自带解锁判定，`advanceLogistics` 这类自动流程要跳过未解锁项 |
+| R31 | 章节**一律照第一章的做法**：章内严格顺序推进、**没轮到的节一律遮成 `???`**（标题 / 正文 / 解锁条件 / 奖励），章与章串行出现。**不要**为任何一章开渲染特例、不要「顺便」补条件 —— 要改的是那一章的设计，不是渲染层 |
+
+⚠️ **`unlockNotices` 的下标就是 `state.notices` 的存档下标**：新条目一律**追加到整张表的末尾** ——
+插在中段会让旧存档的 notices 整体错位（弹错提示、或该弹的不弹）。由 `entryNotices()` 自动收录的那些也一样：
+某一组里多出一条，它后面所有条目都会往后挪一格。
+所以「解锁规则**故意不给 `notice`**」是一条常规手段（`unlockBy.chapter()` 就是如此）：规则不带 notice 就不会被自动
+收进表的中段，提示改在末尾手写一条（现有三条：勘探仪、工坊的「医护帐篷」、研究基地的「回收精炼」）。
 
 **列表同步的写法**（签名比对 + 重新收集引用）
 
@@ -866,6 +936,8 @@ if (ctx.signature !== signature) {
 ### 6.13 新手指引（R32）
 
 引擎在 `src/guide.ts`，步骤表是文件顶部的 `GUIDES` —— 键同时是存档标记（`state.guides`）和解锁事件的 id。
+解锁事件的 id 出自 `unlockNotices`（见 §6.12）：机制是名字（`workshop` / `randomEvent`）、条目是 `<类>:<下标>`（`research:3` / `research:6`）、
+**区域是 `zone:<下标>`** —— 庇护所（zone 表 0 号）的引导键因此写作 `'zone:0'`。加系统时照这条对一下键。
 
 **两层拦截（R32）**
 
@@ -914,6 +986,74 @@ if (ctx.signature !== signature) {
 - 首次进游戏放 `intro`；`onUnlock` 收到解锁事件时放同 id 的引导（不在 `GUIDES` 里的会被忽略，例如成就）。
 - 跳过 = 标记已看 + 结束；多段引导自动排队播放。
 - 重置入口：设置页「重置新手指引」（`restartGuides`）；重置存档后也会重放 `intro` —— 但**只在真的重置了**的时候：`resetGame()` 返回是否重置成功，玩家在 `confirm` 里点取消时返回 `false`，`main.ts` 据此决定不重放（曾经无条件调用 `startGuide('intro')`，点取消也会弹一遍）。
+
+### 6.14 右侧常驻概览栏（`#hud`）
+
+**资源 / 冒险状态 / 当前主线** —— 全局唯一的「远征队现在怎么样」面板（**「主界面」这个页面已经撤掉**，
+它原来承担的东西全在这一栏里）。它不是页面 —— 不住在 `#page-content` 里，所以切页面不重挂，
+也不吃 `page-controller` 的 mount/update 那一套。
+
+| 项 | 位置 |
+| --- | --- |
+| 骨架（静态标签 + `data-ref`） | `index.html` 的 `.app-body` 里、`<main class="page-content">` 之后 |
+| 取值与更新 | `src/hud.ts`：`initHud()` 收引用（启动时一次）、`updateHud(state)` 跟着 500ms 的通知写值 |
+| 布局 | `.app-body` 的第三列（宽 `var(--hud-width)`，展开 `400px` / 收起 `44px`），`.hud` 是 `sticky` 的；`≤1300px` 变整行横条排到内容上方（§5.3） |
+| 收起开关 | `#hud-toggle`（`index.html`，栏内第一个子节点，30×30 与 `.nav-toggle` 同款）→ `main.ts` 切 `#game-app` 的 `.hud-collapsed` |
+
+- 三块：`#hud-resources`（金币 / 废料 / 精华 / 后勤小队）、`#hud-adventure`（状态点 + 目标区域 / 当前敌人 / 生命值 / 勘探队）、
+  `#hud-mainline`（当前节点卡，与远征档案同一套 `.requirement` 条件行）。id 是给新手指引挖孔用的。
+  ⚠️ 节点**跨章取**（`currentStoryNode()`）：第一章走完之后，这张卡接着显示第二章的当前节；
+  全部走完才换成那句「当前章节的目标都已经完成」的收尾文案。
+- 区块都是 `.panel` + `.hud-block`；资源格复用 `.mini-stat`（自带 `tabular-nums`），
+  键值行走 `.hud-row`（值一律 `nowrap` + 省略号，窄栏里名字长的区域 / 怪物不能把行撑破）。
+- **后勤小队只给 `待命/总数` 两个数字**（如 `2/3`），标签就是「后勤小队」四个字：总人数不存档、由主线 / 胜场 / 人口现算，
+  写「待命 X / 总数 Y」是在一行里把标签重复两遍。它是工坊的系统，未解锁时整格**不渲染**（R29）。
+- 状态文案只有五个：**原地待命**（还没驻扎任何区域，`zoneId < 0`）/ 休整（在庇护所）/ 搜寻中 / 战斗中 / 待命（脱战）。
+  ⚠️「原地待命」与「休整」是两件事：前者没有庇护所那份回血加成（见 §7.16）。**「刷怪冷却期间显示等待而不是那只已经死掉的怪」**
+  这条判定别漏（`spawnTimer > 0`，`adventure.enemyId` 那时还留着上一只）。
+- 新区块 / 新行照样守 R29：**有解锁门槛就整块不渲染**（`setHidden` + `.hud-row[hidden] { display: none }`，R19）。
+- 区块标题行的小按钮是 `data-page` 的 `.text-button`（走 `main.ts` 的全局委托，与页面里的跳转按钮同一套）。
+  ⚠️ **只往不会被锁的页面导**（冒险 / 物品栏 / 远征档案）：全局委托不看 `locked`，指向被锁的页面会直接切进未解锁的系统。
+- ⚠️ 它是**背景板**（`.hud { z-index: 0 }`，`.page-content` 是 `1`）：卡片 / 装备槽的悬停详情是卡片内部的
+  绝对定位元素，而内容列带 `contain: layout`（自成层叠上下文）—— 浮层只能靠**这一列**去压住概览栏。
+  **别把 `.hud` 的 z-index 调到 1 以上**，那会把悬停详情重新盖住（踩过，见 §10-36 与 §1 取号表）。
+- ⚠️ **`≤1300px` 不是藏起来，是变成整行横条**（`order: -1`）**排到内容上方**：撤掉主界面之后，
+  金币 / 废料 / 精华与远征状态只剩这一栏显示，藏掉等于窄屏玩家看不到家底；而落在内容下方更糟 ——
+  `#page-content` 带着「最高页」的 min-height，横条会被顶到要滚一屏才看得见。真要改这个行为，先给窄屏想好替代位置。
+
+### 6.15 开发者面板（`pages/settings.ts`，只在 devtools 构建里）
+
+代码位置在 `settings.ts` 的 `if (__DEV_TOOLS__)` 分支里，**不进公网产物**（R25；必须保持可摇树：不要把这些函数
+引到分支之外）。设置页那一段是入口（`.dev-panel`），两个浮层 `.dev-modal-layer` 沿用 §2.5 的骨架。
+
+| 窗口 | 类 | 要点 |
+| --- | --- | --- |
+| 增加物品 | `.dev-modal.dev-item-modal` | 窗口放宽到 `min(1080px, 100%)`，**按类别分块**（顺序与名称读 `categoryOrder` / `itemCategories`，和物品栏页签同源）；网格 `repeat(auto-fill, minmax(148px, 1fr))`（1080px 下 6 列），窄屏自动降级 |
+| 修改属性 | `.dev-modal` | 默认 `min(560px, 100%)` —— 只有十来格，不要跟着放宽 |
+
+- ⚠️ 物品列表**不要退回成一个平铺网格**：58 件物品没有分组时只能一行行扫，找一件装备非常难受。
+- 新增类别时不用改这里：分块由 `categoryOrder` 驱动，空类别整块不渲染。
+- 面板上的「解锁系统」一组是**动作按钮**（不是浮层）：`完成当前主线任务`（`devCompleteMainline()`，往前推一节，
+  **条件不满足也照推**，推完还会走一遍 `updateMainline` —— 下一节条件本来就成立时会继续往前）
+  与 `一键解锁全部系统`（`devUnlockSystems()`，把主线推到底）。调试单节内容时用前者，别再用后者推到底。
+
+### 6.16 装备加成窗口（`pages/inventory.ts`，`.stats-layer`）
+
+一行一项（行表就是 `equipBonusStats`：总攻击力 / 总生命 / 总防御）。**合计 = 固定来源合计 ×（1 + 百分比来源合计 / 100）**
+—— 与 `getPlayerAttack` / `getPlayerMaxHp` 同一套口径，区别只是那边还多加了基础值（攻击 12 / 生命 100）：
+这里的「总」是**身上这套东西一共给了多少**，不是角色面板上的最终数值。
+
+- 合计右边的 `.equip-stat-toggle` 展开/收起该项的来源（`data-stats-row="<key>"`，**默认收起**）：
+  点它**只改这一段的显隐 + 箭头 + `.collapsed` 类**，不要重画整个窗口（重画会重置滚动位置，§10-22）。
+  展开状态存模块级的 `expandedStats`（界面状态，不进存档），重建窗口时照着它画。
+- 来源列表分两段：**固定值**（装备自身 / 固定词条 / 套装）在上，`.equip-stat-split` 一条分隔线，**百分比**（百分比词条 / 套装【极致】）在下。
+  分隔线只在两段都有内容时才画 —— 只有一半时它就是一条悬空的线。
+- **套装与【极致】也是来源**（`getEquipBonusSources` 里把 `setTable` 走了一遍）：凑齐那条与 `getSetBonus` 同判据（整套穿在身上），
+  【极致】那条与 `getPerfectBonus` 同判据（**永久解锁**，不看现在还穿不穿着）。着色走 `.set-source`（主色）。
+- 下面的套装进度块**只给进度与部件清单**（`N / M` + 每件穿没穿）：生效与否看 `.equip-stat.empty`（整块压暗，与上面的行同一套），
+  收益数值已经在上面的来源列表里（「XX套装」与「XX套装【极致】」两条）——这里**不再抄一遍文案**，也不写「凑齐后 / 已激活」。
+- ⚠️ 这一窗口的行标签是「总 X」（面板语义），**不要**去跟装备条目页的 `攻击力` / `生命上限` / `防御力` 对齐 ——
+  那条约定（§6.11）管的是 `setBonusEntries` / `perfectBonusEntries` 给出的套装 · 极致收益标签。
 
 ---
 
@@ -967,7 +1107,7 @@ interface PageDefinition<Context = any> {
 ### 7.4 状态与动作（`src/game-state.ts`）
 
 - **只读**：`getState()`、各 `getXxx(state)` 派生值、配置表 `items` / `zones` / `enemyTable` / `rarities` / `affixes` / `equipTypes` / `itemCategories` / `categoryOrder` / `equipBonusStats` / `fontScales` / `numberFormats` / `researchItems` / `workshopItems` / `logisticsTargets` / `campEventEntries` / `mapSets` / `MAP_STATE` / `EXPEDITION` / `mainline` / `achievements`。
-- **配置表自带的查询函数**（不要在页面里重写遍历）：`rarityClass(rarity)`（`config/rarity`）、`zoneOfEnemy(enemyId)` / `zoneOfMap(mapId)`（`config/zones`）、`campEventDef(kind, index)` / `campEventEntryId(kind, index)`（`config/events`）、`fragmentMapOf(itemId)` / `mapOfEventKind(kind)`（`config/maps`）。
+- **配置表自带的查询函数**（不要在页面里重写遍历）：`rarityClass(rarity)`（`config/rarity`）、`zoneOfEnemy(enemyId)` / `zoneOfMap(mapId)`（`config/zones`）、`campEventDef(kind, index)` / `campEventEntryId(kind, index)`（`config/events`）、`fragmentMapOf(itemId)` （`config/maps`）。
 - **动作（界面唯一允许的状态修改方式，R06）**：`selectZone` `equipItem` `equipToSlot` `discardItem` `discardEquipment` `useItem` `assignLogistics` `startWorkshopUpgrade` `startCampChallenge` `answerPendingEvent` `craftMap` `startExpedition` `submitResearchTask` `upgradeResearchItem` `upgradeResearchItemToMax` `setResearchDifficulty` `setFontScale` `setNumberFormat` `setNotify` `resetGame` `devGrantItem` `devSetStat` `devUnlockSystems`。
 - **订阅 / 启动**：`subscribe(cb)`、`onUnlock(cb)`、`startLoop()`（内部 `notify()` 由动作函数调用，界面不直接用）。
 
@@ -978,7 +1118,7 @@ interface PageDefinition<Context = any> {
 ```
 
 页面只在 `locked(state)` 里声明条件（如工坊 `state.mainlineIndex < 2`、研究基地 `!isResearchUnlocked(state)`）。
-⚠️ 若当前停留页被锁上（如重置存档），`updateNavLocks` 会自动退回主界面。
+⚠️ 若当前停留页被锁上（如重置存档），`updateNavLocks` 会自动退回冒险页（默认落点，永远可用）。
 
 ### 7.6 敌人数值（`src/config/zones.ts`）
 
@@ -1047,6 +1187,9 @@ const tabLabel = (tab) => tab === ALL_TAB ? '全部' : itemCategories[tab].name;
 - `ctx.category` 存的是**页签 id**（可能是 `'all'`），所以类型是 `string` 而不是 `ItemCategory`。
 - 新增分类只改 `config/items.ts` 的 `categoryOrder`，页签会自动多一个 —— **不要**在页面里手写页签列表。
 - 默认页签是 `ALL_TAB`（打开物品栏先看到全部东西）。
+- **卡片有两种出法**：可堆叠的一格写「×数量」；`stackable: false` 的（目前只有地图残片那 9 件图纸）一件一张卡片、不写数量。
+  ⚠️ `stackable` **只管显示、不管计数**：计数一律「**装备看实例、其它看 `inventory[]` 的数量**」
+  （`getOwnedCount` / `grantDrops` / `devGrantItem` / `discardItem` / `dropStack` / `cardsOf` 与结构签名都按这条口径写 —— 加新的非堆叠非装备物品时，这几处都要能走通）。
 
 **强化道具的目标可以是装备槽**
 
@@ -1068,6 +1211,15 @@ const tabLabel = (tab) => tab === ALL_TAB ? '全部' : itemCategories[tab].name;
 **右键菜单的第一项是「查看图鉴」**
 
 `WIKI_ACTION` 排在 `actionsFor()` 的最前面（它只读、和后面的操作不是一类），点击走 `wiki.ts` 的 `openWiki('item', itemId)` —— 和点行内引用是同一个弹窗。图鉴没解锁时**整项不出现**（`isWikiUnlocked()` 判定，R29）。顺序是：查看图鉴 → 类别操作（装备 / 使用）→ 丢弃。
+
+**「丢弃」在数量 > 1 时要先问一句**（`.discard-layer`，`pages/inventory.ts` 的 `openDiscardWindow`）：
+
+- 可堆叠物品手里不止一份 → 弹窗给「保留一份 / 丢弃全部」两个选择（原来只有丢一份，清空一叠要点十几次）；
+  只有一份 → 照旧直接丢，不要弹只有一个答案的窗口。装备是独立实例、没有份数，`discardEquipment(instanceId)` 直接执行。
+- 两个按钮说的都是**终态**（点完手里剩一份 / 剩零份），所以份数要**点的时候现读**（`getState().inventory[itemId]`），
+  不能用打开窗口时的快照；「保留一份」丢的是 `owned - 1`。标签必须和动作对上 —— 别把「保留一份」接成丢一份。
+- 单例挂 body（R09）+ 三种关闭方式（× / 点遮罩 / Esc，R12）；`丢弃全部` 是 `.secondary-button.danger`，
+  「保留一份」保持中性 —— 严重程度靠颜色分，不靠再加一个「取消」。
 
 ### 7.8 自动进食（`game-state.ts` + `pages/adventure.ts`）
 
@@ -1130,7 +1282,6 @@ scavenger: { name: '拾荒者', icon: '🔧', zone: ZONE.wasteBorder, dropChance
 | 物品 | 走哪个 | 为什么 |
 | --- | --- | --- |
 | `category === 'quest'` | `questSourceMarkup` | 由「委托指向的区域」统一掉落 |
-| `item.system` | `questRewardSourceMarkup` | 剧情任务的奖励（见 §7.19），不发也不掉 |
 | `type === '清洗'` | `solventSourceMarkup` | 任何怪物 0.1%，与区域无关 |
 | 地图碎片（`fragmentMapOf(id) >= 0`） | `fragmentSourceMarkup` | 由庇护所的大事件带回（见 §7.17） |
 | 套装部件（`setOfItem(id) >= 0`） | `setSourceMarkup` | 走 `grantSetDrop` 的独立通道 |
@@ -1429,15 +1580,22 @@ wiki 的物品条目页**不单开「极致」小节**：那只是一个是 / �
 
 **制造项的解锁是一条规则，不是一个进度数字**：`workshopItems[].unlock`（`UnlockRule`，同区域解锁那套）+
 `isWorkshopItemUnlocked()` 是唯一判定点 —— 页面渲染、后勤自动流程（`advanceLogistics` 里逐项 `continue`）、
-`canStartWorkshop()` 都读它。解锁渠道可以是主线、剧情任务、或任意组合：
+`canStartWorkshop()` 都读它。解锁渠道可以是主线、地图、波次、或任意组合：
 
 ```ts
-{ name: '哨戒弩台', unlock: unlockBy.any(unlockBy.mainline(4), unlockBy.quest(QUEST.sentryBlueprint)), quest: QUEST.sentryBlueprint, ... }
+{ name: '哨戒弩台', unlock: unlockBy.mainline(4), ... }
+{ name: '哨塔蓝图', unlock: unlockBy.any(unlockBy.map(MAP.veinChart), unlockBy.wave(2)), ... }   // 组合的写法
 ```
 
 ⚠️ **给既有条目加新渠道时用 `any` 并行，不要把原条件换掉** —— 老存档可能已经把它造到好几级，
 只留新渠道会让它在工坊里凭空消失，而等级还在给它加数值（见 §7.19）。
-研究项（`researchItems[]`）同理。
+研究项（`researchItems[]`）同理。**改判据本身也一样要当心**：第一章加了一节之后，「第一章全通」的语义就变了，
+原来挂在这个语义上的条目会被重新锁上（勘探仪踩过，见 §7.19）。
+
+**每级的加成写在 `per*` 上**：`perHp` / `perDefense` / `perAttack` / **`perRegen`**（庇护所回血，点/秒）。
+缺省 = 这一项不给那种加成，**不要为了填满形状写 0** —— 工坊卡片的加成文案只列真的有值的那几项
+（`campBonusText(level, item)` 里逐项 push，空的话写「尚未开工」）。
+制造项的下标走 `WORKSHOP_ITEM`（新项追加到末尾时在那里补一行），别在业务代码里写 `campWorkshop[2]` 这类字面量。
 
 **后勤总人数只有一个来源，不存档**：
 
@@ -1471,6 +1629,13 @@ export function getLogisticsTotal(target: GameState = state): number { return 1 
 
 **术语**：「庇护所」是页面与系统名（原「营地」），**只改文案** —— `state.camp` / `campWorkshop` 等字段名一律保留，
 存档格式零改动。「营火」（那堆火本身）与「营垒」（工事名）是另外两个词，不要跟着改。
+
+**庇护所是挣来的，不是开局就有的**：页面与区域都挂 `unlockBy.mainline(1)`（完成「点亮第一座营火」），
+页面锁定读 `isCampUnlocked()` —— 它就是 zone 表里庇护所区域的解锁规则，**判定只有这一处**。
+
+**开局是「原地待命」**：`adventure.zoneId = -1`（荒野上还没落脚点），不刷怪、也不吃庇护所那份回血加成 ——
+区域取值见 `currentZoneId()`（无效即 `-1`）、`isIdleZone()`（待命）与 `isCampZone()`（庇护所**或**任何无敌人区域，两类别混判）。
+点亮第一座营火之后，还在待命的远征队由 `updateMainline()` 末尾自动入驻庇护所（玩家已经自己选了区域就不动他）。
 
 **营火机制已移除**（做过「花精华提升营火等级」，用来抬高远征队与庇护所的数值；后来整条撤掉）。
 **「营垒修筑」也整条移除了**（它靠待命人手白嫖庇护所三围、不花材料，把第一波的门槛拉没了 —— 见 §7.15 / §10-31）。
@@ -1524,9 +1689,9 @@ export function getLogisticsTotal(target: GameState = state): number { return 1 
 - `getLogisticsSources()` 是总人数三个来源（主线 / 胜场 / 人口）的**唯一出处**，界面要展示来源就调它，不要自己算
 - 每 `POP_PER_WORKER` 人换 1 名后勤
 - **庇护所页不单列人口**：那一页两块各排成 2×2 四个数值格（庇护所：生命 / 攻击 / 防御 / 恢复；威胁：事件的同四项），
-  人口在这里既不占格也不参与排版 —— 它在工坊页的「待命 X / 总数 Y（主线 N · 胜场 N · 人口 N）」那一行里看，来源还拆得更清楚。
+  人口在这里既不占格也不参与排版 —— 它在右侧概览栏的「后勤小队」那一格看（`待命/总数`，见 §6.14）。
   两块**等宽**（`.camp-layout` 两列 1fr）是为了让同一套 `.mini-stat` 逐格一样大，不要改回不等宽
-- **庇护所页没有日志块**：日志只有主界面（`.home-log`）与冒险页（`#adventure-log`）两处（见 §6.6）
+- **庇护所页没有日志块**：日志只有冒险页（`#adventure-log`）一处（见 §6.6）
 
 **读档校验**：`camp` 的每个新字段（`wave` / `stage` / `population`，以及勘探图那四个，见 §7.17）都在
 `rebuildState` 里**逐字段**夹上下限，不要退回 `{ ...initial.camp, ...saved.camp }` 一把梭 ——
@@ -1579,7 +1744,7 @@ unlockBy.mainline(index) / map(mapId) / all(...) / any(...)
 | 下标 | `mapSets` 的键顺序就是 mapId，而 `camp.maps` 按下标存进存档 ⇒ **新地图只能追加到末尾**（R24 同款约束） |
 | 残片是物品 | 每片都是 `category: 'resource'` 的可堆叠物品（自动进物品栏、自动进图鉴）。稀有度用**火红色**（14）：它和清洗剂同属「不走 `dropTable` 的特殊渠道」，不和区域档位抢位置 |
 | 掉落通道 | 走 `grantMapFragment()`，**不写进任何怪物的 `dropTable`**，也不占「同一只怪物最多 3 条掉落」的名额 |
-| 分套 | 大事件**按事件类型分套**（`mapSets[].kind` ↔ `CAMP_EVENT`）：天灾 / 兽潮 / 异种各一套，一波里三种依次出现，所以想集齐一套就得三种都打 |
+| 分套 | 大事件**按波次**发（`grantMapFragment`）：第 1 波 → 第 1 套、第 2 波 → 第 2 套、第 3 波 → 第 3 套，三套都发过之后补任意还没集齐的那一套。⚠️ 别退回「按事件类型分套」（天灾→矿脉图纸 / 兽潮→深井剖面 / 异种→裂谷坐标）—— 那样每一波都在发同一套，区域解锁顺序会和波次错开 |
 | 随机事件 | 唯一的例外：**不挑套，补最靠前的那个缺口**。它每小时来一次、与波次进度无关，给卡在某一波的玩家留一条靠时间慢慢磨的路 |
 | 解锁闸门 | **勘探图没解锁就不掉**（同任务物品那道闸门，见 §7.13）：大事件开局就能打，那时掉出来只会白占物品栏 |
 | 上限 | 每套最多 3 片：集齐后不再掉，勘探完成后更不掉 —— 不留没有出口的囤积（`庇护所扩展方案.md` §2 的原则）。它们是**消耗品**：勘探成功时各扣 1（见「三」） |
@@ -1643,30 +1808,55 @@ unlockBy.mainline(index) / map(mapId) / all(...) / any(...)
 
 ---
 
-### 7.19 剧情任务与系统物品（`config/campaign.ts` + `src/install.ts`）
+### 7.19 第二章起的章节内容（`game-state.ts` 的 `storyChapters`）
 
-**一条剧情任务 = 一件系统物品 = 远征档案里的一节**。整条链路（达成之前那一节在档案里不剧透）：
+**第二章「愈深之处」的基调是「区域探索 + Boss」**：第一章教玩法（一节一个明确的小目标），
+从第二章开始是**放置** —— 每一节都是「去某个区域刷够击杀数 + 收够那片区域的特产」，
+数值刻意往大里放（一节按 1~2 小时估，第一章的节点是十几分钟级的）。
 
-```
-条件达成（checkQuests 每帧检查）→ 奖励物品自动进物品栏 → 玩家右键「使用」→ 安装浮层
-  → installQuest()：扣代价、把物品用掉、任务转「已安装」→ 它解锁的工坊项 / 研究项出现
-```
+| 节 | 区域 | 要求 | 奖励 |
+| --- | --- | --- | --- |
+| 2-1 扫清矿脉 | 余烬矿脉 | 区域击杀 1200 · 生命之种 ×35 | 工坊「医护帐篷」（每级 +0.75 庇护所回血） |
+| 2-2 下探深井 | 核心深井 | 区域击杀 1800 · 装甲板 ×4000 | 研究项「回收精炼」（每级 1% 概率掉落装备精炼 +1，10 级封顶） |
+| 2-3 穿过裂谷 | 熔火裂谷 | 区域击杀 2400 · 余烬核心 ×250 | **占位**：文案写「BOSS 区域尚未开放」，机制等 Boss 落地再补 |
+| 2-4 打 Boss | — | — | Boss 区域还没做（见 `庇护所扩展方案.md` §4.6），做完再往 `nodes` 末尾追加这一节 |
 
-| 项 | 规则 |
+两条要求都用**存档里现成的数字**：区域击杀数 `state.zoneWins[zoneId]`（`defeatEnemy` 里自增）、
+掉落物就是**怪物 `dropTable` 里的常规材料**。
+
+⚠️ **收集项不许用任务物品**（结晶样本 / 核心读数 / 熔火晶核那三种）：它们只在研究基地的**委托**指向该区域时才掉
+（`grantQuestDrop`），把委托状态绑进主线，玩家会被一条自己控制不了的线卡住 —— 委托一换，进度就停了。
+
+**收集项还要选该区独占的掉落物**：2-1 原来收「余烬碎片」，但它同时是废弃边境「重装拾荒者」的掉落
+（第一章「追踪核心信号」的出口 —— 那一节在 1-6 之前就要凑够 2 个），不算余烬矿脉的特产，
+现在换成只有余烬水蛭掉的「生命之种」。选之前把候选物品在 `zones.ts` 里搜一遍，确认只有这一区掉。
+
+选常规材料时按**该区域的每小时期望产量**定数量（3 秒一只 ≈ 1200 杀/小时）：生命之种在余烬矿脉 ≈12~14/h、
+装甲板在核心深井 ≈1440/h、余烬核心在熔火裂谷 ≈50/h —— 这样三节的时长才大致对齐（约 3 / 3 / 5 小时）。
+
+**新增一章 / 一节**：
+
+1. 往 `storyChapters` **末尾**追加一条（或往那一章的 `nodes` 末尾追加一节），节点用 `quest(...)` 造；
+2. `pages/story.ts` 的 `chapterStory` 补一张旁白表（缺了只是那一段留空）；
+3. 奖励要挂在被解锁的条目上：工坊项 / 研究项写 `unlockBy.chapter(章号, 节号)`（**章号与节号都从 1 起**）；
+4. 因为 `unlockBy.chapter()` **故意不给 `notice`**，去 `unlockNotices` 的**末尾**手写一条提示
+   （插在中段会让旧存档的 notices 下标整体错位，见 §6.12）；
+5. 铁律照旧：**章内严格顺序推进、没轮到的节一律 `???`**（§6.7 / R31）。
+
+**为什么第一版被推翻（别再走那条路）**：原来的第二章是「几节各自独立、谁先做都行」，每节挂一个波次门槛 ——
+而大事件 1 小时一件、还要手动点「应对」，相邻两节之间隔了好几场纯等待；当时的应对方式是
+**给未达成的节露出条件**（「不然玩家没方向」），等于在渲染层给一节独立的门槛打补丁，越补越乱。
+整条线（`config/campaign.ts` / `src/install.ts` / 两件系统物品 / `unlockBy.quest` / `state.quests`）
+因此被整章删除，第二章按上面的形状重做。教训两条：**① 章节一律照第一章的做法；② 相邻两节的门槛不要隔超过一场大事件**。
+
+**旧版留下的痕迹**：
+
+| 项 | 现状 |
 | --- | --- |
-| 表 | `campaignQuests`：奖励物品 / 条件（`UnlockRule`）/ 安装形态 / 文案。**追加只能放末尾**（`state.quests` 按下标存） |
-| **展示位置** | 挂在章节树里（`pages/story.ts` 的 `chapters` 把这张表整体挂成第二章「余烬之外」）。**不要为它单开页签** —— 那会和「主线剧情」重复；**也不要塞进 `mainline` 数组** —— 那条数组按下标存进存档，插节点会挪动既有下标（R24）。两种节在一棵树里，节点键是 `m:<mainline 下标>` / `q:<campaign 下标>`（只存下标会撞车），章节号与节序号按树现算、不要写死 |
-| 何时出现 | 争两件事：① **第二章**要等第一章全部完成才出现（章节门控，见 §6.7）；② **章内的一节**要等它的条件达成（奖励自动进包）才显出内容，在那之前是「未解锁记录」。所以「推完第一章」时第二章会带着两行「未解锁记录」冒出来 —— 它们告诉玩家「这里还有东西」，但不告诉是什么 |
-| 两种节的区别 | `mainline` 节**顺序推进**（完成 = `index < mainlineIndex`，未到达的显示「未解锁记录」）；`quest` 节**条件各自独立**（完成 = `state.quests` 已安装，条件一开始就可见）。章节徽标的 `x / y` 按各自节点算 |
-| 谁解锁谁 | **不写在任务表里**，写在被解锁的条目上（`workshopItems[].quest` / `researchItems[].quest`）；反查走 `questTarget()`，档案页 / 图鉴 / 物品详情共用那一处 |
-| 解锁规则 | `unlockBy.quest(id)` 读 `state.quests`；**故意不给 `notice`** —— 它的解锁提示手写在 `unlockNotices` 的末尾（插在中段会让旧存档的 notices 下标整体错位，见 §6.12） |
-| 与主线并行 | 既有条目写成 `any(mainline(n), quest(id))`，**不要换成只留 quest**：老存档已经造到几级的东西不能凭空消失（见 §7.15） |
-| 物品 | `category: 'consumable'`（`useItem` 只认消耗品）+ `system: true` ⇒ 不占负载、不能丢弃、只由任务发放（三处守卫：`getInventoryUsed` / `trimInventoryOverflow` / `discardItem` + `actionsFor`） |
-| 安装形态 | `QuestInstall` 是"可插拔"的接缝：新增一种玩法 = ① `types.ts` 加一个联合分支 ② `src/install.ts` 加一个渲染分支 ③ `style.css` 一个块。**`installQuest` / `canInstallQuest` 与任务表都不用动** |
-| 结算 | 只在 `installQuest()` 里发生，并且**复验**一遍（代价够 + 形态的答案对，R30）；界面层只管渲染与提示 |
-| 浮层状态 | 打开 / 答错 / 取消都不写存档（R05）；取消 = 什么都没发生（物品的 `use` 不调 `consume`） |
-| 谜题公平性 | 线索与答案都要能从**浮层里给出的信息**推出来；不依赖游戏外的知识、记忆或跨页查找；答错无惩罚、可无限重试 |
-| 图鉴 | 系统物品走「获取方式」的第 5 条分支（`questRewardSourceMarkup`）—— 它不在任何 `dropTable` 里，落到「掉落来源」只会得到一片占位（见 §7.9） |
+| 「勘探仪」 | 判据是「击退第一次兽潮」（`camp.tideWins >= 1`），与旧版时机一致。⚠️ **别改挂到「第一章全通」** —— 1-8 是后加的，改挂会把「打完兽潮、还没打异种」的存档重新锁上（等级还在、项却消失）。规则**故意不给 `notice`**，提示手写在 `unlockNotices` 末尾（见 §6.12 的下标规则） |
+| 「哨戒弩台」 | 只留 `unlockBy.mainline(4)`。旧版那条 quest 通道生效的前提就是第一章走完，砍掉不影响任何老存档 |
+| `item.system` | 标记与两处守卫（不占负载 / 不能丢弃）留着，但现在**没有物品使用它** |
+| 图鉴 | 物品「获取方式」少了一条 `item.system` 分支（见 §7.9 那张表） |
 
 ---
 
@@ -1680,7 +1870,7 @@ unlockBy.mainline(index) / map(mapId) / all(...) / any(...)
 | 04 | 浮层定位直接"夹进视口" | 右下 → 翻左 / 翻上 → 最后夹紧 | 夹紧会让浮层停在鼠标下，被自己 `:hover` 抓住 |
 | 05 | 浮层内放按钮 | 点击目标放卡片上，浮层只展示 | 浮层 `pointer-events: none`（R10） |
 | 06 | `.layer { display: grid }` 后靠 `[hidden]` 藏 | 显式补 `.layer[hidden] { display: none }` | 自带 `display` 会盖掉浏览器默认的 `[hidden]` |
-| 07 | `.resource-strip { grid-template-columns: repeat(4, 1fr) }` | `grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr)` | 写死列数删项后右侧空一格 |
+| 07 | `.camp-event-track { grid-template-columns: repeat(4, 1fr) }` | `grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr)` | 写死列数删项后右侧空一格 |
 | 08 | 倒计时用实心条 | `.camp-event-track` 刻度格子 / `.spawn-ring` 环形 | 与血条视觉混淆 |
 | 09 | 冷却时 `display: none` 藏卡片内容 | `visibility: hidden` | 保留占位，卡片高度不跳 |
 | 10 | 数值容器不设 `tabular-nums` | 追加到 §4.4 选择器列表 | 位数变化时左右抖动 |
@@ -1740,7 +1930,7 @@ unlockBy.mainline(index) / map(mapId) / all(...) / any(...)
 - [ ] 自动进食的触发只在 `enemyAttack` 末尾，没有挂到 `advanceAdventure` 外层
 - [ ] 套装部件清单只写在 `config/sets.ts` 的 `pieces` 里，物品表没有 `setId`（避免循环依赖）
 - [ ] 新增套装时 `SET_DEFS` 与 `ITEM_DEFS` 都是**追加到末尾**，没有插队改到既有下标
-- [ ] 新增剧情任务时四件事齐了：`campaignQuests` 追加末尾（章节树自动多出一节）、图纸物品追加 `ITEM_DEFS` 末尾、被解锁条目写了 `quest` + `unlockBy.quest`、解锁提示手写在 `unlockNotices` 末尾（§7.19）
+- [ ] 新增一章时只往 `chapters` 末尾追加一条：章内照 `mainline` 顺序推进、章与章串行出现；**没轮到的节一律 `???`**（标题 / 正文 / 解锁条件 / 奖励），没有为这一章开的渲染特例（§6.7 / R31）
 - [ ] 给既有条目加解锁渠道用的是 `any(原条件, 新条件)`，没有把原条件换掉（老存档不回退，§7.15）
 - [ ] 读装备属性一律走 `getInstanceBonus(instance)`，没有直接读 `items[id].equip`（会漏掉精炼）
 - [ ] 精炼走的是 `canRefineWith`（同名 + 素材未装备 + 素材等级够高），入口是拖拽而不是右键菜单
@@ -1819,4 +2009,7 @@ unlockBy.mainline(index) / map(mapId) / all(...) / any(...)
 
 | 31 | 刚解锁工坊就能把第一波天灾 / 兽潮打完，主线「组建第二支小队」「追踪核心信号」给的东西像没用 | ① 庇护所的成长通道**一律要花材料**（「不花材料、只花时间」的通道不要再加回来，原「营垒修筑」已移除，见 §7.15）；② **要它难就抬 `CAMP_EVENT_BASE`**（见 §7.16 的对照表），**不要**用主线门控顶上 | 营垒把待命后勤直接换成庇护所三围、造价为零、没有上限 ⇒ 挂着就有战力；而数值本身也偏软（旧的第一波天灾 180/9/3，裸庇护所剩 90 血就赢了）⇒ 花钱的城防线还没走就过关了。顺序问题（先打天灾还是先做前一节）**由数值解决**，加门控只是把玩家的选择权拿掉 |
 | 32 | 已经完成的主线小节又显示成「未完成」（把装甲板卖光之后） | 已走完的节一律走**封存**渲染：`.requirement.done.settled` → `<s>条件原文</s> <b>已完成</b>`，渲染时**不再调 `done()` / 不再看背包**（`pages/story.ts` 的 `requirementSettledMarkup`，见 §6.7） | 条件是「**达成过**」，不是「此刻仍然成立」。主线节点的完成态在 `mainlineIndex` 里早就翻页了（`index < mainlineIndex` 是终态），界面却拿实时背包重算一遍 —— 两套判据打架，于是卖材料、用道具、花资源都会把历史记录改写成「未完成」 |
-| 33 | 一键清剿推完第一章，顺带白送了「余烬矿脉 / 核心深井」两个区域（玩家一次都没碰勘探图） | 后期区域的解锁**只留 `unlockBy.map(...)` 这一个入口**，不要再写 `any(mainline(7), map(...))` 这类并行通道（见 §7.15） | `mainline(7)` = 第一章全通，而第一章正好以「击退第一次兽潮」收尾 —— 也就是说玩家刚打完第一波，就同时拿到两个后期区域，勘探图（碎片 → 地图 → 勘探远征）整条线被绕过，连地图碎片都不必攒 |
+| 33 | 一键清剿推完第一章，顺带白送了「余烬矿脉 / 核心深井」两个区域（玩家一次都没碰勘探图） | 后期区域的解锁**只留 `unlockBy.map(...)` 这一个入口**，不要再写 `any(mainline(7), map(...))` 这类并行通道（见 §7.15） | `mainline(7)` = 第一章全通（现在改用 `unlockBy.mainlineDone()`，别再把节点数写死），而第一章正好以「击退第一次兽潮」收尾 —— 也就是说玩家刚打完第一波，就同时拿到两个后期区域，勘探图（碎片 → 地图 → 勘探远征）整条线被绕过，连地图碎片都不必攒 |
+| 34 | 第二章「余烬之外」整章推翻重做：为了给「各自独立门槛」的几节补方向，渲染层给未达成的节漏出了「解锁条件」，接着节奏也散了（相邻两节隔好几场大事件） | 章节一律照第一章：章内顺序推进、没轮到的节**全遮 `???`**、章与章串行出现（§6.7 / R31）。要「谁先做都行」的章节，先把设计改了，不要边做边给渲染开特例 | 「玩家没方向」的**根因是那几节各自挂门槛**，不是渲染藏了条件 —— 在渲染层补一块，等于用界面去圆一个没想清楚的机制：先是条件露出来，接着为了补节奏又放宽门槛，最后整章重做。一个章节做完才显示下一章，章内只有「上一节做完」一种前进条件，才不会出现这种要补的窟窿（见 §7.19） |
+| 35 | 「原地待命」被当成「休整」：还没驻扎区域的远征队按庇护所的倍率回血、界面上显示篝火与「庇护所休整」 | 两种状态**分开判**：`isIdleZone(zoneId)`（`!zones[zoneId]`）与 `isCampZone(zoneId)`（有区域、且 `enemyIds` 为空）。区域取值一律走 `currentZoneId()`，**无效即 `-1`**；`isCampZone` **不再**把「无效下标」算作庇护所 | 老写法 `!zones[id] || 没敌人` 一条判死，把「没有区域」也归进了庇护所 —— 而庇护所现在是挣来的（`unlockBy.mainline(1)`），开局那段时间既不该有篝火、也不该拿那份回血加成。同类：`advanceAdventure` / `applyOffline` / `rebuildState` / 概览栏 / 冒险页 五处都要判「待命」这一支（见 §7.16） |
+| 36 | 卡片飘出来的悬停详情被右侧概览栏盖住（浮层已经按 §1 取了 `z-index: 7` 也没用） | 在**列**这一级解决：`.page-content { position: relative; z-index: 1 }` + `.hud { z-index: 0 }` | `#page-content` 带 `contain: layout` ⇒ **它自己就是一个层叠上下文**：里面的 `.item-detail` 无论取多大的号，都只在内容列内部比较；而 `.hud` 是它后面的定位兄弟（sticky），按 DOM 顺序自然压住它。所以这类「浮层被相邻列盖住」要在列这一级调号，别给卡片继续加号（§1 取号表 / §6.14 / §10-03） |

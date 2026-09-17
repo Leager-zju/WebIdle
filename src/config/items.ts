@@ -9,11 +9,6 @@ function solventText(category: number): string {
   return `移除一条【<span class="${affixCategoryClass(category)}">${affixCategories[category].name}</span>】词条`;
 }
 
-/** 系统物品（剧情任务的图纸）的使用行为：**它自己什么都不做**，只让界面去开安装浮层 ——
-    真正的代价与解锁发生在 installQuest()（付资源 / 答对线索），所以这里**不调 context.consume()**：
-    玩家在浮层里取消，就什么都没发生（见 src/install.ts 与 config/campaign.ts）。 */
-const openInstallHandler: UseHandler = () => ({ kind: 'open-install' });
-
 export { rarities, RARITY };
 
 export const itemCategories: Record<ItemCategory, { id: ItemCategory; name: string; order: number }> = {
@@ -114,16 +109,18 @@ const ITEM_DEFS = {
      来源只有一条：**庇护所的大事件**，而且**按事件类型分套** ——
      天灾给矿脉图纸、兽潮给深井剖面、异种给裂谷坐标。
      一波里三种事件依次出现，所以想集齐一套就得把三种都打下来，没法只刷一种。
-     稀有度统一火红色（14）：和清洗剂同属「不走 dropTable 的特殊渠道」，不和区域档位抢位置。 */
-  veinChartA: { name: '矿脉图纸残片 Ⅰ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '画着矿道走向的一角。纸边被烤得发脆，墨迹却还是新的。' },
-  veinChartB: { name: '矿脉图纸残片 Ⅱ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '中段的矿道剖面，标着几处已经塌掉的支巷。' },
-  veinChartC: { name: '矿脉图纸残片 Ⅲ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '图纸的最后一角，边上有前人用炭笔写的「别往下」。' },
-  deepProfileA: { name: '深井剖面残片 Ⅰ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '井口的剖面线，比例尺精确得不像手工画的。' },
-  deepProfileB: { name: '深井剖面残片 Ⅱ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '中段的岩层图，标着一条一直往下的竖井。' },
-  deepProfileC: { name: '深井剖面残片 Ⅲ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '井底那一小段剖面。画到这里笔迹突然停住了。' },
-  riftChartA: { name: '裂谷坐标残片 Ⅰ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '一组经纬与方位角。参照物是一处早就不在地图上的地标。' },
-  riftChartB: { name: '裂谷坐标残片 Ⅱ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '半张等高线，密得几乎连成一片黑。' },
-  riftChartC: { name: '裂谷坐标残片 Ⅲ', type: '图纸', category: 'resource', stackable: true, rarity: RARITY.fireRed, icon: '◪', description: '最后一角写着进入的窗口期。字迹很急。' },
+     稀有度统一火红色（14）：和清洗剂同属「不走 dropTable 的特殊渠道」，不和区域档位抢位置。
+     ⚠️ 残片**不堆叠**（`stackable: false`）：图纸按件显示 —— 一张卡片就是一片、卡片上不写「×1」。
+     `stackable` 只管显示，计数照旧走物品栏数量（见 types.ts 的说明与 game-state 的 getOwnedCount）。 */
+  veinChartA: { name: '矿脉图纸残片 Ⅰ', type: '图纸', category: 'resource', stackable: false, rarity: RARITY.fireRed, icon: '◪', description: '画着矿道走向的一角。纸边被烤得发脆，墨迹却还是新的。' },
+  veinChartB: { name: '矿脉图纸残片 Ⅱ', type: '图纸', category: 'resource', stackable: false, rarity: RARITY.fireRed, icon: '◪', description: '中段的矿道剖面，标着几处已经塌掉的支巷。' },
+  veinChartC: { name: '矿脉图纸残片 Ⅲ', type: '图纸', category: 'resource', stackable: false, rarity: RARITY.fireRed, icon: '◪', description: '图纸的最后一角，边上有前人用炭笔写的「别往下」。' },
+  deepProfileA: { name: '深井剖面残片 Ⅰ', type: '图纸', category: 'resource', stackable: false, rarity: RARITY.fireRed, icon: '◪', description: '井口的剖面线，比例尺精确得不像手工画的。' },
+  deepProfileB: { name: '深井剖面残片 Ⅱ', type: '图纸', category: 'resource', stackable: false, rarity: RARITY.fireRed, icon: '◪', description: '中段的岩层图，标着一条一直往下的竖井。' },
+  deepProfileC: { name: '深井剖面残片 Ⅲ', type: '图纸', category: 'resource', stackable: false, rarity: RARITY.fireRed, icon: '◪', description: '井底那一小段剖面。画到这里笔迹突然停住了。' },
+  riftChartA: { name: '裂谷坐标残片 Ⅰ', type: '图纸', category: 'resource', stackable: false, rarity: RARITY.fireRed, icon: '◪', description: '一组经纬与方位角。参照物是一处早就不在地图上的地标。' },
+  riftChartB: { name: '裂谷坐标残片 Ⅱ', type: '图纸', category: 'resource', stackable: false, rarity: RARITY.fireRed, icon: '◪', description: '半张等高线，密得几乎连成一片黑。' },
+  riftChartC: { name: '裂谷坐标残片 Ⅲ', type: '图纸', category: 'resource', stackable: false, rarity: RARITY.fireRed, icon: '◪', description: '最后一角写着进入的窗口期。字迹很急。' },
 
   /* ——— 熔火套装（熔火裂谷掉落，见 config/sets.ts）———
      风格：地热裂谷里的重装，靠热与重量硬顶。 */
@@ -136,14 +133,10 @@ const ITEM_DEFS = {
   /* ——— 熔火裂谷的任务物品 ——— */
   riftSample: { name: '熔火晶核', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '◈', description: '从裂谷深处撬下的一小块熔核。离开地热之后它开始自己发热，基地想弄清它靠什么烧。' },
 
-  /* ——— 系统物品：剧情任务的奖励（见 config/campaign.ts）———
-     它们是**消耗品**而不是材料：拿到手不算解锁，得右键「使用」它、走完那种安装形态
-     （付资源 / 解读线索）才解锁对应的工坊项 / 研究项。做成消耗品是刻意的 ——
-     界面上「使用」这个入口就落在这里（useItem 只认 category: 'consumable'）。
-     稀有度用靛蓝色（16）：排在任务物品之后的那一档，跨系统、和区域及另两条特殊渠道都不抢位置。
-     ⚠️ useText 里的目标名要和 workshopItems / researchItems 里的名字保持一致。 */
-  sentryBlueprint: { name: '哨塔蓝图', type: '图纸', category: 'consumable', stackable: true, system: true, rarity: RARITY.indigo, icon: '📐', description: '一张画着弩台射击位的旧图。原主人把射界标得极细，边上还写着「别让它空着」。', use: openInstallHandler, useText: '安装：解锁工坊「哨戒弩台」' },
-  surveyParts: { name: '测绘仪零件', type: '图纸', category: 'consumable', stackable: true, system: true, rarity: RARITY.indigo, icon: '🧭', description: '从事件残骸里捡回来的几件仪表。装之前得先把方位校准 —— 背面刻着的三个方位都被划掉了。', use: openInstallHandler, useText: '安装：解锁研究项「勘探仪」' }
+  /* 第二章的剧情任务（哨塔蓝图 / 测绘仪零件两件系统物品）已整章移除 ——
+     它们原来是 ITEM_DEFS 的**最后两条**，删掉不动任何既有条目的下标（R24 只管顺序，末尾删是安全的）。
+     旧存档物品栏里多出来的那两格由 rebuildState 的 `initial.inventory.map` 自然丢弃（按下标重建）。
+     要重新加回来时：直接追加在末尾，并把「安装」那条链路（原 src/install.ts）一起补上。 */
 } satisfies Record<string, Item>;
 
 export const items: Item[] = Object.values(ITEM_DEFS);

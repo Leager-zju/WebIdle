@@ -7,7 +7,7 @@ let tallestPageHeight = 0;
 function loadTemplate(page: PageDefinition): Promise<string> { if (templateCache.has(page.id)) return templateCache.get(page.id)!; const request = fetch(page.template).then(response => { if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText} · ${new URL(page.template, document.baseURI).href}`); return response.text(); }).catch(error => { reportError('template', `模板加载失败：${page.template}`, error instanceof Error ? error.message : error); templateCache.delete(page.id); throw error; }); templateCache.set(page.id, request); return request; }
 
 const pageController = {
-  pages: new Map<string, PageDefinition>(), currentId: 'home', renderToken: 0, frame: 0, context: null as any,
+  pages: new Map<string, PageDefinition>(), currentId: 'adventure', renderToken: 0, frame: 0, context: null as any,
   register(page: PageDefinition): void { this.pages.set(page.id, page); },
   prefetch(id?: string): void { const page = id ? this.pages.get(id) : undefined; if (!page || templateCache.has(id!)) return; loadTemplate(page).catch(() => {}); },
   prefetchAll(): void { const ids = [...this.pages.keys()]; const run = () => ids.forEach(id => this.prefetch(id)); if ('requestIdleCallback' in window) (window as any).requestIdleCallback(run, { timeout: 2000 }); else setTimeout(run, 200); },

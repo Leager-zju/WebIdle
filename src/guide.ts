@@ -46,25 +46,26 @@ const clamp = (value: number, min: number, max: number): number => Math.min(Math
 
 /** 引导表。键同时是 state.guides 里的标记、以及解锁事件的 id（见 game-state 的 unlockNotices）。 */
 const GUIDES: Record<string, GuideStep[]> = {
-  /* 首次进游戏：把当时已解锁的面板挨个认一遍。 */
+  /* 首次进游戏：把开局就能看到的东西挨个认一遍。
+     ⚠️ 开局落点是**冒险页**（远征队在荒野上「原地待命」），庇护所这时还锁着 ——
+     它要等第一条主线「点亮第一座营火」做完才开，那一刻有自己的引导（键是 zone:0，见下面）。 */
   intro: [
-    { title: '欢迎来到荒野', body: '这里是远征队的落脚点。花十几秒认一遍界面，随时可以跳过。' },
-    { target: '#home-hero', title: '远征状态', body: '远征队当前在哪、什么水平（攻击与防御）、正在和谁交战 —— 都在这里。换了装备回这一屏就能看到战力变化。' },
-    { target: '#home-resources', title: '资源', body: '金币、废料、精华是所有系统的通用资源：工坊制造、研究委托、装备强化都靠它们。' },
-    { target: '#home-quest', title: '主线目标', body: '当前主线。完成它会解锁新系统 —— 每解锁一个都会再带你认一次。' },
-    { target: '#home-log', title: '日志', body: '战斗、掉落与成长的记录。日志里带下划线的名字都能点开图鉴。' },
+    { title: '欢迎来到荒野', body: '荒野上只剩一小簇火星，和一支还没找到落脚点的远征队。花十几秒认一遍界面，随时可以跳过。' },
+    /* 右侧概览栏是**常驻**的：不管停在哪个面板，这一栏都在（窄屏下它会落到页面下方）。
+       高亮它时不要写 `requireClick` —— 那一栏里没有必须点的东西。 */
+    { target: '#hud-resources', title: '资源', body: '金币、废料、精华是所有系统的通用资源：工坊制造、研究委托、装备强化都靠它们。' },
+    { target: '#hud-adventure', title: '远征状态', body: '远征队此刻在哪、在搜寻还是在交战、还剩多少生命 —— 都写在这几行里。开局他们会在荒野上「原地待命」，直到你替他们选一个区域。' },
+    { target: '#hud-mainline', title: '主线目标', body: '当前主线。完成它会解锁新系统 —— 每解锁一个都会再带你认一次。' },
     { target: '#main-nav', title: '面板入口', body: '所有面板都从左侧进入。还没解锁的会显示成「❓未解锁」，解锁后自动亮起。' },
-    { target: '[data-page="camp"]', requireClick: true, title: '先去庇护所', body: '点这里进入庇护所。' },
-    { target: '#camp-view', title: '庇护所', body: '后勤中心：分配人手造城防、应对天灾与兽潮。庇护所生命归零就要重头再来。' },
-    { target: '[data-page="adventure"]', requireClick: true, title: '然后是冒险', body: '点这里出发。' },
-    { target: '#adventure-view', title: '冒险', body: '选一个目标区域，远征队会自动开打。打不动就换个区域，或者回庇护所休整。' },
+    /* 开局就落在冒险页，所以这里直接讲这一页（庇护所那一步挪到它自己的解锁引导里了）。 */
+    { target: '#adventure-view', title: '冒险', body: '选一个目标区域，远征队会自动开打。打不动就换个区域。下面那块日志记着每一场战斗与掉落，名字带下划线的都能点开图鉴。' },
     { target: '[data-page="inventory"]', requireClick: true, title: '物品栏', body: '点这里看战利品。' },
     { target: '#inventory-view', title: '物品栏', body: '装备、材料与词条强化都在这里。悬停卡片看详细属性，右键出操作菜单；左上角的「装备加成」能看身上这套一共给了多少。' },
     /* 让玩家真的把开局送的短刃穿上：装备不会自己生效，这一步不亲手做一遍，武器槽大概率一直空着。
        用 waitFor 而不是 requireClick —— 装备的两条路径（右键菜单、拖到槽位）都不是单纯左键点击，
        而 requireClick 的放行判定只认 click。所以这里把整个物品栏让出来（click 与 target 同为该容器），
        玩家怎么做都行，等「武器槽非空」成立才放行「下一步」。 */
-    { target: '#inventory-view', click: '#inventory-view', waitFor: state => state.equipped[EQUIP_TYPE.weapon].some(instanceId => instanceId >= 0), waitHint: '把物品储藏里的「拾荒者短刃」穿上：右键那张卡片选「装备」，或者把它拖到左边的武器槽。', title: '先穿上武器', body: '开局送的那把拾荒者短刃还在包里 —— 装备不会自己生效。攻击力直接决定每一下的伤害，穿上之后回主界面就能看到「攻击」涨了。' },
+    { target: '#inventory-view', click: '#inventory-view', waitFor: state => state.equipped[EQUIP_TYPE.weapon].some(instanceId => instanceId >= 0), waitHint: '把物品储藏里的「拾荒者短刃」穿上：右键那张卡片选「装备」，或者把它拖到左边的武器槽。', title: '先穿上武器', body: '开局送的那把拾荒者短刃还在包里 —— 装备不会自己生效。攻击力直接决定每一下的伤害，穿上之后切到冒险页就能看到「攻击力」涨了。' },
     { target: '[data-page="story"]', requireClick: true, title: '远征档案', body: '点这里翻记录。' },
     { target: '#story-view', title: '远征档案', body: '主线进度、成就与解锁记录。有些成就会解锁新系统。' },
     { target: '[data-page="settings"]', requireClick: true, title: '最后是设置', body: '点这里。' },
@@ -72,11 +73,17 @@ const GUIDES: Record<string, GuideStep[]> = {
     /* 认完面板，直接带玩家把第一条主线做掉：打赢一场。 */
     { target: '[data-page="adventure"]', requireClick: true, title: '做第一件事', body: '主线在等你：打赢一场。点这里回冒险。' },
     { target: '[data-action="zone-toggle"]', requireClick: true, title: '选择目标区域', body: '点这里挑一个要去的地方。' },
-    { target: `[data-zone="${ZONE.wasteBorder}"]`, requireClick: true, title: `选「${zones[ZONE.wasteBorder].name}」`, body: '营火边上就是它，最适合起步。选中之后远征队会自动开打。' },
+    { target: `[data-zone="${ZONE.wasteBorder}"]`, requireClick: true, title: `选「${zones[ZONE.wasteBorder].name}」`, body: '旧哨站就在荒野边缘，最适合起步。选中之后远征队会自动开打。' },
     { target: '#adventure-view', waitFor: state => state.totalWins >= 1, waitHint: '远征队正在交战，等这一场打完。', title: '等待战斗结束', body: '战斗是自动进行的：双方按各自的出手间隔互相攻击，生命值随时间回复。不用操作，等结果就行。' },
-    { title: '第一场胜利', body: '主线「点亮第一座营火」完成。接着攒资源、往更深的区域推进，剩下的系统会自己找上门。' }
+    { title: '第一场胜利', body: '主线「点亮第一座营火」完成 —— 营火点起来了，荒野上有了第一个落脚点。「庇护所」已经出现在导航里（冒险下面），一会儿带你认一遍。' }
   ],
   /* 以下都是系统解锁时的一次性引导（id 与 unlockNotices 的条目 id 一致）。 */
+  /* 庇护所：键就是**解锁事件的 id** —— 它是 zone 表 0 号（ZONE.camp），区域解锁公告的 id 因此是 `zone:0`。
+     要改这个键，先改 game-state 的 zoneNotices（id 的出处在那里）。 */
+  'zone:0': [
+    { target: '[data-page="camp"]', requireClick: true, title: '新内容 · 庇护所', body: '营火点起来了。点开导航里的「庇护所」看看。' },
+    { target: '#camp-view', title: '庇护所', body: '后勤中心：分配人手造城防、应对天灾与兽潮。庇护所生命归零就要重头再来。' }
+  ],
   workshop: [
     { target: '[data-page="workshop"]', requireClick: true, title: '新系统 · 工坊', body: '左侧导航多了一个入口，点进去看看。' },
     { target: '#workshop-view', title: '工坊', body: '把后勤小队的人分到这里：工坊会用废料与装甲板自动制造城防，逐级提升庇护所战力。制造项按主线进度逐个开放。' }
@@ -92,7 +99,7 @@ const GUIDES: Record<string, GuideStep[]> = {
   atlas: [
     { target: '[data-page="research"]', requireClick: true, title: '新内容 · 勘探图', body: '勘探图搬进了「研究基地」，点进去看看。' },
     { target: '[data-tab="atlas"]', click: '[data-tab="atlas"]', requireClick: true, title: '切到「勘探图」页签', body: '研究基地顶部多了第二个页签，点一下。' },
-    { target: '#research-view', title: '勘探图', body: '庇护所被大事件冲击时会带回地图残片：天灾、兽潮、异种各一套。点三个格子，把同一张图的残片放进去，就能派勘探队出去 —— 走通了，那片区域才会开放。' }
+    { target: '#research-view', title: '勘探图', body: '庇护所被大事件冲击时会带回地图残片，按波次成套发放：第 1 波「矿脉图纸」→ 第 2 波「深井剖面」→ 第 3 波「裂谷坐标」。点三个格子，把同一张图的残片放进去，就能派勘探队出去 —— 走通了，那片区域才会开放。' }
   ],
   wiki: [
     { title: '新系统 · 图鉴', body: '所有带下划线的名字现在都能点开了：物品、怪物、区域、事件各有图鉴页，页面顶部还能沿着路径往回翻。' }
@@ -288,7 +295,7 @@ export function startGuide(id: string): void {
 /** 页面重绘 / 窗口尺寸变化后重新定位。main.ts 在每次状态同步时调用。 */
 export function updateGuide(): void { if (!activeId) return; place(); syncWait(); }
 
-/** 设置页的「重置新手指引」：清空进度、回主界面、从头放一遍。 */
+/** 设置页的「重置新手指引」：清空进度、回默认落点（冒险页）、从头放一遍。 */
 export function restartGuides(): void {
   activeId = '';
   steps = [];
@@ -296,7 +303,7 @@ export function restartGuides(): void {
   queue.length = 0;
   if (layer) layer.hidden = true;
   resetGuides();
-  pageController.switchTo('home');
+  pageController.switchTo('adventure');
   startGuide('intro');
 }
 

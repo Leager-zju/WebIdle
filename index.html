@@ -45,7 +45,7 @@
       </div>
       <div class="header-actions">
         <button class="wiki-open" id="wiki-open" type="button" aria-haspopup="dialog"><span aria-hidden="true">📖</span>WIKI</button>
-        <div class="status" id="game-status"><i></i><span>庇护所待命</span></div>
+        <div class="status" id="game-status"><i></i><span>原地待命</span></div>
       </div>
     </header>
 
@@ -56,19 +56,55 @@
           <button class="nav-toggle" id="nav-toggle" type="button" aria-label="展开或收缩导航栏" aria-expanded="true">☰</button>
         </div>
         <nav class="main-nav" id="main-nav">
-          <button class="nav-item active" type="button" data-page="home"><span class="nav-index" aria-hidden="true">🏕️</span><span class="sidebar-label">主界面</span></button>
+          <!-- 顺序：远征档案 / 冒险 / 庇护所 / 物品栏 / 工坊 / 研究基地 / 设置。
+               开局落点是**冒险**（远征队先在荒野上原地待命），庇护所排在它下面 ——
+               营火点起来之前它是锁着的，显示成「❓未解锁」。 -->
+          <button class="nav-item" type="button" data-page="story"><span class="nav-index" aria-hidden="true">📜</span><span class="sidebar-label">远征档案</span></button>
+          <button class="nav-item active" type="button" data-page="adventure"><span class="nav-index" aria-hidden="true">⚔️</span><span class="sidebar-label">冒险</span></button>
           <button class="nav-item" type="button" data-page="camp"><span class="nav-index" aria-hidden="true">⛺</span><span class="sidebar-label">庇护所</span></button>
-          <button class="nav-item" type="button" data-page="adventure"><span class="nav-index" aria-hidden="true">⚔️</span><span class="sidebar-label">冒险</span></button>
-          <button class="nav-item" type="button" data-page="inventory"><span class="nav-index" aria-hidden="true">🎒</span><span class="sidebar-label">物品栏</span></button>
+          <button class="nav-item" type="button" data-page="inventory"><span class="nav-index" aria-hidden="true">🎒</span><span class="sidebar-label">物品栏</span><span class="nav-load"></span></button>
           <button class="nav-item" type="button" data-page="workshop"><span class="nav-index" aria-hidden="true">🔨</span><span class="sidebar-label">工坊</span></button>
           <button class="nav-item" type="button" data-page="research"><span class="nav-index" aria-hidden="true">🧪</span><span class="sidebar-label">研究基地</span></button>
-          <button class="nav-item" type="button" data-page="story"><span class="nav-index" aria-hidden="true">📜</span><span class="sidebar-label">远征档案</span></button>
+          <!-- 「设置」固定在最后（CSS 里靠 order 兜底，见 style.css 的 .nav-item[data-page] 那条）：
+               新系统的导航项一律插在它**之前**，不要追加到 </nav> 前。 -->
           <button class="nav-item" type="button" data-page="settings"><span class="nav-index" aria-hidden="true">🔧</span><span class="sidebar-label">设置</span></button>
         </nav>
         <div class="sidebar-foot sidebar-label">每一个系统，都会回头改变远征。</div>
       </aside>
 
       <main class="page-content" id="page-content" aria-live="polite"></main>
+
+      <!-- 右侧常驻概览栏：资源 / 冒险状态 / 当前主线（主界面撤掉后就靠它）。
+           切页面时不会重挂，所以骨架直接写在这里，src/hud.ts 只负责取 data-ref 并每帧写值。
+           1300px 以下它变成整行横条、排到内容上方（见 style.css 的同名注释）。 -->
+      <aside class="hud" id="hud" aria-label="远征概览">
+        <button class="hud-toggle" id="hud-toggle" type="button" aria-label="展开或收起概览栏" aria-expanded="true">›</button>
+        <section class="panel hud-block" id="hud-resources">
+          <div class="panel-heading"><div><span class="panel-kicker">SUPPLIES</span><h3>资源</h3></div><button class="text-button" type="button" data-page="inventory">物品栏 →</button></div>
+          <div class="hud-stats">
+            <div class="mini-stat"><span>金币</span><b data-ref="gold"></b></div>
+            <div class="mini-stat"><span>废料</span><b data-ref="scrap"></b></div>
+            <div class="mini-stat"><span>精华</span><b data-ref="essence"></b></div>
+            <div class="mini-stat" data-ref="logisticsCell"><span>后勤小队</span><b data-ref="logistics"></b></div>
+          </div>
+        </section>
+
+        <section class="panel hud-block" id="hud-adventure">
+          <div class="panel-heading"><div><span class="panel-kicker">EXPEDITION STATUS</span><h3>冒险</h3></div><button class="text-button" type="button" data-page="adventure" data-ref="cta"></button></div>
+          <div class="hud-state" data-ref="state"><span class="status-dot" aria-hidden="true"></span><span data-ref="statusText"></span></div>
+          <div class="hud-rows">
+            <div class="hud-row"><span>目标区域</span><b data-ref="zone"></b></div>
+            <div class="hud-row"><span>当前敌人</span><b data-ref="enemy"></b></div>
+            <div class="hud-row" data-ref="hpRow"><span>生命值</span><b data-ref="hp"></b></div>
+            <div class="hud-row" data-ref="expeditionRow" hidden><span>勘探队</span><b data-ref="expedition"></b></div>
+          </div>
+        </section>
+
+        <section class="panel hud-block" id="hud-mainline">
+          <div class="panel-heading"><div><span class="panel-kicker">MAINLINE</span><h3>当前主线</h3></div><button class="text-button" type="button" data-page="story">远征档案 →</button></div>
+          <div data-ref="quest"></div>
+        </section>
+      </aside>
     </div>
   </div>
   <script type="module" src="./src/main.ts"></script>

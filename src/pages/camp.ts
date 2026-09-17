@@ -1,6 +1,6 @@
 import {
   startCampChallenge, answerPendingEvent, getCampMaxHp, getCampAttack, getCampDefense, getCampRegen, getCampHp,
-  getCampBattle, getNextCampChallenge, getPendingEvent, isCampEventTimerRunning, formatNumber, formatDuration, formatSeconds, formatPerSecond, RANDOM_EVENT_INTERVAL, CAMP_WAVE_KINDS,
+  getCampBattle, getNextCampChallenge, getPendingEvent, isCampEventTimerRunning, isCampUnlocked, formatNumber, formatDuration, formatSeconds, formatPerSecond, RANDOM_EVENT_INTERVAL, CAMP_WAVE_KINDS,
   campWave, campWaveStage, getExpedition,
   countSafeCampFights, sweepCampWaves
 } from '../game-state';
@@ -18,8 +18,8 @@ function threatTitleMarkup(kind: number, id: number, fallback: string): string {
 
 /* 两块并排：左边庇护所状态，右边当前威胁；下面是整行的行动按钮。
    两块都是 2×2 四个数值格 —— 格数一样、外框等宽，里面的格子和字号才会完全一致。
-   人口**不在这里单列**（救下的幸存者按 `POP_PER_WORKER` 折算成后勤人手）：那个数字在工坊页的
-   「后勤小队：…（主线 x · 胜场 y · 人口 z）」那一行里看，来源拆得更清楚（见 getLogisticsSources）。 */
+   人口**不在这里单列**（救下的幸存者按 `POP_PER_WORKER` 折算成后勤人手）：那个数字在右侧概览栏的
+   「后勤小队」那一格看（待命 / 总数，见 getLogisticsSources）。 */
 const statusMarkup = `<div class="panel-heading"><div><span class="panel-kicker">CAMP VITALS</span><h3>庇护所</h3></div></div>
   <p class="camp-hint" data-ref="copy"></p>
   <div class="camp-stat-grid"><div class="mini-stat"><span>庇护所生命</span><b data-ref="hp"></b></div><div class="mini-stat"><span>庇护所攻击</span><b data-ref="attack"></b></div><div class="mini-stat"><span>庇护所防御</span><b data-ref="defense"></b></div><div class="mini-stat"><span>生命恢复</span><b data-ref="regen"></b></div></div>
@@ -43,6 +43,9 @@ const TIMER_CELLS = Array.from({ length: 12 });
 
 const page: PageDefinition<any> = {
   id: 'camp', template: './pages/camp.html',
+  /* 庇护所是**挣来的**：点亮第一座营火（主线第 1 节）之后才开。
+     判定走 isCampUnlocked（它读的就是庇护所区域自己的解锁规则，单一出处）。 */
+  locked: state => !isCampUnlocked(state),
   mount(root) {
     const view = root.querySelector<HTMLElement>('#camp-view')!;
     view.innerHTML = `<div class="camp-event-timer">

@@ -18,20 +18,25 @@ import type { GameState, UnlockRule } from '../types';
     直接依赖会成环（这个项目里 codex-ref / format 都用同一套注入式做法绕开它）。 */
 let mainlineTitle: (index: number) => string = () => '';
 export function setMainlineTitles(lookup: (index: number) => string): void { mainlineTitle = lookup; }
+/** 主线节点数：同样由 game-state 注入（`unlockBy.mainlineDone()` 用它判「第一章全通」）。 */
+let mainlineCount = 0;
+export function setMainlineCount(count: number): void { mainlineCount = Math.max(0, Math.floor(Number(count)) || 0); }
 
-/** 剧情任务名的查询函数：同样靠注入 —— config/campaign.ts 依赖本模块（它要 unlockBy），
-    本模块反向 import 它就成了环（同 setMainlineTitles 的理由）。 */
-let questName: (index: number) => string = () => '';
-export function setQuestNames(lookup: (index: number) => string): void { questName = lookup; }
+/** 章节名与节名的查询函数：同样由 game-state 注入 —— 它那边才有 `storyChapters`，
+    本模块反向 import 它就成了环（同 setMainlineTitles 的理由）。**章号与节号都从 1 起**。 */
+let chapterTitle: (chapter: number) => string = () => '';
+let chapterNodeTitle: (chapter: number, node: number) => string = () => '';
+export function setChapterTitles(chapter: (chapter: number) => string, node: (chapter: number, node: number) => string): void { chapterTitle = chapter; chapterNodeTitle = node; }
 
-/** 剧情任务进度（`state.quests` 的取值）：0 未达成 / 1 奖励已发（物品在物品栏里）/ 2 已安装（解锁生效）。
-    **这是存档值**，只能追加语义、不能重排。
-    之所以放在本模块：unlockBy.quest() 要拿它做判据，而 config/campaign.ts 依赖本模块（同 MAP_STATE 那样，
-    常量跟着「用它的那条规则」走）。 */
-export const QUEST_STATE = { locked: 0, granted: 1, installed: 2 } as const;
+/** 某章的进度（已完成几节）—— 直接读存档字段，不引 game-state（它依赖本模块）。
+    这是 `unlockBy.chapter()` 的判据；界面上的那份在 game-state 的 `getChapterProgress()`，两处口径一致。 */
+const chapterProgressOf = (state: GameState, chapter: number): number => chapter <= 1
+  ? Math.max(0, Math.floor(Number(state.mainlineIndex) || 0))
+  : Math.max(0, Math.floor(Number(state.chapters?.[chapter - 2]) || 0));
 
 /** 当前波次（从 1 起）。读存档字段，不引 game-state。 */
 const waveNow = (state: GameState): number => Math.max(1, Math.floor(Number(state.camp?.wave)) || 1);
+
 
 /** 一张地图的勘探是否已经完成（区域据此解锁）。只看存档字段，不需要 game-state。 */
 function mapExplored(state: GameState, mapId: number): boolean {
@@ -63,18 +68,30 @@ export const unlockBy = {
     done: state => mapExplored(state, mapId),
     notice: () => `拼出「${mapName(mapId)}」并完成勘探`
   }),
-  /** 扛过第 n 波大事件（波次逐波递增，见 game-state 的 campWave）。 */
+  /** 扛过第 n 波大事件（波次逐波递增，见 game-state 的 campWave）。
+      ⚠️ 波次是「天灾 / 兽潮 / 异种」三件**全打完**才 +1 —— 想表达「击退第 n 次兽潮」别用它，
+      那比兽潮晚一整场；「第一章走完」也别用它凑，见 mainlineDone。 */
   wave: (n: number): UnlockRule => ({
     text: state => `扛过第 ${n} 波大事件（当前第 ${waveNow(state)} 波）`,
     done: state => waveNow(state) > n,
     notice: () => `扛过第 ${n} 波大事件`
   }),
-  /** 完成远征档案第二章「余烬之外」里的这一节：拿到奖励物品、再用掉它装好（见 config/campaign.ts）。
-      文案只指向那一节 —— 具体条件写在那里，不要在别处再抄一遍。 */
-  quest: (index: number): UnlockRule => ({
-    text: () => `完成远征档案第二章里的「${questName(index)}」`,
-    done: state => (state.quests?.[index] || 0) >= QUEST_STATE.installed,
-    notice: () => `装好「${questName(index)}」`
+  /** 第一章（主线）**全部**节点走完 —— 第二章的章节门控用的就是这一个条件（`pages/story.ts` 的 chapterDone）。
+      所以「第一章走完就该能开始」的内容（第二章第一节）**必须**用它：拿波次或进度数字去凑，
+      迟早会和章节门控错开一格（错开的表现：第二章都出现了，第一节还写着「未解锁记录」）。
+      ⚠️ 别写成 `mainline(固定数字)`：主线追加节点时那个数字不会自己跟着变。 */
+  mainlineDone: (): UnlockRule => ({
+    text: state => `完成第一章全部 ${mainlineCount} 个节点（当前 ${Math.min(Math.max(0, state.mainlineIndex), mainlineCount)} / ${mainlineCount}）`,
+    done: state => mainlineCount > 0 && state.mainlineIndex >= mainlineCount,
+    notice: () => '完成第一章'
+  }),
+  /** 完成**第二章起**的某一节（chapter 从 1 起 = 玩家看到的章号，node 从 1 起 = 那一章第几节）。
+      章内是严格顺序推进的，所以「完成第 n 节」就等于「那一章的进度 ≥ n」。
+      ⚠️ **故意不给 `notice`**：解锁提示手写在 `unlockNotices` 的末尾 —— 带了 notice 会被 entryNotices
+      收进表的中段，旧存档的 notices 下标会整体错位（同 §6.12 里那条规矩）。 */
+  chapter: (chapter: number, node: number): UnlockRule => ({
+    text: state => `完成第${chapter}章「${chapterTitle(chapter)}」的第 ${node} 节「${chapterNodeTitle(chapter, node)}」（当前 ${Math.min(chapterProgressOf(state, chapter), node)} / ${node}）`,
+    done: state => chapterProgressOf(state, chapter) >= node
   }),
   /** 全部子规则都达成。 */
   all: (...rules: UnlockRule[]): UnlockRule => ({

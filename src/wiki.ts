@@ -3,9 +3,8 @@ import { affixes, affixCap } from './config/affixes';
 import { enemyTable, zones, zoneOfEnemy, zoneOfMap, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
 import { campEventDef, campEventEntries } from './config/events';
 import { mapSets, fragmentMapOf } from './config/maps';
-import { campaignQuests, questOfItem } from './config/campaign';
 import { codexEntry, onWikiUnlockChange } from './codex-ref';
-import { getState, isEncountered, isDropDiscovered, isItemDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, setTable, setOfItem, setOfZone, getSetWorn, isPerfectItem, setBonusEntries, perfectBonusEntries, questTarget } from './game-state';
+import { getState, isEncountered, isDropDiscovered, isItemDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, setTable, setOfItem, setOfZone, getSetWorn, isPerfectItem, setBonusEntries, perfectBonusEntries, isItemFilterUnlocked, isItemNoPickup, setItemNoPickup } from './game-state';
 import type { ItemCategory } from './types';
 
 /* ——— 内置 wiki：图鉴弹窗 ———
@@ -232,20 +231,9 @@ function fragmentSourceMarkup(itemId: number): string {
   if (!entry) return '<p class="wiki-note">暂时没有已知的获取途径。</p>';
   const zoneId = zoneOfMap(mapId);
   const cells = zoneId >= 0 ? cellGridMarkup([entryCellMarkup('zone', zoneId)]) : '';
-  return `${cells}<p class="wiki-note">庇护所击退「${campEventDef(entry.kind, 0).name}」时带回来的战利品；随机事件也会补上一片，但慢得多。集齐「${entry.name}」的 ${entry.tiles.length} 片之后，到研究基地的「勘探图」页签把三片放进槽位，再派勘探队成功走一趟${zoneId >= 0 ? `，就能进入${zones[zoneId].name}` : ''}。</p>`;
-}
-
-/** 系统物品（剧情任务奖励的图纸）的获取说明。它**不在任何 dropTable 里**，也不由怪物掉 ——
-    来自远征档案第二章「余烬之外」的那几节：条件达成后自动带回庇护所，再在物品栏里用掉它（走完安装形态），
-    才会解锁对应的工坊项 / 研究项。这里把「条件 + 用途」一起说清，条件用规则自己的文案（带当前进度）。 */
-function questRewardSourceMarkup(itemId: number): string {
-  const questIndex = questOfItem(itemId);
-  const entry = questIndex >= 0 ? campaignQuests[questIndex] : undefined;
-  if (!entry) return '<p class="wiki-note">暂时没有已知的获取途径。</p>';
-  const target = questTarget(questIndex);
-  const unlocks = target ? `${target.kind === 'workshop' ? '工坊' : '研究基地'}「${target.name}」` : '对应的建造项';
-  const install = entry.install.mode === 'pay' ? '付出一笔资源' : '解读一段线索';
-  return `<p class="wiki-note">${entry.requirement.text(getState())} —— 达成后它会自动带回庇护所（见远征档案「主线剧情」的第二章「余烬之外」）。在物品栏里使用它、${install}之后，${unlocks}才会解锁。</p>`;
+  /* ⚠️ 别写「击退某某事件时掉」：碎片现在是**按波次**发的（第 1 波矿脉图纸 → 第 2 波深井剖面 → 第 3 波裂谷坐标，
+     见 game-state 的 grantMapFragment），和事件类型无关。 */
+  return `${cells}<p class="wiki-note">庇护所击退大事件时带回来的战利品：按波次成套发放（第 1 波「矿脉图纸」→ 第 2 波「深井剖面」→ 第 3 波「裂谷坐标」）；随机事件也会补上一片，但慢得多。集齐「${entry.name}」的 ${entry.tiles.length} 片之后，到研究基地的「勘探图」页签把三片放进槽位，再派勘探队成功走一趟${zoneId >= 0 ? `，就能进入${zones[zoneId].name}` : ''}。</p>`;
 }
 
 /** 套装部件的获取说明。它**不在任何怪物的 dropTable 里** —— 走的是套装掉落通道
@@ -278,9 +266,10 @@ function itemBody(id: number): string {
   }
   const setId = setOfItem(id);
   /* 任务物品、清洗剂、地图碎片、套装部件都不在 dropTable 里，用「掉落来源」那套只会得到一片占位，
-     各走自己的说明（新增「不走 dropTable 的掉落通道」时这里必须补一条分支）。 */
+     各走自己的说明（新增「不走 dropTable 的掉落通道」时这里必须补一条分支）。
+     ⚠️ 曾经还有一条 `item.system`（剧情任务的图纸）分支：第二章移除时跟着删了 —— 现在没有系统物品，
+     但那批物品的 `system: true` 标记与 game-state 的守卫（不占负载 / 不能丢弃）都还留着。 */
   if (item.category === 'quest') lines.push(sectionMarkup('获取方式', questSourceMarkup(id)));
-  else if (item.system) lines.push(sectionMarkup('获取方式', questRewardSourceMarkup(id)));
   else if (item.type === '清洗') lines.push(sectionMarkup('获取方式', solventSourceMarkup()));
   else if (fragmentMapOf(id) >= 0) lines.push(sectionMarkup('获取方式', fragmentSourceMarkup(id)));
   else if (setId >= 0) lines.push(sectionMarkup('获取方式', setSourceMarkup(setId)));
@@ -288,7 +277,19 @@ function itemBody(id: number): string {
   /* 套装部件只给一个链接：套装效果、部件清单、极致进度都写在套装页（见 setBody）。
      一页只讲一件事，装备页不必重复整套的信息。 */
   if (setId >= 0) lines.push(sectionMarkup('套装', cellGridMarkup([entryCellMarkup('set', setId)])));
+  lines.push(itemFilterMarkup(id));
   return lines.join('');
+}
+
+/** 「不再拾取」开关（成就「精炼初学者」的奖励）。
+    三个前提缺一不可：拿到成就、这件东西已经发现过、物品页本身在渲染物品（敌人页不走这里）。
+    按钮只是一个**状态显示 + 动作入口**：点它调 `setItemNoPickup()`，真正的判定在掉落那几个通道里（R06）。 */
+function itemFilterMarkup(id: number): string {
+  if (!isItemFilterUnlocked() || !isItemDiscovered(id)) return '';
+  const off = isItemNoPickup(id);
+  /* ⚠️ 按钮下面**不写说明文字**：这个位置原来有一段「掉在地上也不进物品栏…」的说明，被要求删掉了（R33）——
+     按钮自己就写着当前状态，不要补回来。 */
+  return sectionMarkup('掉落处理', `<div class="wiki-filter"><button class="wiki-filter-button${off ? ' off' : ''}" type="button" data-filter-item="${id}" aria-pressed="${off}">${off ? '不再拾取' : '正常拾取'}</button></div>`);
 }
 
 function enemyBody(id: number): string {
@@ -383,7 +384,10 @@ function ensureLayer(): HTMLElement {
   element.addEventListener('click', event => {
     const target = event.target as Element;
     /* 点关闭按钮、或点在遮罩本身上（不是它的子节点）都关窗。 */
-    if (target.closest('[data-wiki-close]') || target.classList.contains('wiki-layer')) closeWiki();
+    if (target.closest('[data-wiki-close]') || target.classList.contains('wiki-layer')) { closeWiki(); return; }
+    /* 「不再拾取」开关：切完就地重画当前这一页（图鉴不重挂，只是内容变了）。 */
+    const filter = target.closest<HTMLElement>('[data-filter-item]');
+    if (filter) { const itemId = Number(filter.dataset.filterItem); setItemNoPickup(itemId, !isItemNoPickup(itemId)); render(); }
   });
   document.addEventListener('keydown', event => { if (event.key === 'Escape') closeWiki(); });
   document.body.appendChild(element);
