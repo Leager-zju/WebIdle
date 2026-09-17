@@ -3,8 +3,9 @@ import { affixes, affixCap } from './config/affixes';
 import { enemyTable, zones, zoneOfEnemy, zoneOfMap, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
 import { campEventDef, campEventEntries } from './config/events';
 import { mapSets, fragmentMapOf } from './config/maps';
+import { campaignQuests, questOfItem } from './config/campaign';
 import { codexEntry, onWikiUnlockChange } from './codex-ref';
-import { getState, isEncountered, isDropDiscovered, isItemDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, setTable, setOfItem, setOfZone, getSetWorn, isPerfectItem, setBonusEntries, perfectBonusEntries } from './game-state';
+import { getState, isEncountered, isDropDiscovered, isItemDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, setTable, setOfItem, setOfZone, getSetWorn, isPerfectItem, setBonusEntries, perfectBonusEntries, questTarget } from './game-state';
 import type { ItemCategory } from './types';
 
 /* ——— 内置 wiki：图鉴弹窗 ———
@@ -234,6 +235,19 @@ function fragmentSourceMarkup(itemId: number): string {
   return `${cells}<p class="wiki-note">庇护所击退「${campEventDef(entry.kind, 0).name}」时带回来的战利品；随机事件也会补上一片，但慢得多。集齐「${entry.name}」的 ${entry.tiles.length} 片之后，到研究基地的「勘探图」页签把三片放进槽位，再派勘探队成功走一趟${zoneId >= 0 ? `，就能进入${zones[zoneId].name}` : ''}。</p>`;
 }
 
+/** 系统物品（剧情任务奖励的图纸）的获取说明。它**不在任何 dropTable 里**，也不由怪物掉 ——
+    来自远征档案第二章「余烬之外」的那几节：条件达成后自动带回庇护所，再在物品栏里用掉它（走完安装形态），
+    才会解锁对应的工坊项 / 研究项。这里把「条件 + 用途」一起说清，条件用规则自己的文案（带当前进度）。 */
+function questRewardSourceMarkup(itemId: number): string {
+  const questIndex = questOfItem(itemId);
+  const entry = questIndex >= 0 ? campaignQuests[questIndex] : undefined;
+  if (!entry) return '<p class="wiki-note">暂时没有已知的获取途径。</p>';
+  const target = questTarget(questIndex);
+  const unlocks = target ? `${target.kind === 'workshop' ? '工坊' : '研究基地'}「${target.name}」` : '对应的建造项';
+  const install = entry.install.mode === 'pay' ? '付出一笔资源' : '解读一段线索';
+  return `<p class="wiki-note">${entry.requirement.text(getState())} —— 达成后它会自动带回庇护所（见远征档案「主线剧情」的第二章「余烬之外」）。在物品栏里使用它、${install}之后，${unlocks}才会解锁。</p>`;
+}
+
 /** 套装部件的获取说明。它**不在任何怪物的 dropTable 里** —— 走的是套装掉落通道
     （见 game-state 的 grantSetDrop）：按怪物所在区域判定，随机给一个部位。
     所以这里给的是「去哪个区域刷、多大几率掉一件」，而不是一份来源清单 ——
@@ -266,6 +280,7 @@ function itemBody(id: number): string {
   /* 任务物品、清洗剂、地图碎片、套装部件都不在 dropTable 里，用「掉落来源」那套只会得到一片占位，
      各走自己的说明（新增「不走 dropTable 的掉落通道」时这里必须补一条分支）。 */
   if (item.category === 'quest') lines.push(sectionMarkup('获取方式', questSourceMarkup(id)));
+  else if (item.system) lines.push(sectionMarkup('获取方式', questRewardSourceMarkup(id)));
   else if (item.type === '清洗') lines.push(sectionMarkup('获取方式', solventSourceMarkup()));
   else if (fragmentMapOf(id) >= 0) lines.push(sectionMarkup('获取方式', fragmentSourceMarkup(id)));
   else if (setId >= 0) lines.push(sectionMarkup('获取方式', setSourceMarkup(setId)));

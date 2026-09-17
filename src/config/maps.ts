@@ -21,7 +21,7 @@ import type { MapSet } from '../types';
 
    ⚠️ 键顺序就是 mapId，而 camp.maps 是按下标存进存档的 ⇒ **新地图只能追加到末尾**。 */
 const MAP_DEFS = {
-  /* 天灾掉落。指向余烬矿脉：主线卡在「击退第一次兽潮」的玩家可以改走这条路。 */
+  /* 天灾掉落。指向余烬矿脉 —— 进那片区域**只有这一条路**（区域的解锁规则见 config/zones.ts）。 */
   veinChart: {
     name: '矿脉图纸', icon: '🗺️', cols: 3, kind: CAMP_EVENT.disaster,
     description: '从沙暴里卷出来的一叠旧图纸，画的是一整条矿脉的走向。拼起来就能照着它摸到矿道口。',

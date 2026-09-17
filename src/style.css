@@ -15,8 +15,8 @@
   --red: #ff8e7b;
   --blue: #9ac8ff;
   /* ——— 稀有度色板（下标即 rarity id，见 config/rarity.ts）———
-     一次备足 16 档：后续每加一个区域就往上取一档，不用再回来改这里。
-     目前只用到 0 / 1 / 2 / 15 四档（三个区域 + 任务物品）。
+     一次备足 17 档：后续每加一个区域就往上取一档，不用再回来改这里。
+     目前用到 0 / 1 / 2 / 3 / 14 / 15 / 16 七档（三个区域 + 熔火裂谷 + 三条特殊渠道）。
      取色参考泰拉瑞亚：明度整体调高，保证在深色底上可读。 */
   --rarity-0: #8c9a99;    /* 灰色 */
   --rarity-1: #edf2ec;    /* 白色 */
@@ -34,6 +34,7 @@
   --rarity-13: #ffd75c;   /* 彩虹色（无渐变时的回落色）*/
   --rarity-14: #ff7a45;   /* 火红色 */
   --rarity-15: #ffc233;   /* 琥珀色 */
+  --rarity-16: #7f8cff;   /* 靛蓝色：系统物品（剧情任务奖励的图纸一类）—— 排在任务物品之后 */
   /* 各页面共用的高度下限，JS 会按实际最高的一页继续上调 */
   --page-min-height: 620px;
 }
@@ -89,8 +90,14 @@ h3 { margin-bottom: 5px; font-size: 1rem; }
 .page-loading, .page-error { min-height: 300px; padding: 28px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font: .75rem DM Mono, monospace; }
 .page-error { border-color: rgba(255, 142, 123, .45); color: var(--red); }
 .page-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
-.page-heading p { margin: 10px 0 0; color: var(--muted); font-size: .8rem; line-height: 1.55; }
+/* 标题下那句**只写氛围**（一句剧情向的话，不教操作）：操作说明一律进右上角的【帮助】浮层。
+   两者混在一起时，页面第一眼读到的永远是「怎么点」，而不是「这是个什么地方」（见 UI开发规范 §7.18）。 */
+.page-heading p { max-width: 640px; margin: 10px 0 0; color: var(--muted); font-size: .8rem; line-height: 1.55; }
+/* 右列：page-code 在上、【帮助】按钮在下，整体贴着标题右缘（同 .header-actions 那套排法）。 */
+.page-heading-side { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: 10px; }
 .page-code { color: var(--muted); font: .66rem DM Mono, monospace; white-space: nowrap; }
+.help-button { padding: 6px 13px; border: 1px solid var(--line); background: transparent; color: var(--muted); font: 500 .68rem DM Mono, monospace; letter-spacing: .08em; white-space: nowrap; }
+.help-button:hover, .help-button:focus-visible { border-color: var(--accent); background: rgba(139, 245, 201, .08); color: var(--accent); }
 .panel { border: 1px solid var(--line); background: rgba(21, 30, 35, .92); box-shadow: 0 18px 42px rgba(0, 0, 0, .14); }
 .panel-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .muted { color: var(--muted); font: .68rem DM Mono, monospace; }
@@ -235,13 +242,12 @@ select:focus { border-color: var(--accent); }
 .quest { padding: 13px; border-left: 2px solid var(--accent); background: var(--surface-2); }.quest-title { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }.quest-desc { margin: 6px 0 0; color: var(--muted); font-size: .77rem; line-height: 1.5; }.quest-reward { margin-top: 8px; color: var(--accent); font: .65rem DM Mono, monospace; }
 .quest-requirements { display: grid; gap: 6px; margin-top: 8px; }
 .cost { color: var(--warm); font: .66rem DM Mono, monospace; }
-/* ——— 远征档案：左栏章节树 + 右栏机制网格 ——— */
-/* 章节进度与成就两块等宽。 */
+/* ——— 远征档案 / 研究基地：左栏列表 + 右栏详情 ——— */
+/* 两块等宽并排。只有一个面板的页签（成就 / 勘探图）**不套这一层** —— 面板自己占满整行。 */
 .archive-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
 /* 树：一章一个分支，节点是它的子节点；连接线用伪元素画在叶子左侧。 */
 .tree { display: grid; gap: 10px; margin: 17px 0 0; padding: 0; list-style: none; }
 .tree-branch { border: 1px solid var(--line-soft); background: var(--surface-2); }
-.tree-branch.locked { opacity: .5; }
 .tree-node { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 13px; background: transparent; color: var(--text); text-align: left; }
 .tree-node:hover { background: rgba(139, 245, 201, .06); }
 .tree-caret { flex: 0 0 auto; color: var(--muted); font-size: .7rem; transition: transform .16s ease; }
@@ -252,8 +258,12 @@ select:focus { border-color: var(--accent); }
 .tree-badge { flex: 0 0 auto; color: var(--accent); font: .66rem DM Mono, monospace; }
 .tree-children { display: grid; gap: 8px; margin: 0; padding: 4px 13px 13px 34px; list-style: none; }
 .tree-branch.collapsed .tree-children { display: none; }
-.tree-leaf { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 9px 11px; border: 1px solid var(--line-soft); background: rgba(11, 18, 20, .35); opacity: .45; }
-.tree-leaf.done, .tree-leaf.current { opacity: 1; }
+/* 每一节**必落在 done / current / unlock 三态之一**（互斥，由 pages/story.ts 的 update 逐节写）：
+   done = 实心绿点、current = 暖色点与底色（正在推进的那一节）、unlock = 虚线 + 压暗（还没轮到）。
+   门控在**章**这一级：前一章没全部完成，整章 `<li>` 直接 hidden（连标题都不出现）；章内的节一律全渲染，
+   只靠这三态区分 —— 不要在章内再藏节（见 UI开发规范 §6.7）。 */
+.tree-leaf { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 9px 11px; border: 1px solid var(--line-soft); background: rgba(11, 18, 20, .35); }
+.tree-leaf.unlock { border-style: dashed; opacity: .45; }
 .tree-leaf.current { border-color: var(--accent-dim); background: rgba(139, 245, 201, .07); }
 .tree-leaf.selected { border-color: var(--accent); }
 .tree-leaf::before { content: ''; position: absolute; left: -14px; top: -11px; bottom: 50%; width: 1px; background: var(--line); }
@@ -265,6 +275,8 @@ select:focus { border-color: var(--accent); }
 .tree-leaf-copy { min-width: 0; display: grid; gap: 3px; }
 .tree-leaf-title { font-size: .8rem; }
 .tree-reward { color: var(--accent); font: .62rem DM Mono, monospace; }
+/* 「解锁后」那一行还没轮到就压成灰的：主色是「已经到你手里」的意思（剧情任务那几节的条件先写着、但奖励还没到手）。 */
+.tree-leaf.unlock .tree-reward { color: var(--muted); }
 .tree-status { flex: 0 0 auto; color: var(--muted); font: .64rem DM Mono, monospace; }
 .tree-leaf.done .tree-status { color: var(--accent); }
 .tree-leaf.current .tree-status { color: var(--warm); }
@@ -285,12 +297,17 @@ select:focus { border-color: var(--accent); }
 .chapter-requirements { display: grid; gap: 6px; }
 .requirement { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line-soft); background: var(--surface-2); color: var(--muted); font-size: .74rem; }
 .requirement.done { border-color: var(--accent-dim); color: var(--accent); }
+/* 已走完的节：条件行被**封存**（`.settled`）—— 原文划掉、后面跟着结果。
+   划掉是有用的：里面那个进度数字是实时的（规则只给一个 text()，没有"达成时的快照"），
+   所以「收集装甲板 0/3 片」这种读法要一眼看出「不用管它了」。正文压回 muted、结果用主色。 */
+.requirement.settled { color: var(--muted); }
+.requirement.settled s { text-decoration: line-through; opacity: .7; }
+.requirement.settled b { color: var(--accent); font-weight: 500; white-space: nowrap; }
 .requirement .status-dot { flex: 0 0 auto; width: 8px; height: 8px; box-shadow: none; }
 .requirement .status-dot.pending { background: var(--line); }
-.achievement-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 10px; margin-top: 17px; }
-/* ——— 研究基地：左栏委托 / 右栏研究项（研究项卡片直接复用物品储藏的卡片）——— */
-.research-panel { padding: 22px; }
-.research-grid { margin-top: 17px; }
+/* ——— 研究基地：左栏委托 / 右栏研究项（研究项卡片直接复用物品储藏的磁贴）———
+   页面本体不带面板：`.tab-bar` 必须是视图根（`#research-view`）的直接子节点，
+   和面板同级 —— 套进 `.panel` 会连 22px 内边距一起吃，下划线缩进一圈、和下面的面板叠成双线（见 UI开发规范 §6.2）。 */
 .task-desc { margin: 10px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.6; }
 .task-requirement { display: grid; gap: 6px; }
 /* desc 里点名的物品与区域加粗：段落本身是 muted，加粗处要亮出来。 */
@@ -301,7 +318,10 @@ select:focus { border-color: var(--accent); }
 .research-points { color: var(--accent); font-weight: 700; }
 /* 刷新按钮下面的一行说明：首次费用与递增规则。 */
 .research-refresh-hint { margin: 9px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.6; }
-.research-card { cursor: pointer; }
+/* 研究项左键升一级、右键升到满级，光标用 pointer。
+   写成复合选择器（`.item-card.research-card`）压住下面那条 `.item-card { cursor: context-menu }`：
+   context-menu 是「右键有菜单」的语义，研究项没有右键菜单（右键是加速升级），两处优先级相同、只能靠复合选择器分胜负。 */
+.item-card.research-card { cursor: pointer; }
 .research-card:hover, .research-card:focus-visible { z-index: 7; }
 /* 0 级置灰、满级高亮都不用 opacity：opacity < 1 会给卡片建层叠上下文，悬停浮层会被后面的卡片盖住。 */
 .research-card.level-0 { border-style: dashed; }
@@ -313,36 +333,43 @@ select:focus { border-color: var(--accent); }
 
 .item-detail .research-level { margin-top: 6px; color: var(--text); font: .68rem DM Mono, monospace; }
 .item-detail .research-cost { color: var(--accent); font: .65rem DM Mono, monospace; }
-.achievement-card { position: relative; display: grid; place-items: center; aspect-ratio: 1 / 1; padding: 0; border: 1px solid var(--line-soft); background: var(--surface-2); cursor: help; }
-.achievement-card.locked { border-style: dashed; }
-.achievement-card.unlocked { border-color: var(--accent-dim); }
+/* ——— 成就卡片：与物品储藏 / 研究项共用同一套磁贴（`.item-card` + `.item-icon` + `.item-detail`），
+   只是小一号（`.tile-compact`）。唯一的结构差别是**没有稀有度** —— `--card-line` 走 .item-card 的
+   回落值（灰描边），状态改用描边表达：未解锁虚线 + 灰图标，已解锁换主色（见 UI开发规范 §6.5）。 */
+.item-card.achievement-card { cursor: help; }
 .achievement-card:hover, .achievement-card:focus-visible { z-index: 7; }
-.achievement-card:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-/* 图标自己不再画框（框由卡片担任），只是相框里的一个字形。 */
-.achievement-icon { display: grid; place-items: center; color: var(--accent); font-size: 1.15rem; line-height: 1; }
-.achievement-card.locked .achievement-icon { color: var(--muted); }
-/* 浮层里没有可点内容，所以始终不接收指针事件，避免它自己"抓住"悬停。 */
-.achievement-detail { z-index: 6; display: grid; gap: 5px; padding: 13px 14px; border: 1px solid var(--accent-dim); background: #101a1d; box-shadow: 0 16px 34px rgba(0, 0, 0, .4); opacity: 0; visibility: hidden; pointer-events: none; }
-.achievement-card:hover .achievement-detail, .achievement-card:focus-visible .achievement-detail { opacity: 1; visibility: visible; }
+.achievement-card.locked { border-style: dashed; }
+.achievement-card.locked .item-icon { color: var(--muted); }
+.achievement-card.unlocked { --card-line: var(--accent-dim); }
+.achievement-card.unlocked .item-icon { color: var(--accent); }
+/* 浮层复用物品详情的 .item-detail（定位 / 底色 / pointer-events / 悬停都由它管），
+   这里只补自己的排版：名称行（名称 + 状态）+ 条件 + 奖励。 */
+.item-detail.achievement-detail { display: grid; gap: 5px; }
 .achievement-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .achievement-head b { font-size: .82rem; }
 .achievement-status { flex: 0 0 auto; color: var(--muted); font: .62rem DM Mono, monospace; }
 .achievement-card.unlocked .achievement-status { color: var(--accent); }
 .achievement-line { margin: 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }
 .achievement-card.unlocked .achievement-reward { color: var(--accent); }
+/* 详情面板底部的行动槽：目前只有「去物品栏使用它」（剧情任务在「待安装」时露出来）。
+   主线的节用不到，整块 hidden —— 那里没有任何"要你点一下"的东西。 */
+.detail-actions { display: grid; margin-top: 16px; }
+
 /* 悬停详情统一跟随鼠标：坐标由 hover-tip.ts 写进 --tip-x / --tip-y（相对卡片左上角）。
    不再用 top: calc(100% - …) 贴在卡片正下方，也不再需要按列号左右翻转 —— JS 会把它夹在视口内。
    宽度改成按内容自适应（原来 left/right: 0 会被卡片宽度限制）。 */
-.item-detail, .shop-detail, .achievement-detail { position: absolute; left: 0; top: 0; right: auto; width: max-content; max-width: min(320px, 78vw); transform: translate(var(--tip-x, 0px), var(--tip-y, 0px)); transition: opacity .14s ease, visibility .14s; }
+.item-detail, .shop-detail { position: absolute; left: 0; top: 0; right: auto; width: max-content; max-width: min(320px, 78vw); transform: translate(var(--tip-x, 0px), var(--tip-y, 0px)); transition: opacity .14s ease, visibility .14s; }
 /* ——— 庇护所页：庇护所数值 / 后勤小队 / 当前威胁 ——— */
 .camp-panel, .shop-panel { padding: 22px; }
-/* 两列默认 stretch：庇护所状态与威胁块高度一致（不写 align-items: start）。
-   块内用纵向 flex，把血条压到底部，两块的血条自然对齐。 */
-.camp-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 18px; }
+/* 两列**等宽**、默认 stretch：庇护所状态与威胁块宽度与高度都一致（不写 align-items: start）。
+   块内用纵向 flex，把血条压到底部，两块的血条自然对齐。
+   等宽这件事是有用的：两块的数值格是同一套 `.mini-stat`，外框一样宽 + 格数一样（各 2×2），
+   格子尺寸、换行位置才会逐格对齐。 */
+.camp-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .camp-block { display: flex; flex-direction: column; padding: 18px; border: 1px solid var(--line-soft); background: rgba(11, 18, 20, .35); }
 .camp-block .health-track { margin-top: auto; }
 .camp-threat.in-battle { border-color: var(--warm); }
-/* 两列：四列会把「250 / 250」这类数值挤到换行。庇护所状态是五项（含人口），排在 2×2 之后多一行。 */
+/* 两列：四列会把「250 / 250」这类数值挤到换行。两块各四项，都排成 2×2。 */
 .camp-stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
 .camp-hint { margin: 10px 0 0; color: var(--muted); font-size: .74rem; line-height: 1.55; }
 /* camp-block 里的说明文字一律按**三行**留位：它们每 500ms 就被重写一次，
@@ -369,9 +396,7 @@ select:focus { border-color: var(--accent); }
 .camp-event-track { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; }
 .camp-event-cell { height: 9px; border: 1px solid var(--line-soft); background: transparent; transition: background .2s ease, border-color .2s ease; }
 .camp-event-cell.on { border-color: var(--warm); background: rgba(255, 184, 107, .55); }
-.camp-log { margin-top: 18px; }
-/* 庇护所日志只有「时间 + 内容」两列，沿用 .log-entry 的三列网格会把内容挤成一条竖线。 */
-.camp-log .log-entry { grid-template-columns: 66px minmax(0, 1fr); }
+/* 庇护所页**没有日志**：日志只在主界面（`.home-log`，两列）与冒险页（`#adventure-log`）各有一处。 */
 /* 后勤小队分配：一行一个去向，左右是加减按钮。 */
 .logistics-list { display: grid; gap: 10px; margin-top: 14px; }
 .logistics-row { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line-soft); background: var(--surface-2); }
@@ -408,7 +433,6 @@ select:focus { border-color: var(--accent); }
 /* 右列：当前加成在上，材料逐行靠右竖排。 */
 .shop-facts { flex: 0 0 auto; display: grid; gap: 5px; justify-items: end; text-align: right; }
 .shop-bonus { color: var(--accent); font: .64rem DM Mono, monospace; }
-.shop-note { color: var(--muted); font: .62rem DM Mono, monospace; }
 .shop-mats { display: grid; gap: 4px; justify-items: end; }
 /* 材料不足标红、足够标绿（--red / --accent）。 */
 .shop-mat { display: inline-flex; gap: 4px; color: var(--red); font: .64rem DM Mono, monospace; }
@@ -469,6 +493,7 @@ select:focus { border-color: var(--accent); }
 .rarity-rainbow { --rarity-color: var(--rarity-13); }
 .rarity-fireRed { --rarity-color: var(--rarity-14); }
 .rarity-amber { --rarity-color: var(--rarity-15); }
+.rarity-indigo { --rarity-color: var(--rarity-16); }
 /* 词条类别色：进攻红 / 生存绿 / 功能蓝（见 config/affixes.ts 的 affixCategoryClass）。
    和稀有度是两条独立通道 —— 一件装备的名字按稀有度着色，它身上的词条按类别着色，
    两者可能同时出现在一段文本里，所以变量名不共用。 */
@@ -633,7 +658,7 @@ select:focus { border-color: var(--accent); }
 
    ⚠️ **格子明确给一条宽度确定的轨道**（`grid-template-columns: minmax(0, 1fr)`），
    不要用 `place-content: center`：那种写法下轨道按「最大内容宽度」定尺寸，图标框永远不跟着格子缩，
-   格子一窄（研究基地的半宽栏 6 列、手机 5 列）图标就会顶出卡片、压到旁边的卡片与面板边框上（见 §10-27）。
+   格子一窄（手机 5 列这类窄容器）图标就会顶出卡片、压到旁边的卡片与面板边框上（见 §10-27）。
    换成确定宽度的轨道之后，图标框才可以用百分比。 */
 .storage-grid .item-card { aspect-ratio: 1 / 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; align-content: center; gap: 5px; padding: 8px; }
 /* 图标框与里面的字形一起放大：只放大框会让字符缩在中间，只放大字形会撑破边框。
@@ -646,9 +671,18 @@ select:focus { border-color: var(--accent); }
    25px = 5 间距 + 约 12 一行数量 + 8px 余量（字号档位调大时那一行会变高）。 */
 .storage-grid .item-icon { width: min(60px, calc(100% - 25px)); height: auto; aspect-ratio: 1 / 1; margin: 0 auto; font-size: 1.9rem; }
 .storage-grid .item-quantity { position: static; margin: 0; color: var(--accent); font: 500 .64rem DM Mono, monospace; text-align: center; }
-/* 研究项网格住在 `.archive-layout` 的半宽栏里（桌面约 453px），按 6 列排每格只有 67px —— 装不下
-   60px 的图标框。这里按格子自身的宽度自适应，列宽不再写死：窄到装不下时自己少排一列。 */
-.storage-grid.research-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+/* ——— 小号磁贴（`.tile-compact`）：研究项与成就**共用这一档** ———
+   和上面那一档（物品栏）是同一套卡片，区别只有两条：没有稀有度描边（`--card-line` 走回落值，或由状态类给）、
+   整体小一圈。所以尺寸只写在这里一处 —— 别在各自的页面里再写一遍（见 UI开发规范 §6.5）。
+
+   ⚠️ 列宽写死 76px，不用 `minmax(..., 1fr)`：这两个网格的卡片必须**一样大**。
+   用 1fr 的话会跟着容器摊开（半宽栏里的研究项约 83px、整行铺开的成就约 71px），
+   同一套风格长出两个尺寸。行末剩下的空隙留着即可 —— auto-fill 不回收空轨道。
+   图标框同理：46px / 1.45rem 与物品栏那档的 60px / 1.9rem 是同一个比例；
+   这里减 10px 而不是 25px，因为这一档卡面没有数量行（那 25px 里有一行数量的位置）。
+   换算：格子 76 − padding 16 − 边框 2 = 58 ≥ 图标 46 ✓（见 §10-27）。 */
+.storage-grid.tile-compact { grid-template-columns: repeat(auto-fill, 76px); }
+.storage-grid.tile-compact .item-icon { width: min(46px, calc(100% - 10px)); font-size: 1.45rem; }
 .item-detail-name { display: block; color: var(--rarity-color, var(--text)); font-size: .8rem; font-weight: 700; }
 .item-card { cursor: context-menu; }
 /* 装备类卡片可以左键拖到左侧槽位，用抓取光标提示。 */
@@ -780,6 +814,43 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .changelog-title { margin: 9px 0 0; font-size: .88rem; line-height: 1.5; }
 .changelog-list { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: .76rem; line-height: 1.7; }
 .changelog-note { margin: 0; color: var(--muted); font-size: .78rem; }
+/* ——— 页面帮助浮层：标题右侧的【帮助】按钮弹它，文案见 config/help.ts ———
+   单例挂 body，三种关闭方式（R12）：关闭按钮 / 点遮罩 / Esc。 */
+.help-layer { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; background: rgba(4, 9, 11, .74); }
+.help-layer[hidden] { display: none; }
+.help { width: min(520px, 100%); max-height: 84vh; overflow: auto; border: 1px solid var(--line); background: #131d21; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.help-head { display: flex; align-items: start; justify-content: space-between; gap: 14px; padding: 18px 20px 15px; border-bottom: 1px solid var(--line-soft); }
+.help-head h3 { margin: 0; }
+.help-close { flex: 0 0 auto; width: 28px; height: 28px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 1rem; line-height: 1; }
+.help-close:hover, .help-close:focus-visible { border-color: var(--accent); color: var(--accent); }
+.help-body { display: grid; gap: 18px; padding: 18px 20px 20px; }
+/* 小节标题用 DM Mono 小字：和面板里的 panel-kicker 是同一档信息层级，都不抢正文。 */
+.help-section-title { margin: 0 0 9px; color: var(--accent); font: 500 .68rem DM Mono, monospace; letter-spacing: .1em; }
+.help-list { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+/* 每条前面一小段横线当项目符号：原生圆点和全局的方角风格不搭。 */
+.help-list li { position: relative; padding-left: 15px; font-size: .78rem; line-height: 1.65; }
+.help-list li::before { content: ''; position: absolute; left: 0; top: .68em; width: 7px; height: 1px; background: var(--accent-dim); }
+.help-empty { margin: 0; color: var(--muted); font-size: .78rem; }
+/* ——— 安装浮层：系统物品（剧情任务的图纸）「使用」后弹它 ———
+   交互体按 `quest.install.mode` 分形态（付资源 / 解读线索），样式都加在这一块里。
+   单例挂 body，三种关闭方式（R12）。 */
+.install-layer { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; background: rgba(4, 9, 11, .74); }
+.install-layer[hidden] { display: none; }
+.install { width: min(460px, 100%); max-height: 84vh; overflow: auto; border: 1px solid var(--accent-dim); background: #131d21; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.install-head { display: flex; align-items: start; justify-content: space-between; gap: 14px; padding: 18px 20px 15px; border-bottom: 1px solid var(--line-soft); }
+.install-head h3 { margin: 0; }
+.install-close { flex: 0 0 auto; width: 28px; height: 28px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 1rem; line-height: 1; }
+.install-close:hover, .install-close:focus-visible { border-color: var(--accent); color: var(--accent); }
+.install-body { display: grid; gap: 12px; padding: 16px 20px 18px; }
+.install-target { margin: 0; color: var(--accent); font-size: .78rem; }
+.install-desc { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.6; }
+/* 代价行：复用工坊那套 .shop-mat（不足标红 / 足够标绿），只是改成左对齐单列。 */
+.install-mats { display: grid; gap: 5px; justify-items: start; }
+/* 谜面：用暖色的引用块，和「代价」「按钮」一眼分开。 */
+.install-hint { margin: 0; padding: 12px 13px; border-left: 2px solid var(--warm); background: rgba(255, 184, 107, .06); font-size: .78rem; line-height: 1.65; }
+.install-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 8px; }
+.install-options .secondary-button { text-align: center; }
+.install-message { margin: 0; color: var(--warm); font-size: .74rem; }
 /* ——— 内置 wiki：图鉴弹窗，背景虚化 ——— */
 .wiki-layer { position: fixed; inset: 0; z-index: 78; display: grid; place-items: center; padding: 24px; background: rgba(4, 9, 11, .55); backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px); }
 .wiki-layer[hidden] { display: none; }
@@ -898,9 +969,8 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 /* 庇护所页那行「勘探队：…」：独占一整行，压在行动按钮下面。 */
 .camp-expedition { flex: 1 1 100%; color: var(--accent); font: .68rem DM Mono, monospace; font-variant-numeric: tabular-nums; }
 .camp-expedition[hidden] { display: none; }
-/* 冒险页的「还有一片区域没定下位置」：和委托提示同一套排版，只用暖色区分。 */
-.unlock-hint { margin-top: 6px; color: var(--warm); }
-.unlock-hint[hidden] { display: none; }
+/* 冒险页只留「研究基地的委托」一行提示（`.task-hint`，见 .task-hint.on-target）：
+   区域解锁条件**不在这里摊开** —— 它在图鉴的「进入条件」与解锁公告里说。 */
 @media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.inventory-layout { grid-template-columns: 1fr; }.archive-layout { grid-template-columns: 1fr; }.camp-layout { grid-template-columns: 1fr; }.storage-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }.sidebar, .nav-collapsed .sidebar { min-height: auto; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(8, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.home-grid { grid-template-columns: 1fr; }.home-hero, .home-log { grid-column: auto; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
 @media (max-width: 600px) { .app-shell { width: min(100% - 24px, 1240px); padding-top: 30px; }.game-header { align-items: start; flex-direction: column; gap: 17px; }.brand-group { gap: 10px; }.nav-toggle { width: 28px; height: 28px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(4, 1fr); }.resource-strip { grid-auto-flow: row; grid-template-columns: repeat(2, 1fr); }.resource:last-child { grid-column: 1 / -1; }.hero-stats { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }.page-heading, .inventory-heading { flex-direction: column; gap: 10px; }.adventure-toolbar, .toolbar-row { align-items: stretch; flex-direction: column; }.battle-arena { grid-template-columns: 1fr; }.versus { padding: 2px 0; }.combatant { padding: 14px; }.log-entry { grid-template-columns: 58px 40px 1fr; gap: 7px; }.home-log .log-entry { grid-template-columns: 58px minmax(0, 1fr); }.storage-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.atlas-slots { grid-template-columns: 1fr; }
  }

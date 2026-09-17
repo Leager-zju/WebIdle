@@ -1,11 +1,11 @@
 import {
   startCampChallenge, answerPendingEvent, getCampMaxHp, getCampAttack, getCampDefense, getCampRegen, getCampHp,
   getCampBattle, getNextCampChallenge, getPendingEvent, isCampEventTimerRunning, formatNumber, formatDuration, formatSeconds, formatPerSecond, RANDOM_EVENT_INTERVAL, CAMP_WAVE_KINDS,
-  campWave, campWaveStage, POP_PER_WORKER, getExpedition,
+  campWave, campWaveStage, getExpedition,
   countSafeCampFights, sweepCampWaves
 } from '../game-state';
 import { setText, setNumber, setHtml, setWidth, setClass, setHidden, setDisabled, pick } from '../dom';
-import { renderCodexTags, eventRefMarkup } from '../codex-ref';
+import { eventRefMarkup } from '../codex-ref';
 import { campEventEntryId } from '../config/events';
 import type { GameState, PageDefinition } from '../types';
 
@@ -16,10 +16,13 @@ function threatTitleMarkup(kind: number, id: number, fallback: string): string {
   return entryId < 0 ? fallback : eventRefMarkup(entryId);
 }
 
-/* 两块并排：左边庇护所状态，右边当前威胁；下面是整行的行动按钮，最后是庇护所日志。 */
+/* 两块并排：左边庇护所状态，右边当前威胁；下面是整行的行动按钮。
+   两块都是 2×2 四个数值格 —— 格数一样、外框等宽，里面的格子和字号才会完全一致。
+   人口**不在这里单列**（救下的幸存者按 `POP_PER_WORKER` 折算成后勤人手）：那个数字在工坊页的
+   「后勤小队：…（主线 x · 胜场 y · 人口 z）」那一行里看，来源拆得更清楚（见 getLogisticsSources）。 */
 const statusMarkup = `<div class="panel-heading"><div><span class="panel-kicker">CAMP VITALS</span><h3>庇护所</h3></div></div>
   <p class="camp-hint" data-ref="copy"></p>
-  <div class="camp-stat-grid"><div class="mini-stat"><span>庇护所生命</span><b data-ref="hp"></b></div><div class="mini-stat"><span>庇护所攻击</span><b data-ref="attack"></b></div><div class="mini-stat"><span>庇护所防御</span><b data-ref="defense"></b></div><div class="mini-stat"><span>生命恢复</span><b data-ref="regen"></b></div><div class="mini-stat" title="事件里救下的幸存者，每 ${POP_PER_WORKER} 人提供 1 名后勤人手（在工坊页分配）"><span>庇护所人口</span><b data-ref="population"></b></div></div>
+  <div class="camp-stat-grid"><div class="mini-stat"><span>庇护所生命</span><b data-ref="hp"></b></div><div class="mini-stat"><span>庇护所攻击</span><b data-ref="attack"></b></div><div class="mini-stat"><span>庇护所防御</span><b data-ref="defense"></b></div><div class="mini-stat"><span>生命恢复</span><b data-ref="regen"></b></div></div>
   <div class="health-track"><div class="health-bar camp-health" data-ref="health"></div></div>`;
 const threatMarkup = `<div class="panel-heading"><div><span class="panel-kicker">THREAT</span><h3 data-ref="threatTitle"></h3></div><span class="muted" data-ref="threatState"></span></div>
   <p class="camp-hint" data-ref="threatDesc"></p>
@@ -37,8 +40,6 @@ function campCopy(state: GameState, battle: ReturnType<typeof getCampBattle>, pe
 }
 /** 倒计时刻度：12 格，每格代表「随机事件间隔 ÷ 12」（默认 5 分钟）。 */
 const TIMER_CELLS = Array.from({ length: 12 });
-/* 日志正文里的 [[类型:下标]] 标记渲染成图鉴引用（icon + 名称 + 类型色 + 可点开图鉴）。 */
-const logMarkup = (state: GameState): string => state.log.length ? state.log.slice(0, 8).map(entry => `<div class="log-entry log-${entry.type || 'system'}"><span class="log-time">${entry.time}</span><span>${renderCodexTags(entry.message)}</span></div>`).join('') : '<div class="log-empty">庇护所暂无记录。</div>';
 
 const page: PageDefinition<any> = {
   id: 'camp', template: './pages/camp.html',
@@ -49,11 +50,10 @@ const page: PageDefinition<any> = {
         <div class="camp-event-track" data-ref="randomTimerBar">${TIMER_CELLS.map(() => '<i class="camp-event-cell"></i>').join('')}</div>
       </div>
       <div class="camp-layout"><section class="camp-block camp-status">${statusMarkup}</section><section class="camp-block camp-threat">${threatMarkup}</section></div>
-      <div class="camp-actions"><span class="camp-countdown" data-ref="countdown"></span><button class="primary-button camp-challenge" type="button" data-action="challenge" data-ref="challenge"></button><button class="secondary-button camp-sweep" type="button" data-action="sweep" data-ref="sweep" title="把所有能稳赢的波次一次打完，直到遇到会伤筋动骨的一场为止（单次最多 200 场，可以接着点；带伤时不会硬上）"></button><button class="secondary-button camp-accept" type="button" data-action="accept" data-ref="accept">应对</button><button class="secondary-button" type="button" data-action="decline" data-ref="decline">跳过</button><span class="camp-expedition" data-ref="expedition" hidden></span></div>
-      <div class="event-log compact camp-log" data-ref="log"></div>`;
+      <div class="camp-actions"><span class="camp-countdown" data-ref="countdown"></span><button class="primary-button camp-challenge" type="button" data-action="challenge" data-ref="challenge"></button><button class="secondary-button camp-sweep" type="button" data-action="sweep" data-ref="sweep" title="把所有能稳赢的波次一次打完，直到遇到会伤筋动骨的一场为止（单次最多 200 场，可以接着点；带伤时不会硬上）"></button><button class="secondary-button camp-accept" type="button" data-action="accept" data-ref="accept">应对</button><button class="secondary-button" type="button" data-action="decline" data-ref="decline">跳过</button><span class="camp-expedition" data-ref="expedition" hidden></span></div>`;
     const ctx: any = {
-      ...pick(view, 'copy', 'hp', 'attack', 'defense', 'regen', 'population', 'health', 'threatTitle', 'threatState', 'threatDesc',
-        'eventHp', 'eventAttack', 'eventDefense', 'eventInterval', 'eventHealth', 'randomTimer', 'randomTimerBar', 'countdown', 'challenge', 'accept', 'decline', 'log', 'sweep', 'expedition'),
+      ...pick(view, 'copy', 'hp', 'attack', 'defense', 'regen', 'health', 'threatTitle', 'threatState', 'threatDesc',
+        'eventHp', 'eventAttack', 'eventDefense', 'eventInterval', 'eventHealth', 'randomTimer', 'randomTimerBar', 'countdown', 'challenge', 'accept', 'decline', 'sweep', 'expedition'),
       /* 一键清剿的按钮文案要显示场次，而场次靠模拟算 —— 缓存签名，见 update。 */
       sweepSignature: '', sweepCount: 0,
       timerBlock: view.querySelector<HTMLElement>('.camp-event-timer')!,
@@ -84,8 +84,6 @@ const page: PageDefinition<any> = {
     const pending = getPendingEvent(state);
     const challenge = getNextCampChallenge(state);
     setText(ctx.copy, campCopy(state, battle, pending));
-    /* 人口：事件里救下来的幸存者，是后勤人数的第三个来源（见 getLogisticsSources）。 */
-    setNumber(ctx.population, state.camp.population);
     setClass(ctx.threat, 'in-battle', !!battle);
     if (battle) {
       setHtml(ctx.threatTitle, threatTitleMarkup(battle.kind, battle.id, battle.name));
@@ -153,7 +151,6 @@ const page: PageDefinition<any> = {
     const expedition = getExpedition(state);
     setHidden(ctx.expedition, !expedition);
     if (expedition) setText(ctx.expedition, `${expedition.icon} 勘探队：${expedition.name} · 剩余 ${formatDuration(Math.ceil(expedition.remaining))}（成功率 ${Math.round(expedition.rate * 100)}%）`);
-    setHtml(ctx.log, logMarkup(state));
   }
 };
 export default page;

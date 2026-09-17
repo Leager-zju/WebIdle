@@ -4,9 +4,11 @@
    坐标是「相对卡片左上角」的像素值：详情用 position: absolute 定位在卡片里，
    这样不受 .page-content 的 contain: layout（会把 fixed 后代改成相对它定位）影响。 */
 /* 装备槽（.equip-slot）也是宿主：它的浮层同样用 .item-detail，内容和物品卡片一致
-   （两处共用 pages/inventory.ts 的 detailMarkup）。 */
-const HOST_SELECTOR = '.item-card, .shop-item, .achievement-card, .equip-slot';
-const TIP_SELECTOR = '.item-detail, .shop-detail, .achievement-detail';
+   （两处共用 pages/inventory.ts 的 detailMarkup）。
+   成就与物品储藏 / 研究项是同一套磁贴，所以走的就是 `.item-card` + `.item-detail` ——
+   这里**不为它们另开选择器**：任何一个新的磁贴网格接进来（见 UI开发规范 §6.5）都不用改这张表。 */
+const HOST_SELECTOR = '.item-card, .shop-item, .equip-slot';
+const TIP_SELECTOR = '.item-detail, .shop-detail';
 const OFFSET = 16;      // 鼠标与浮层的间距
 const MARGIN = 8;       // 与视口边缘的最小距离
 

@@ -40,6 +40,10 @@ export interface Item {
   useText?: string;
   /** 纯展示：这道具会给装备附加哪条词条（下标），用来在详情里列出首次 / 重复强化的效果。 */
   grantsAffix?: number;
+  /** 系统物品（剧情任务的奖励：图纸一类）。它是**钥匙**不是行李，所以三条特殊待遇：
+      不占物品栏负载、不能丢弃、只能由剧情任务发放（不进任何 dropTable）。
+      用掉它（右键 → 使用 → 安装浮层）之后才会解锁它对应的工坊项 / 研究项 —— 见 config/campaign.ts。 */
+  system?: boolean;
 }
 
 /** 套装加成：凑齐全部部件后额外生效的属性。attackInterval 是「出手间隔减少的秒数」。 */
@@ -95,14 +99,14 @@ export type EquipmentState = number[][];
     changelogSeen：玩家已经看过的更新日志版本（最新一条的短 hash）。它和当前版本不一致时，
     进入游戏会弹一次更新公告（见 changelog.ts）。存进存档是为了换设备导入后不重复弹。 */
 export interface SettingsState { fontScale: FontScaleId; notify: boolean; numberFormat: NumberFormatId; changelogSeen: string; }
-/** 后勤小队：assigned[i] 是分配给第 i 个后勤对象的人数 —— 营垒修筑占 0，
+/** 后勤小队：assigned[i] 是分配给第 i 个后勤对象的人数 —— 0 号位是**已停用**的营垒修筑（占位），
     之后每个制造项各占一个下标（见 game-state 的 LOGISTICS / fortSlot / logisticsTargets）。
     人手是「派给这一项的人」，不存在工坊共用的池子；总人数不存档，
     由主线进度与胜场换算（getLogisticsTotal），避免两处数据不同步。 */
 export interface LogisticsState { assigned: number[]; }
 /** 工坊制造项：level 当前等级；target 正在建造的目标等级（-1 表示空闲）；work 已累计工时（人数 × 秒）。 */
 export interface WorkshopItemState { level: number; target: number; work: number; }
-/** 庇护所：hp 当前生命（脱战时按恢复速度回满）；worksiteProgress 是营垒修筑累计工时（每 100 换 1 级）；
+/** 庇护所：hp 当前生命（脱战时按恢复速度回满）；worksiteProgress 是**已停用**的营垒修筑遗留字段（不再参与任何数值）；
     disasterWins / tideWins 是已通过的天灾、兽潮次数，决定下一场挑战与强度；
     randomTimer 是距离下一次随机事件的剩余秒数；pending* 是已触发、等待响应的事件（kind < 0 表示没有）。 */
 export interface CampState { hp: number; worksiteProgress: number; disasterWins: number; tideWins: number; randomTimer: number; pendingKind: number; pendingId: number; pendingExpires: number;
@@ -122,7 +126,7 @@ export interface CampBattleState { kind: number; id: number; name: string; icon:
     nextInstanceId 单调递增，删掉实例后不复用 id。
     encountered 的下标是敌人表下标，1 表示击杀过（图鉴收录条件）。
     discoveredDrops[enemyId] 是这只怪物已经实际掉落过（玩家拿到手）的物品下标列表，图鉴据此逐条揭示掉落表。 */
-export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; /** 已经看过的新手指引 id（见 guide.ts 的 GUIDES）。 */ guides: string[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
+export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; workshop: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; /** 剧情任务进度，下标即 config/campaign.ts 的下标（取值见那里的 QUEST_STATE）。 */ quests: number[]; /** 已经看过的新手指引 id（见 guide.ts 的 GUIDES）。 */ guides: string[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
   devOverrides: number[];
   /** 研究基地：研究点数、当前委托（itemId 为 -1 表示尚未发布）、各研究项等级。 */
   researchPoints: number; /** 当前委托已经刷新过几次：刷新费用按它递增，交委托后归零。 */ researchRefreshCount: number; researchTask: ResearchTaskState; researchLevels: number[]; /** 自动进食：研究项「自动进食」解锁后生效。 */ autoEat: AutoEatState; /** 曾经精炼到 100 级（【极致】）的物品下标。喂掉那件之后依然保留 —— 这是「达成过」的记录，不是持有状态。 */ perfectItems: number[]; }
@@ -155,7 +159,10 @@ export interface UseContext {
 export type UseOutcome =
   | { kind: 'done' }                                                          // 已生效（或没有可做的），流程结束
   | { kind: 'pick-equipment' }                                                // 需要玩家点选一件装备
-  | { kind: 'pick-affix'; instanceId: number; affixIndices: number[] };       // 有多条可移除的词条，需要玩家选一条
+  | { kind: 'pick-affix'; instanceId: number; affixIndices: number[] }        // 有多条可移除的词条，需要玩家选一条
+  /** 系统物品（剧情任务的图纸）：界面开「安装」浮层，代价与谜题都在浮层里处理。
+      **use 本身不消耗** —— 真正的消耗与解锁发生在 installQuest()（见 src/install.ts）。 */
+  | { kind: 'open-install' };
 /** 使用道具的行为。带 heal 标记的是「食物」—— 自动进食据此筛选，不用另维护一份 id 清单。 */
 export type UseHandler = ((context: UseContext) => UseOutcome) & { heal?: number };
 /** 自动进食：研究项「自动进食」解锁后生效。itemId 为 -1 表示还没指定食物。 */
@@ -207,3 +214,41 @@ export interface ChangelogNote {
 /** locked 返回 true 时，导航栏里的入口会置灰、显示为「❓未解锁」且不可点击（见 main.ts 的 updateNavLocks）。
     没有声明 locked 的页面视为始终可用。 */
 export interface PageDefinition<Context = any> { id: string; template: string; mount(root: HTMLElement): Context; update(state: GameState, context: Context): void; locked?(state: GameState): boolean; }
+
+/** 帮助浮层里的一节：一个小标题 + 若干条「这一块怎么用」。 */
+export interface HelpSection { title: string; lines: string[]; }
+/** 一个页面的帮助。**「怎么用」只写在这里**，页面标题下那句 `<p>` 只负责氛围（见 UI开发规范 §7.18）——
+    帮助文案维护在 config/help.ts，键是页面的 id（同时也是标题右侧【帮助】按钮上的 data-help 值）。 */
+export interface HelpPage { name: string; sections: HelpSection[]; }
+
+/* ——— 剧情任务（config/campaign.ts）———
+   一条任务 = 一件系统物品：条件达成 → 自动把物品发进物品栏 → 玩家在物品栏里**使用**它，
+   走完那种安装形态之后，它指向的工坊项 / 研究项才解锁（见 UI开发规范 §7.19）。 */
+/** 安装代价：三种资源都是可选的，缺省 0。 */
+export interface QuestCost { gold?: number; scrap?: number; plate?: number; }
+/** 安装形态 —— **一件物品一种形态**，这是"可插拔"的接缝：
+    新增一种玩法（信号输入、多步确认…）= 这里加一个联合分支 + src/install.ts 加一个渲染分支 + 样式一个块，
+    game-state 的 installQuest() 与剧情任务表都不用动。
+    公平性护栏（写死在规范里）：线索与答案都要能从**浮层里给出的信息**推出来，
+    不依赖游戏外的知识、记忆或跨页查找；答错无惩罚，可以无限重试。 */
+export type QuestInstall =
+  | { mode: 'pay'; cost: QuestCost }                                                                          // 单纯支付资源
+  /** 解读线索：从 hint 与选项里推出答案。cost 可选 —— 要"答对 + 付资源"的双重形态时直接写在这里。 */
+  | { mode: 'choice'; hint: string; options: { id: number; label: string }[]; answer: number; cost?: QuestCost };
+export interface CampaignQuest {
+  /** 奖励物品（config/items.ts 里 category: 'consumable' + system: true 的那件）。 */
+  itemId: number;
+  /** 任务名（和物品名保持一致，两处写的是同一件事）。 */
+  name: string;
+  icon: string;
+  /** 右上的小标签，如 'QUEST 01'。 */
+  kicker: string;
+  /** 达成条件：和区域解锁同一套规则（跑 config/unlock.ts 的 unlockBy。**条件原文只写在这里**）。 */
+  requirement: UnlockRule;
+  install: QuestInstall;
+  /** 世界观描述，显示在档案与安装浮层里。 */
+  desc: string;
+}
+/* ⚠️ 「这条任务解锁了哪一项」**不写在这里**，而是写在被解锁的那一项上（`workshopItems[].quest` /
+   `researchItems[].quest`）。理由：条目表住在 game-state，campaign 表不能反向依赖它（会成环）；
+   反查由 game-state 的 questTarget() 提供，档案页 / 图鉴 / 物品详情共用那一处。 */

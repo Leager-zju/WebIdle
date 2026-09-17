@@ -109,12 +109,13 @@ const ZONE_DEFS = {
   /* dropRefine：这个区域掉落的装备自带几级精炼。越早的区域给得越高 ——
      早期装备靠一件件喂太慢，直接送一档起步；后期区域基本靠自己喂，所以只有 +1。 */
   wasteBorder: { name: '废弃边境', icon: '🏚️', description: '营火以北，失去联络的旧哨站。锈蚀的机械单位仍在街区与哨塔之间徘徊。', enemyIds: [ENEMY.scavenger, ENEMY.brute, ENEMY.wirehound, ENEMY.scrapGolem, ENEMY.rustSentry], unlock: unlockBy.mainline(0), dropRefine: 10, questItem: ITEM.borderTag },
-  /* 两条路都通向这里：推进主线，**或者**拼出矿脉图纸走一趟勘探远征 ——
-     主线卡在「击退第一次兽潮」的玩家因此有了一条不靠打庇护所事件推进的路。 */
-  emberVein: { name: '余烬矿脉', icon: '💠', description: '被结晶污染的旧矿井，渗出的热量让整条矿道都在发光。守卫这里的单位已经开始结晶化。', enemyIds: [ENEMY.emberMite, ENEMY.ashCrawler, ENEMY.veinWarden, ENEMY.emberLeech, ENEMY.moltenHound], unlock: unlockBy.any(unlockBy.mainline(7), unlockBy.map(MAP.veinChart)), dropRefine: 5, questItem: ITEM.crystalSample },
-  coreDeep: { name: '核心深井', icon: '🕳️', description: '核心信号的源头。井壁上结满结晶，越往下信号越清晰，也越致命。', enemyIds: [ENEMY.coreDrone, ENEMY.signalAdept, ENEMY.echoWraith, ENEMY.abyssBrute, ENEMY.coreTitan], unlock: unlockBy.any(unlockBy.mainline(7), unlockBy.map(MAP.deepProfile)), dropRefine: 1, questItem: ITEM.coreReading },
-  /* 批次 2 的新区域：**只能**靠勘探图进（没有主线通道）。它是地图系统唯一的出口，
-     也是「碎片 → 地图 → 勘探 → 新区域 → 新掉落」这条链的终点。 */
+  /* 只能靠勘探图进：它是「碎片 → 地图 → 勘探远征 → 新区域」这条链的出口之一。
+     ⚠️ 这里**不再有**「主线全通」那条并行通道：那会让「一键清剿推完第一章」顺带白送两个新区域，
+     勘探图整条线就成了摆设（踩过，见 UI开发规范 §10-33）。新区域一律只留勘探图这一个入口。 */
+  emberVein: { name: '余烬矿脉', icon: '💠', description: '被结晶污染的旧矿井，渗出的热量让整条矿道都在发光。守卫这里的单位已经开始结晶化。', enemyIds: [ENEMY.emberMite, ENEMY.ashCrawler, ENEMY.veinWarden, ENEMY.emberLeech, ENEMY.moltenHound], unlock: unlockBy.map(MAP.veinChart), dropRefine: 5, questItem: ITEM.crystalSample },
+  /* 同余烬矿脉：核心深井也只能靠勘探图（deepProfile 由兽潮掉）。 */
+  coreDeep: { name: '核心深井', icon: '🕳️', description: '核心信号的源头。井壁上结满结晶，越往下信号越清晰，也越致命。', enemyIds: [ENEMY.coreDrone, ENEMY.signalAdept, ENEMY.echoWraith, ENEMY.abyssBrute, ENEMY.coreTitan], unlock: unlockBy.map(MAP.deepProfile), dropRefine: 1, questItem: ITEM.coreReading },
+  /* 批次 2 的新区域：和上面两个同一条规矩 —— 只留勘探图这一个入口。 */
   magmaRift: { name: '熔火裂谷', icon: '🌋', description: '核心深井之外那片终年冒热气的地缝。裂开的岩层下面还亮着光，走进去的人说脚下一直是烫的。', enemyIds: [ENEMY.riftScavenger, ENEMY.magmaSentry, ENEMY.cinderWraith, ENEMY.forgeHound, ENEMY.riftColossus], unlock: unlockBy.map(MAP.riftChart), questItem: ITEM.riftSample }
 } satisfies Record<string, Zone>;
 

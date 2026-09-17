@@ -19,6 +19,20 @@ import type { GameState, UnlockRule } from '../types';
 let mainlineTitle: (index: number) => string = () => '';
 export function setMainlineTitles(lookup: (index: number) => string): void { mainlineTitle = lookup; }
 
+/** 剧情任务名的查询函数：同样靠注入 —— config/campaign.ts 依赖本模块（它要 unlockBy），
+    本模块反向 import 它就成了环（同 setMainlineTitles 的理由）。 */
+let questName: (index: number) => string = () => '';
+export function setQuestNames(lookup: (index: number) => string): void { questName = lookup; }
+
+/** 剧情任务进度（`state.quests` 的取值）：0 未达成 / 1 奖励已发（物品在物品栏里）/ 2 已安装（解锁生效）。
+    **这是存档值**，只能追加语义、不能重排。
+    之所以放在本模块：unlockBy.quest() 要拿它做判据，而 config/campaign.ts 依赖本模块（同 MAP_STATE 那样，
+    常量跟着「用它的那条规则」走）。 */
+export const QUEST_STATE = { locked: 0, granted: 1, installed: 2 } as const;
+
+/** 当前波次（从 1 起）。读存档字段，不引 game-state。 */
+const waveNow = (state: GameState): number => Math.max(1, Math.floor(Number(state.camp?.wave)) || 1);
+
 /** 一张地图的勘探是否已经完成（区域据此解锁）。只看存档字段，不需要 game-state。 */
 function mapExplored(state: GameState, mapId: number): boolean {
   return Number(state.camp?.maps?.[mapId]) === MAP_STATE.explored;
@@ -48,6 +62,19 @@ export const unlockBy = {
     text: () => `在「勘探图」拼出${mapName(mapId)}，并派勘探队成功完成一次勘探`,
     done: state => mapExplored(state, mapId),
     notice: () => `拼出「${mapName(mapId)}」并完成勘探`
+  }),
+  /** 扛过第 n 波大事件（波次逐波递增，见 game-state 的 campWave）。 */
+  wave: (n: number): UnlockRule => ({
+    text: state => `扛过第 ${n} 波大事件（当前第 ${waveNow(state)} 波）`,
+    done: state => waveNow(state) > n,
+    notice: () => `扛过第 ${n} 波大事件`
+  }),
+  /** 完成远征档案第二章「余烬之外」里的这一节：拿到奖励物品、再用掉它装好（见 config/campaign.ts）。
+      文案只指向那一节 —— 具体条件写在那里，不要在别处再抄一遍。 */
+  quest: (index: number): UnlockRule => ({
+    text: () => `完成远征档案第二章里的「${questName(index)}」`,
+    done: state => (state.quests?.[index] || 0) >= QUEST_STATE.installed,
+    notice: () => `装好「${questName(index)}」`
   }),
   /** 全部子规则都达成。 */
   all: (...rules: UnlockRule[]): UnlockRule => ({

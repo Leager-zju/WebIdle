@@ -25,7 +25,8 @@ const taskMarkup = `<div class="panel-heading"><div><span class="panel-kicker">C
 
 /* ——— 右栏：研究项 ———
    卡面只有图标，名称 / 等级 / 效果 / 消耗都在悬停浮层里（浮层逻辑见 hover-tip.ts，
-   它认 .item-card + .item-detail 这一对，所以这里直接复用物品储藏的卡片样式）。
+   它认 .item-card + .item-detail 这一对，所以这里直接复用物品储藏的磁贴）。
+   网格加 .tile-compact：和物品栏同一套卡片、小一号（成就那边是同一个类，见 UI开发规范 §6.5）。
    未解锁的研究项不渲染：解锁后才被追加进网格（见 UI开发规范 §6.11）。
    data-ref 不带下标 —— 卡片是动态追加的，引用按卡片范围收集（见 collectCards）。 */
 const researchCardMarkup = (entry: typeof researchItems[number], id: number): string => `<article class="item-card research-card" data-research="${id}" tabindex="0"><div class="item-icon" aria-hidden="true" data-ref="icon">${entry.icon}</div><div class="item-detail"><b class="item-detail-name">${entry.name}</b><p class="research-level" data-ref="level"></p><p data-ref="effect"></p><p class="research-cost" data-ref="cost"></p></div></article>`;
@@ -101,7 +102,7 @@ const page: PageDefinition<any> = {
       <section class="panel archive-panel">
         <div class="panel-heading"><div><span class="panel-kicker">RESEARCH</span><h3>可研究项</h3></div><span class="muted" data-ref="points"></span></div>
         <p class="archive-hint">左键提升一级，右键尝试升到最大等级；悬停（或键盘聚焦）图标查看详情。</p>
-        <div class="item-grid storage-grid research-grid" data-ref="grid"></div>
+        <div class="item-grid storage-grid tile-compact" data-ref="grid"></div>
       </section>
     </div></div>
     <div class="tab-pane" data-pane="atlas"><section class="panel atlas-panel">${atlasMarkup}</section></div>`;

@@ -55,7 +55,7 @@ const GUIDES: Record<string, GuideStep[]> = {
     { target: '#home-log', title: '日志', body: '战斗、掉落与成长的记录。日志里带下划线的名字都能点开图鉴。' },
     { target: '#main-nav', title: '面板入口', body: '所有面板都从左侧进入。还没解锁的会显示成「❓未解锁」，解锁后自动亮起。' },
     { target: '[data-page="camp"]', requireClick: true, title: '先去庇护所', body: '点这里进入庇护所。' },
-    { target: '#camp-view', title: '庇护所', body: '后勤中心：分配人手修营垒、应对天灾与兽潮。庇护所生命归零就要重头再来。' },
+    { target: '#camp-view', title: '庇护所', body: '后勤中心：分配人手造城防、应对天灾与兽潮。庇护所生命归零就要重头再来。' },
     { target: '[data-page="adventure"]', requireClick: true, title: '然后是冒险', body: '点这里出发。' },
     { target: '#adventure-view', title: '冒险', body: '选一个目标区域，远征队会自动开打。打不动就换个区域，或者回庇护所休整。' },
     { target: '[data-page="inventory"]', requireClick: true, title: '物品栏', body: '点这里看战利品。' },

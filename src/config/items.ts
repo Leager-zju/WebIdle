@@ -9,6 +9,11 @@ function solventText(category: number): string {
   return `移除一条【<span class="${affixCategoryClass(category)}">${affixCategories[category].name}</span>】词条`;
 }
 
+/** 系统物品（剧情任务的图纸）的使用行为：**它自己什么都不做**，只让界面去开安装浮层 ——
+    真正的代价与解锁发生在 installQuest()（付资源 / 答对线索），所以这里**不调 context.consume()**：
+    玩家在浮层里取消，就什么都没发生（见 src/install.ts 与 config/campaign.ts）。 */
+const openInstallHandler: UseHandler = () => ({ kind: 'open-install' });
+
 export { rarities, RARITY };
 
 export const itemCategories: Record<ItemCategory, { id: ItemCategory; name: string; order: number }> = {
@@ -129,7 +134,16 @@ const ITEM_DEFS = {
   magmaCore: { name: '熔火之核', type: '饰品', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.accessory, rarity: RARITY.green, icon: '❂', description: '一颗一直在缓慢自转的熔核，靠近时能听见地底的回声。', equip: { attack: 8, hp: 25 } },
 
   /* ——— 熔火裂谷的任务物品 ——— */
-  riftSample: { name: '熔火晶核', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '◈', description: '从裂谷深处撬下的一小块熔核。离开地热之后它开始自己发热，基地想弄清它靠什么烧。' }
+  riftSample: { name: '熔火晶核', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '◈', description: '从裂谷深处撬下的一小块熔核。离开地热之后它开始自己发热，基地想弄清它靠什么烧。' },
+
+  /* ——— 系统物品：剧情任务的奖励（见 config/campaign.ts）———
+     它们是**消耗品**而不是材料：拿到手不算解锁，得右键「使用」它、走完那种安装形态
+     （付资源 / 解读线索）才解锁对应的工坊项 / 研究项。做成消耗品是刻意的 ——
+     界面上「使用」这个入口就落在这里（useItem 只认 category: 'consumable'）。
+     稀有度用靛蓝色（16）：排在任务物品之后的那一档，跨系统、和区域及另两条特殊渠道都不抢位置。
+     ⚠️ useText 里的目标名要和 workshopItems / researchItems 里的名字保持一致。 */
+  sentryBlueprint: { name: '哨塔蓝图', type: '图纸', category: 'consumable', stackable: true, system: true, rarity: RARITY.indigo, icon: '📐', description: '一张画着弩台射击位的旧图。原主人把射界标得极细，边上还写着「别让它空着」。', use: openInstallHandler, useText: '安装：解锁工坊「哨戒弩台」' },
+  surveyParts: { name: '测绘仪零件', type: '图纸', category: 'consumable', stackable: true, system: true, rarity: RARITY.indigo, icon: '🧭', description: '从事件残骸里捡回来的几件仪表。装之前得先把方位校准 —— 背面刻着的三个方位都被划掉了。', use: openInstallHandler, useText: '安装：解锁研究项「勘探仪」' }
 } satisfies Record<string, Item>;
 
 export const items: Item[] = Object.values(ITEM_DEFS);

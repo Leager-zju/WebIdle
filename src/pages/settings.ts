@@ -1,7 +1,7 @@
 import { items, devStats, devGrantItem, devSetStat, devUnlockSystems, getState, getOwnedCount, fontScales, getFontScale, setFontScale, numberFormats, getNumberFormat, setNumberFormat, setNotify, formatNumberExact, exportSaveText, importSaveText } from '../game-state';
 import { rarityClass } from '../config/rarity';
 import { restartGuides } from '../guide';
-import { setText, setNumber, setClass, pick } from '../dom';
+import { setText, setNumber, setClass, pick, reportError } from '../dom';
 import type { GameState, PageDefinition } from '../types';
 
 /* ——— 开发者面板 ———
@@ -37,13 +37,13 @@ function ensureDevStatsModal(): HTMLElement {
   modal.hidden = true;
   modal.innerHTML = `<div class="dev-modal"><div class="dev-modal-head"><div><span class="panel-kicker">DEVELOPER</span><h3>修改属性</h3></div><button class="dev-modal-close" type="button" data-dev-close aria-label="关闭">×</button></div><div class="dev-stat-grid">${devStatButtonsMarkup()}</div><div class="dev-modal-foot"><input class="dev-input dev-stat-input" type="number" min="0" placeholder="输入数值" data-dev-stat-input><button class="dev-button" type="button" data-dev-stat-apply>修改</button></div></div>`;
   const input = modal.querySelector<HTMLInputElement>('[data-dev-stat-input]')!;
-  const apply = (): void => { if (devStatSelected < 0) { input.placeholder = '先在上方点选一个属性'; return; } devSetStat(devStatSelected, Number(input.value)); syncDevStatsModal(); };
+  const apply = (): void => { if (devStatSelected < 0) { input.placeholder = '先在上方点选一个属性'; return; } devSetStat(devStatSelected, Number(input.value)); /* 改完把输入框对回「这一项现在的值」：被夹回上限 / 被后勤总量回收时，这里能直接看出来。 */ syncDevStatInput(); syncDevStatsModal(); };
   modal.addEventListener('click', event => {
     const target = event.target as Element;
     /* 点关闭按钮、或点在遮罩本身上（不是它的子节点）都关窗。 */
     if (target.closest('[data-dev-close]') || target.classList.contains('dev-modal-layer')) { closeDevStatsModal(); return; }
     const cell = target.closest<HTMLElement>('[data-dev-stat]');
-    if (cell) { devStatSelected = Number(cell.dataset.devStat); input.value = String(devStats[devStatSelected].get(getState())); input.focus(); input.select(); syncDevStatsModal(); return; }
+    if (cell) { devStatSelected = Number(cell.dataset.devStat); syncDevStatInput(); input.focus(); input.select(); syncDevStatsModal(); return; }
     if (target.closest('[data-dev-stat-apply]')) apply();
   });
   input.addEventListener('keydown', event => { if (event.key === 'Enter') apply(); });
@@ -57,15 +57,24 @@ function syncDevStatsModal(): void {
   const state = getState();
   devStats.forEach((entry, index) => {
     setClass(devStatsModalEl!.querySelector(`[data-dev-stat="${index}"]`), 'selected', index === devStatSelected);
-    /* 有些字段（区域、敌人、开关）直接读数字没意义，交给 entry.display 出可读文案。 */
     /* 属性按钮上的数值跟随「数字显示方式」设置：缩写后悬停仍能看到完整数字；
        带自定义文案的字段（区域、敌人、开关）交给 entry.display。 */
     const statValue = devStatsModalEl!.querySelector(`[data-dev-stat-value="${index}"]`);
-    if (entry.display) setText(statValue, entry.display(state)); else setNumber(statValue, entry.get(state));
+    /* 单个数值读崩了不该把整个面板（以及它的主循环）一起带塌：报错、跳过，其余照常刷新。 */
+    try {
+      if (entry.display) setText(statValue, entry.display(state)); else setNumber(statValue, entry.get(state));
+    } catch (error) {
+      reportError('devPanel', `刷新「${entry.name}」的数值失败`, error);
+    }
   });
-  /* 正在输入的框不要回写，否则会打断输入。 */
+}
+/** 把输入框同步成「这一项现在的值」。**只在点选某项与点修改这两个动作里调** ——
+    面板每 500ms 会跟着页面重绘刷新一次，那时绝不能回写输入框：点「修改」的瞬间输入框已经失焦，
+    回写会把玩家刚输入的数值冲掉，表现就成了「改了没反应」。 */
+function syncDevStatInput(): void {
+  if (!devStatsModalEl || devStatSelected < 0) return;
   const input = devStatsModalEl.querySelector<HTMLInputElement>('[data-dev-stat-input]');
-  if (input && devStatSelected >= 0 && document.activeElement !== input) input.value = String(devStats[devStatSelected].get(state));
+  if (input) input.value = String(devStats[devStatSelected].get(getState()));
 }
 function openDevStatsModal(): void { const modal = ensureDevStatsModal(); modal.hidden = false; syncDevStatsModal(); }
 function closeDevStatsModal(): void { if (devStatsModalEl) devStatsModalEl.hidden = true; }

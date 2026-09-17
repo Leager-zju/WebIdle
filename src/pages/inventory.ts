@@ -1,6 +1,8 @@
-import { items, affixes, affixMarkup, affixCap, itemCategories, categoryOrder, equipTypes, getEquipSlotCounts, formatNumber, getInventoryCapacity, getInventoryUsed, getInstanceItemId, getEquipmentInstance, getInstanceBonus, equipBonusStats, getEquipBonusSources, isEquipped, getState, discardItem, discardEquipment, useItem, equipItem, equipToSlot, sets, setTable, setOfItem, getSetWorn, setBonusText, getRefine, canRefineWith, refineWithFeeder, REFINE_MAX, isPerfectItem, getPerfectBonus, perfectBonusText, isWikiUnlocked } from '../game-state';
+import { items, affixes, affixMarkup, affixCap, itemCategories, categoryOrder, equipTypes, getEquipSlotCounts, formatNumber, getInventoryCapacity, getInventoryUsed, getInstanceItemId, getEquipmentInstance, getInstanceBonus, equipBonusStats, getEquipBonusSources, isEquipped, getState, discardItem, discardEquipment, useItem, equipItem, equipToSlot, sets, setTable, setOfItem, getSetWorn, setBonusText, getRefine, canRefineWith, refineWithFeeder, REFINE_MAX, isPerfectItem, getPerfectBonus, perfectBonusText, isWikiUnlocked, questOfItem } from '../game-state';
 import { rarityClass } from '../config/rarity';
 import { affixCategoryClass } from '../config/affixes';
+/* 系统物品的「使用」→ 安装浮层（单例挂 body，见 src/install.ts）。 */
+import { openInstallWindow } from '../install';
 /* 右键菜单的「查看图鉴」直接用 wiki 的公开入口 —— 和点行内引用走的是同一个弹窗。
    wiki.ts 不反向引用页面，所以这里没有循环依赖。 */
 import { openWiki } from '../wiki';
@@ -22,7 +24,9 @@ const BASE_ACTIONS: ItemAction[] = [{ id: 'discard', label: () => '丢弃', dang
 /** 「查看图鉴」排在最前：它是只读入口，和后面的操作（装备 / 使用 / 丢弃）不是一类。
     图鉴没解锁时整项不出现（R29：未解锁的内容不渲染）。 */
 const WIKI_ACTION: ItemAction = { id: 'wiki', label: () => '查看图鉴' };
-function actionsFor(item: any) { return [...(isWikiUnlocked(getState()) ? [WIKI_ACTION] : []), ...(CATEGORY_ACTIONS[item.category] || []), ...BASE_ACTIONS]; }
+/** 系统物品（剧情任务的图纸）不给「丢弃」：它是一把钥匙，丢了对应的剧情任务会永远卡在「待安装」
+    （game-state 的 discardItem 与 trimInventoryOverflow 也各挡了一道）。 */
+function actionsFor(item: any) { return [...(isWikiUnlocked(getState()) ? [WIKI_ACTION] : []), ...(CATEGORY_ACTIONS[item.category] || []), ...(item.system ? [] : BASE_ACTIONS)]; }
 /* 装备卡片显示装备自身的属性 + 它带的词条（词条名按品阶着色，数值后面用灰字跟上上限）；
    强化道具显示附加的词条与首次 / 重复强化效果；其他消耗品显示使用效果。 */
 function statLine(itemId: number, instance?: EquipmentInstance | null): string { const item = items[itemId]; const lines = []; if (item.equip) { /* 属性走实例：精炼会把它按等级放大，不能直接读配置里的基础值。 */ const bonus = instance ? getInstanceBonus(instance) : { attack: item.equip.attack || 0, hp: item.equip.hp || 0, defense: item.equip.defense || 0 }; const parts = []; if (bonus.attack) parts.push(`攻击 +${bonus.attack}`); if (bonus.hp) parts.push(`生命 +${bonus.hp}`); if (bonus.defense) parts.push(`防御 +${bonus.defense}`); if (parts.length) lines.push(`<span class="item-stats">${parts.join(' · ')}</span>`); } for (const affix of instance?.affixes || []) { const definition = affixes[affix.id]; lines.push(`<span class="item-stats">${affixNameMarkup(affix.id)}：${affixMarkup(affix)}</span>`); } if (item.grantsAffix !== undefined) { const definition = affixes[item.grantsAffix]; const unit = definition.unit; lines.push(`<span class="item-stats">附加词条：${affixNameMarkup(item.grantsAffix)} - ${definition.desc}</span>`); lines.push(`<span class="item-stats">首次 <b class="affix-value">+${definition.base}${unit}</b></span>`); lines.push(`<span class="item-stats">重复 <b class="affix-value">+${definition.step}${unit}</b></span>`); lines.push(`<span class="item-stats">最高 <b class="affix-value">+${affixCap(item.grantsAffix)}${unit}</b></span>`); } else if (item.useText) lines.push(`<span class="item-stats">${item.useText}</span>`); /* 套装部件要写清归属与进度：玩家得知道它属于哪套、还差几件。 */
@@ -107,7 +111,13 @@ let pendingAffix: { itemId: number; instanceId: number; indices: number[] } | nu
 function ensureHint(): HTMLElement { if (hintEl) return hintEl; hintEl = document.createElement('div'); hintEl.className = 'enhance-hint'; hintEl.hidden = true; document.body.appendChild(hintEl); return hintEl; }
 function syncUseHint(): void { const hint = ensureHint(); if (usingItemId < 0) { hint.hidden = true; return; } const item = items[usingItemId]; hint.innerHTML = `<span class="enhance-hint-icon">${item.icon}</span><b>${item.name}</b><span class="muted">${item.useText || '使用'} · 点击一件装备或装备槽 · 其他任意点击取消</span>`; hint.hidden = false; }
 /** 开始使用一件道具：先不带目标跑一次，要求点选装备就进入点选模式。 */
-function beginUse(itemId: number): void { if (useItem(itemId, -1).kind === 'pick-equipment') setUseMode(itemId); }
+function beginUse(itemId: number): void {
+  const outcome = useItem(itemId, -1);
+  if (outcome.kind === 'pick-equipment') setUseMode(itemId);
+  /* 系统物品（剧情任务的图纸）：开安装浮层，代价与谜题都在那边处理 —— 这里不消耗任何东西，
+     玩家在浮层里取消就什么都没发生（见 src/install.ts）。 */
+  if (outcome.kind === 'open-install') { const questId = questOfItem(itemId); if (questId >= 0) openInstallWindow(questId); }
+}
 /** 带着点选到的装备再跑一次。道具用完了就退出模式。 */
 /** 带着点选到的装备再跑一次。道具用完了就退出模式。
     itemId 默认取「使用模式」里的那件；拖拽进来的调用显式传（那时没有使用模式）。 */
