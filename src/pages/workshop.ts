@@ -4,6 +4,7 @@ import {
   assignLogistics, levelBonus, ITEM, isWorkshopUnlocked, isWorkshopItemUnlocked, formatNumber, formatDuration
 } from '../game-state';
 import { setText, setWidth, setClass, setDisabled, pick } from '../dom';
+import { matMarkup, stepperMarkup, handleStepperClick } from '../shop-card';
 import { itemRefMarkup } from '../codex-ref';
 import type { GameState, PageDefinition, WorkshopItem } from '../types';
 
@@ -17,13 +18,8 @@ const campBonusText = (level: number, item: WorkshopItem): string => {
   push('生命', item.perHp); push('攻击', item.perAttack); push('防御', item.perDefense); push('生命回复', item.perRegen, '/秒');
   return parts.length ? parts.join(' · ') : '尚未开工';
 };
-/** 材料一行：需要 / 现有，由 update 决定标红还是标绿。
-    label 有两种：金币不是物品，直接写文字；废料与装甲板是物品表里的物品，传物品引用
-    （icon + 名称 + 稀有度色 + 可点开图鉴）。红绿只作用在数值上——标签本身是 muted，
-    所以物品引用不会和「材料够不够」的语义色打架。 */
-const matMarkup = (key: string, label: string): string => `<span class="shop-mat" data-mat="${key}"><i>${label}</i><b class="mat-value"></b></span>`;
-/** 人数分配：批量按钮贴在步进器两侧 ——「«」把这一项的人全部撤下，「»」把待命的人全部投入。 */
-const stepperMarkup = (target: number): string => `<button class="step-button batch" type="button" data-action="assign-none" data-target="${target}" data-ref="assignNone" title="撤下这一项的全部分配" aria-label="撤下这一项的全部分配">«</button><button class="step-button" type="button" data-action="assign" data-target="${target}" data-delta="-1" aria-label="减少一人">−</button><span class="logistics-count" data-ref="workers"></span><button class="step-button" type="button" data-action="assign" data-target="${target}" data-delta="1" aria-label="增加一人">+</button><button class="step-button batch" type="button" data-action="assign-all" data-target="${target}" data-ref="assignAll" title="把待命的后勤人数全部投入" aria-label="把待命的后勤人数全部投入">»</button>`;
+/* 材料行与人数步进器**军事训练页也在用**，两页共用同一份（见 src/shop-card.ts）——
+   卡片必须长得一模一样，改这里等于同时改两页。 */
 
 /* ⚠️ 这里**没有**「营垒修筑」那张卡：它已被整条移除（不花材料、只靠人手堆庇护所三围，
    会把第一波天灾 / 兽潮变成"堆人手就能过"）。庇护所只能靠工坊制造变强，见 game-state 的 logisticsTargets。 */
@@ -58,13 +54,10 @@ const page: PageDefinition<any> = {
       signature: null
     };
     root.onclick = event => {
-      const button = (event.target as Element).closest<HTMLButtonElement>('[data-action]');
+      const button = (event.target as Element).closest<HTMLElement>('[data-action]');
       if (!button) return;
-      const index = Number(button.dataset.target);
       /* 快捷分配：一次把待命的人都压上去 / 把这一项的人数清零（两个函数都默认读当前存档）。 */
-      if (button.dataset.action === 'assign-all') assignLogistics(index, getIdleLogistics());
-      else if (button.dataset.action === 'assign-none') assignLogistics(index, -getLogisticsAssigned(index));
-      else if (button.dataset.action === 'assign') assignLogistics(index, Number(button.dataset.delta));
+      handleStepperClick(button, assignLogistics, () => getIdleLogistics(), index => getLogisticsAssigned(index));
     };
     return ctx;
   },

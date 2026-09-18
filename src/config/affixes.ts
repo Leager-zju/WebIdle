@@ -1,12 +1,17 @@
 import type { Affix, UseHandler } from '../types';
 
 /* ——— 技能表 ———
-   词条可以给装备赋予技能，战斗中自动触发。interval 是每多少次出手触发一次，
-   multiplier 是这一击的伤害倍率（还会再乘上词条强度 value / 100）。
+   词条可以给装备赋予技能，战斗中自动触发：每 `interval` 次**普通攻击**掷一次，命中（`chance`）才生效，
+   额外伤害 = `攻击力 × multiplier ×（词条强度 value / 100）`。
+   ⚠️ 计次用的是 `adventure.attackCount`，而它**只有 playerAttack 会自增** ——
+   【格挡】那类辅助技能不计入，所以「每 N 次普通攻击」是按真的打出去算的。
    新增技能在末尾追加即可。 */
+const EMBER_BURST = { interval: 3, chance: .5, multiplier: .5 };
+/** 余烬核心那句效果的文案：`desc`（详情里的「附加词条：…」）与 `summary`（装备上的词条行）共用一份。 */
+const emberBurstText = `每 ${EMBER_BURST.interval} 次普通攻击有 ${Math.round(EMBER_BURST.chance * 100)}% 的概率造成额外 ${Math.round(EMBER_BURST.multiplier * 100)}% 伤害`;
 const SKILL_DEFS = {
-  emberBurst: { name: '余烬爆裂', summary: '每 5 次出手打出一记 1.5 倍攻击力的爆发。', interval: 5, multiplier: 1.5 }
-} satisfies Record<string, { name: string; summary: string; interval: number; multiplier: number }>;
+  emberBurst: { name: '余烬核心', summary: emberBurstText, ...EMBER_BURST }
+} satisfies Record<string, { name: string; summary: string; interval: number; chance?: number; multiplier: number }>;
 
 export const skills = Object.values(SKILL_DEFS);
 /** 名字 → 下标，用法同 ITEM。 */
@@ -48,7 +53,11 @@ export function affixCategoryClass(category: number): string { return `affix-${(
    unit 是数值单位，强化道具详情里的「首次 / 重复 / 最高」三行用它（百分比词条是 %，固定值词条为空）。 */
 const AFFIX_DEFS = {
   keenEdge: { name: '锋锐', desc: '增加一定攻击力', category: AFFIX_CATEGORY.offense, base: 2, step: 1, unit: '', effect: { attack: 1 }, summary: '攻击力 +{value}/{cap}' },
-  emberBurst: { name: '余烬爆裂', desc: '出手时周期性打出一记爆发伤害', category: AFFIX_CATEGORY.offense, base: 100, step: 25, unit: '%', effect: { skill: SKILL.emberBurst }, summary: '赋予技能「余烬爆裂」（强度 {value}%/{cap}%）' },
+  /* ⚠️ 这一条是**限定强化物**（余烬核心）专属的：只能刻在武器上、每件武器只能刻一条
+     （items.ts 的 affixEquipType / affixUnique）⇒ 强度停在 base，没有「重复使用提升数值」那条路。
+     所以它**不走「首次 / 重复 / 最高」那三行**：数值直接写在 desc 与 summary 里（见 pages/inventory.ts），
+     两者都从 `EMBER_BURST` 生成，改数字只改那一处。step 留着不动（不参与任何计算）。 */
+  emberBurst: { name: '余烬核心', desc: emberBurstText, category: AFFIX_CATEGORY.offense, base: 100, step: 25, unit: '%', effect: { skill: SKILL.emberBurst }, summary: emberBurstText },
   vitality: { name: '坚韧', desc: '增加一定生命上限', category: AFFIX_CATEGORY.survival, base: 12, step: 3, unit: '', effect: { hp: 1 }, summary: '生命上限 +{value}/{cap}' },
   bulwark: { name: '铁壁', desc: '增加一定防御力', category: AFFIX_CATEGORY.survival, base: 4, step: 1, unit: '', effect: { defense: 1 }, summary: '防御 +{value}/{cap}' },
   /* 功能类：不加战斗属性，而是给庇护所系统加速。后续这类「增益其他系统」的词条都可以往这里加
@@ -63,6 +72,10 @@ export const affixes: { name: string; desc: string; category: number; base: numb
 export const AFFIX = Object.fromEntries(Object.keys(AFFIX_DEFS).map((name, id) => [name, id])) as { [K in keyof typeof AFFIX_DEFS]: number };
 /** 词条数值上限相对初始值的倍数：多次使用同款强化物最多把数值顶到初始值的这个倍数。 */
 export const AFFIX_MAX_MULTIPLIER = 2;
+/** 一件装备最多能有几条词条（2026-09-18）。满了就不再接受新词条 —— 由 game-state 的 grantAffixTo 把关，
+    被拒时强化道具**不消耗**，理由会写进日志。
+    ⚠️ 老存档里已经超过 3 条的装备**不裁**（裁掉等于删玩家的东西），只是不再往上加。 */
+export const AFFIX_MAX_COUNT = 3;
 /** 某条词条的数值上限。 */
 export function affixCap(affixId: number): number { return affixes[affixId].base * AFFIX_MAX_MULTIPLIER; }
 /** 把一条词条渲染成一段 HTML：当前数值加粗、上限用灰字跟在斜杠后面（卡片与选择窗口共用）。

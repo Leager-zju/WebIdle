@@ -58,7 +58,12 @@ const ITEM_DEFS = {
   whetOil: { name: '锐化油', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.gray, icon: '⚗', description: '一罐发苦的磨料。使用后点选一件装备，为它刻上「锋锐」。', targetsEquipment: true, use: grantAffixHandler(AFFIX.keenEdge), useText: '附加词条「锋锐」', grantsAffix: AFFIX.keenEdge },
   lifeSeed: { name: '生命之种', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.white, icon: '❖', description: '还在缓慢搏动的种荚。使用后点选一件装备，为它刻上「坚韧」。', targetsEquipment: true, use: grantAffixHandler(AFFIX.vitality), useText: '附加词条「坚韧」', grantsAffix: AFFIX.vitality },
   platingGoo: { name: '铁壁涂层', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.gray, icon: '▩', description: '冷却后会变硬的重浆。使用后点选一件装备，为它刻上「铁壁」。', targetsEquipment: true, use: grantAffixHandler(AFFIX.bulwark), useText: '附加词条「铁壁」', grantsAffix: AFFIX.bulwark },
-  emberCore: { name: '余烬核心', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.blue, icon: '◉', description: '仍在燃烧的核心。使用后点选一件装备，赋予它「余烬爆裂」——装到槽位上就会在战斗中触发。', targetsEquipment: true, use: grantAffixHandler(AFFIX.emberBurst), useText: '附加词条「余烬爆裂」', grantsAffix: AFFIX.emberBurst },
+  /* 余烬核心是**限定强化物**：只能刻在武器上，而且每件武器只能刻一条（不能重复叠加）——
+     它是「挑一把武器带上它」的那一下，不是能反复喂的材料（**一次性强化项**）。两条限制由 game-state 的 grantAffixTo 把关
+     （被拒时不消耗道具），这里只声明；页面与图鉴读同一份声明来提示范围。
+     ⚠️ 掉率在 config/zones.ts（2026-09-18 两次下调：普通怪 **0.2%~0.6%**、核心泰坦 0.6%、裂谷巨像 0.5%、
+     熔核守卫（Boss）**4% 且最多 1 件**）—— 它是一次性道具，需求量本来就只有「几把武器」那么多。 */
+  emberCore: { name: '余烬核心', type: '强化', category: 'consumable', stackable: true, rarity: RARITY.blue, icon: '◉', description: '仍在燃烧的核心。使用后点选一件武器，给它刻上词条「余烬核心」——装到槽位上就会在战斗中触发。每件武器只能刻一条。', targetsEquipment: true, use: grantAffixHandler(AFFIX.emberBurst), useText: '仅限武器：附加词条「余烬核心」，每件武器一条', grantsAffix: AFFIX.emberBurst, affixEquipType: EQUIP_TYPE.weapon, affixUnique: true },
   /* ——— 清洗剂：一类词条一瓶，按类别移除 ———
      走独立的掉落通道（见 config/zones.ts 的 SOLVENT_DROP_CHANCE）：任何怪物都有极低概率掉一瓶，
      三选一，且不占「同一只怪物最多 3 条掉落」的名额。
@@ -85,11 +90,11 @@ const ITEM_DEFS = {
 
   /* ——— 核心套装（核心深井掉落）———
      风格：与核心信号同频，全面强化。 */
-  signalCutter: { name: '信号切割者', type: '武器', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.weapon, rarity: RARITY.blue, icon: '⚡', description: '刀刃上跑着一段没被解析完的核心信号，挥动时会留下一道亮痕。', equip: { attack: 14 } },
-  coreVisor: { name: '核心目镜', type: '头部', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.head, rarity: RARITY.blue, icon: '◎', description: '透过它看见的一切都慢了下来——包括敌人的下一次出手。', equip: { attack: 5, hp: 15 } },
-  abyssArmor: { name: '深渊装甲', type: '躯干', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.torso, rarity: RARITY.blue, icon: '▨', description: '井底重载单位身上的同款装甲，穿久了会觉得自己也变重了。', equip: { hp: 45, defense: 3 } },
-  regulatorLegs: { name: '稳压腿甲', type: '腿部', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.legs, rarity: RARITY.blue, icon: '▩', description: '把核心的震荡滤成稳定的节奏，站得比谁都稳。', equip: { hp: 30, defense: 2 } },
-  pulsingCore: { name: '搏动核心', type: '饰品', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.accessory, rarity: RARITY.blue, icon: '❂', description: '一小块仍在搏动的核心碎片，戴久了心跳会和它同步。', equip: { attack: 6, hp: 20 } },
+  signalCutter: { name: '信号切割者', type: '武器', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.weapon, rarity: RARITY.white, icon: '⚡', description: '刀刃上跑着一段没被解析完的核心信号，挥动时会留下一道亮痕。', equip: { attack: 14 } },
+  coreVisor: { name: '核心目镜', type: '头部', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.head, rarity: RARITY.white, icon: '◎', description: '透过它看见的一切都慢了下来——包括敌人的下一次出手。', equip: { attack: 5, hp: 15 } },
+  abyssArmor: { name: '深渊装甲', type: '躯干', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.torso, rarity: RARITY.white, icon: '▨', description: '井底重载单位身上的同款装甲，穿久了会觉得自己也变重了。', equip: { hp: 45, defense: 3 } },
+  regulatorLegs: { name: '稳压腿甲', type: '腿部', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.legs, rarity: RARITY.white, icon: '▩', description: '把核心的震荡滤成稳定的节奏，站得比谁都稳。', equip: { hp: 30, defense: 2 } },
+  pulsingCore: { name: '搏动核心', type: '饰品', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.accessory, rarity: RARITY.white, icon: '❂', description: '一小块仍在搏动的核心碎片，戴久了心跳会和它同步。', equip: { attack: 6, hp: 20 } },
 
   /* ——— 任务物品（研究基地的委托专用）———
      一个战斗区域一种，**只有当前委托正指向这个区域时**这里的怪物才按 10% 掉它
@@ -124,14 +129,30 @@ const ITEM_DEFS = {
 
   /* ——— 熔火套装（熔火裂谷掉落，见 config/sets.ts）———
      风格：地热裂谷里的重装，靠热与重量硬顶。 */
-  magmaCleaver: { name: '熔火锯刃', type: '武器', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.weapon, rarity: RARITY.green, icon: '⚒', description: '刃口挂着一层半凝固的熔渣，砍下去会重新烧起来。', equip: { attack: 18 } },
-  magmaVisor: { name: '熔火面甲', type: '头部', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.head, rarity: RARITY.green, icon: '⌂', description: '面甲内侧镀了一层隔热结晶，看出去的世界微微发红。', equip: { attack: 6, hp: 20 } },
-  magmaPlate: { name: '熔火胸甲', type: '躯干', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.torso, rarity: RARITY.green, icon: '▦', description: '从裂谷壁上整片剥下来的岩甲，穿着像背了半座山。', equip: { hp: 55, defense: 4 } },
-  cinderLegs: { name: '熔渣胫甲', type: '腿部', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.legs, rarity: RARITY.green, icon: '▧', description: '走过滚烫的谷底也不变形的胫甲，脚踝处还嵌着未冷却的渣块。', equip: { hp: 35, defense: 3 } },
-  magmaCore: { name: '熔火之核', type: '饰品', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.accessory, rarity: RARITY.green, icon: '❂', description: '一颗一直在缓慢自转的熔核，靠近时能听见地底的回声。', equip: { attack: 8, hp: 25 } },
+  magmaCleaver: { name: '熔火锯刃', type: '武器', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.weapon, rarity: RARITY.blue, icon: '⚒', description: '刃口挂着一层半凝固的熔渣，砍下去会重新烧起来。', equip: { attack: 18 } },
+  magmaVisor: { name: '熔火面甲', type: '头部', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.head, rarity: RARITY.blue, icon: '⌂', description: '面甲内侧镀了一层隔热结晶，看出去的世界微微发红。', equip: { attack: 6, hp: 20 } },
+  magmaPlate: { name: '熔火胸甲', type: '躯干', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.torso, rarity: RARITY.blue, icon: '▦', description: '从裂谷壁上整片剥下来的岩甲，穿着像背了半座山。', equip: { hp: 55, defense: 4 } },
+  cinderLegs: { name: '熔渣胫甲', type: '腿部', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.legs, rarity: RARITY.blue, icon: '▧', description: '走过滚烫的谷底也不变形的胫甲，脚踝处还嵌着未冷却的渣块。', equip: { hp: 35, defense: 3 } },
+  magmaCore: { name: '熔火之核', type: '饰品', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.accessory, rarity: RARITY.blue, icon: '❂', description: '一颗一直在缓慢自转的熔核，靠近时能听见地底的回声。', equip: { attack: 8, hp: 25 } },
 
   /* ——— 熔火裂谷的任务物品 ——— */
-  riftSample: { name: '熔火晶核', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '◈', description: '从裂谷深处撬下的一小块熔核。离开地热之后它开始自己发热，基地想弄清它靠什么烧。' },
+  riftSample: { name: '熔火晶核', type: '任务', category: 'quest', stackable: true, rarity: RARITY.amber, icon: '◈', description: '从裂谷深处撬下的一小块熔核。离开地热之后它自己开始发热，基地想弄清它靠什么烧。' },
+
+  /* ——— 熔核之扉（第一个 Boss）的独占掉落 ———
+     三档各一件、全是**饰品**（饰品有两格：熔火之核占第一格，这些放第二格 ⇒ 不拆套装）。
+     前两件各带一条特性：【裂甲锥】破甲（攻击时无视固定防御）、【熔壳护芯】隔热（受到的伤害 −15%）——
+     上面两档的壳厚，带上破甲那一件有效伤害差好几成。特性是**装备自己的效果、不是门槛**
+     （门槛那套已整条移除，见 config/traits.ts）。
+     ⚠️ 第三件【遗锋】**不带任何特性**：它的取向是**均衡**（1 阶 0 精炼 = 攻 5 / 血 5 / 防 5）
+     加可成长（1→9 阶 + 满精炼 ⇒ 30/30/30）—— 别顺手给它补特性，两条特性各在上一档那件上。
+     它的设定与 Boss 无关：**一件遗落在这个世界的神兵，力量已经散尽**（所以名字里不带「熔核」，
+     描述也不提守卫）—— 掉落只是它出现的方式。
+     绝境那件是**可成长饰品**（1→9 阶）：阶与升华的规则**不写给玩家看**（见 庇护所扩展方案.md §4.13）——
+     详情 / 图鉴 / 卡片三处都不显示「第几阶」。
+     稀有度统一蓝 2（与熔火套同色 —— 稀有度只是色彩档，两套同色是允许的）。 */
+  shatterSpike: { name: '裂甲锥', type: '饰品', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.accessory, rarity: RARITY.blue, icon: '✶', description: '从守卫的结晶外壳上敲下来的一截尖锥。握着它的时候，任何硬壳看上去都只是壳。', equip: { attack: 8, hp: 25 }, traits: ['piercing'] },
+  heatShell: { name: '熔壳护芯', type: '饰品', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.accessory, rarity: RARITY.blue, icon: '❖', description: '一层被反复灼烧过的壳芯。把它贴在身上，热浪会绕着走。', equip: { attack: 4, hp: 45, defense: 2 }, traits: ['insulated'] },
+  lostEdge: { name: '遗锋', type: '饰品', category: 'equipment', stackable: false, equipType: EQUIP_TYPE.accessory, rarity: RARITY.blue, icon: '❂', description: '遗落在荒野里的一截兵刃残件。形制不像这个世界任何一支队伍的东西，握上去是凉的 —— 里面的力量早就散干净了。', equip: { attack: 5, hp: 5, defense: 5 }, growth: { maxStage: 9 } },
 
   /* 第二章的剧情任务（哨塔蓝图 / 测绘仪零件两件系统物品）已整章移除 ——
      它们原来是 ITEM_DEFS 的**最后两条**，删掉不动任何既有条目的下标（R24 只管顺序，末尾删是安全的）。

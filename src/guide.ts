@@ -103,6 +103,29 @@ const GUIDES: Record<string, GuideStep[]> = {
   ],
   wiki: [
     { title: '新系统 · 图鉴', body: '所有带下划线的名字现在都能点开了：物品、怪物、区域、事件各有图鉴页，页面顶部还能沿着路径往回翻。' }
+  ],
+  /* 熔核之扉（Boss 区域）：难度档与特性门槛都是新东西 —— 区域一开就带一遍。
+     键 = 解锁事件的 id（区域写作 `zone:<下标>`，见 UI开发规范 §6.13）。 */
+  [`zone:${ZONE.moltenGate}`]: [
+    { target: '[data-page="adventure"]', requireClick: true, title: '新区域 · 熔核之扉', body: '裂谷尽头的那扇门开了。点回冒险看看。' },
+    { target: '[data-action="zone-toggle"]', requireClick: true, title: '选择目标区域', body: '点这里挑区域 —— 下拉里多了最后那一个。' },
+    { target: `[data-zone="${ZONE.moltenGate}"]`, requireClick: true, title: '选「熔核之扉」', body: '门后面那个东西没有机制，只有肉搏：它比谁都厚、比谁都烫。' },
+    { target: '.difficulty-row', title: '三个难度档', body: '这一区有常规 / 强化 / 绝境三档：三档的身板与掉落都不一样，越往上越硬，随时能换；场上那只还没打死的，换档会作废、等刷新冷却才有下一只。' },
+    { target: '.combatant.enemy-side', title: '破甲', body: '上面那两档的壳更厚 —— 常规档掉的【破甲】装备会让对方的固定防御整条不算（伤害 = 你的攻击力）。不是非带不可，但带上它，打这一区能多出好几成伤害。' }
+  ],
+  /* 手动模式（第二章第 4 节解锁）：新机制 —— 一条解锁提示说不清「切过去就不自动出手了」，
+     所以带玩家亲手切一次，并说清挂机风险。 */
+  manual: [
+    { target: '[data-page="adventure"]', requireClick: true, title: '新机制 · 手动模式', body: '门后面的东西解决了。回到冒险看看 —— 战斗从此可以自己指挥。' },
+    { target: '.manual-panel', title: '战斗控制区', body: '工具栏下面多了一块控制区：左边是「自动 / 手动」切换，右边九个技能槽（第一排攻击、第二排防御、第三排辅助）。现在是自动模式，技能槽都点不动。' },
+    { target: '.mode-toggle', click: '.mode-toggle', requireClick: true, title: '切到手动模式', body: '点一下左边的按钮试试。手动模式下远征队不会自己出手 —— 点技能槽才打一下；敌人照样按自己的间隔打过来，所以挂机时记得切回自动。' },
+    { target: '.skill-slot', title: '技能与冷却', body: '每个技能有各自的冷却，冷却没好按钮是灰的。目前可以点【普通攻击】和【格挡】（其余七个槽位的解锁方式还没定），等级在研究基地的「军事训练」里练。' }
+  ],
+  /* 军事训练（与手动模式同一个门槛）：讲清「派后勤 + 花资源 + 等时间换等级」这条线。 */
+  military: [
+    { target: '[data-page="research"]', requireClick: true, title: '新页签 · 军事训练', body: '研究基地里多了一个页签。点进去看看。' },
+    { target: '[data-tab="military"]', click: '[data-tab="military"]', requireClick: true, title: '切到「军事训练」', body: '顶部第三个页签，点一下。' },
+    { target: '#research-view', title: '军事训练', body: '把后勤人手派到要练的那一项上：材料够就自动开工，攒够本级总工时那项 +1 级，练完接着下一级。每一项各占自己的人手，可以同时练几项 —— 越练越贵、也越练越慢，练出来的等级在冒险页的手动模式里用。' }
   ]
 };
 

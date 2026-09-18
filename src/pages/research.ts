@@ -2,10 +2,15 @@ import {
   researchItems, isResearchUnlocked, getResearchTask, getResearchProgress, canSubmitResearchTask, submitResearchTask,
   getResearchLevel, getResearchCost, canUpgradeResearch, upgradeResearchItem, upgradeResearchItemToMax,
   isResearchItemUnlocked, getResearchReward, canRefreshResearchTask, getResearchRefreshCost, refreshResearchTask,
-  items, zones, RESEARCH, getState, formatNumber,
+  items, ITEM, zones, RESEARCH, getState, formatNumber,
   mapSets, MAP_STATE, EXPEDITION, zoneOfMap, isAtlasUnlocked, getMapState, canStartExpedition, startExpedition,
-  getExpedition, getExpeditionRate, isZoneUnlocked, getIdleLogistics, formatDuration, fragmentMapOf
+  getExpedition, getExpeditionRate, isZoneUnlocked, getIdleLogistics, formatDuration, fragmentMapOf,
+  isMilitaryUnlocked, isDrillBusy, getDrillCost, getDrillWorkTotal, getDrillRemaining, getDrillProgress, canStartDrill, drillSlot,
+  getLogisticsAssigned, assignLogistics,
+  getSkillLevel, isSkillUnlocked
 } from '../game-state';
+import { matMarkup, stepperMarkup, handleStepperClick } from '../shop-card';
+import { skills as battleSkills } from '../config/skills';
 import { setText, setHtml, setClass, setHidden, setDisabled, setWidth, pick } from '../dom';
 import { itemRefMarkup, zoneRefMarkup } from '../codex-ref';
 import { campEventDef } from '../config/events';
@@ -39,7 +44,20 @@ const collectCards = (grid: HTMLElement): any[] => [...grid.querySelectorAll<HTM
 /* ——— 页签：委托与研究 / 勘探图 ———
    勘探图原来是自己一个页面，现在并进研究基地做页签 —— 两者本来就是同一条线：
    基地负责解析，勘探图负责把解析出来的坐标变成能走的路。切换方式与远征档案一致。 */
-const TABS = [['contracts', '委托与研究'], ['atlas', '勘探图']] as const;
+const TABS = [['contracts', '委托与研究'], ['atlas', '勘探图'], ['military', '军事训练']] as const;
+
+/* ——— 军事训练 ———
+   9 个技能槽位与冒险页的战斗控制区一一对应（表在 config/skills.ts）。
+   **与工坊制造完全同构**：每个技能一个后勤位（drillSlot），派人 → 攒工时 → 技能 +1 级；
+   人手为 0 进度停住，材料够就自动接续下一级 —— 可以同时练几项，人手是唯一的闸。
+
+   ⚠️ 卡片**直接复用工坊那一套**（`pages/workshop.ts` 的 `.shop-item`，材料行与步进器共用 `src/shop-card.ts`）：
+   图标 / 名称 / 等级在左，右侧是当前数值与「需要 / 现有」的材料行，派人独占一行，说明留在悬停浮层里 ——
+   两页的卡片是同一个形状，不要再另起一套样式。
+   未解锁 / 占位的技能只写「未解锁」+ `???`：不给名字、不给数值、不给效果，也不给派人。 */
+const militaryCardMarkup = (slot: number): string => `<article class="shop-item" data-military="${slot}" tabindex="0"><div class="shop-top"><div class="shop-left"><div class="shop-id"><span class="shop-icon" aria-hidden="true" data-ref="icon"></span><div class="shop-id-text"><b class="shop-name" data-ref="name"></b><span class="shop-level" data-ref="level"></span></div></div><div class="capacity-track"><div class="capacity-bar" data-ref="progress"></div></div></div><div class="shop-facts"><span class="shop-bonus" data-ref="bonus"></span><span class="shop-mats">${matMarkup('gold', '金币')}${matMarkup('scrap', itemRefMarkup(ITEM.scrap))}${matMarkup('plate', itemRefMarkup(ITEM.armorPlate))}</span></div></div><div class="shop-assign">${stepperMarkup(drillSlot(slot))}</div><div class="shop-detail"><span class="panel-kicker">DRILL</span><p class="shop-desc" data-ref="effect"></p><span class="shop-work" data-ref="work"></span></div></article>`;
+const militaryMarkup = `<div class="panel-heading"><div><span class="panel-kicker">DRILL GROUND</span><h3>军事训练</h3></div><span class="muted" data-ref="militaryState"></span></div>
+  <div class="shop-grid">${battleSkills.map((_, slot) => militaryCardMarkup(slot)).join('')}</div>`;
 
 /* ——— 勘探图 ———
    面板只有**三格槽位**：点某一格，从物品栏里挑一片残片放进去。
@@ -96,7 +114,7 @@ const page: PageDefinition<any> = {
   locked: (state: GameState) => !isResearchUnlocked(state),
   mount(root) {
     const view = root.querySelector<HTMLElement>('#research-view')!;
-    view.innerHTML = `<div class="tab-bar" role="tablist">${TABS.map(([id, label], index) => `<button class="tab" type="button" role="tab" data-tab="${id}"${index ? ' data-ref="atlasTab" hidden' : ''}>${label}</button>`).join('')}</div>
+    view.innerHTML = `<div class="tab-bar" role="tablist">${TABS.map(([id, label]) => `<button class="tab" type="button" role="tab" data-tab="${id}"${id === 'contracts' ? '' : ` data-ref="${id}Tab" hidden`}>${label}</button>`).join('')}</div>
     <div class="tab-pane" data-pane="contracts"><div class="archive-layout">
       <section class="panel archive-panel">${taskMarkup}</section>
       <section class="panel archive-panel">
@@ -105,10 +123,23 @@ const page: PageDefinition<any> = {
         <div class="item-grid storage-grid tile-compact" data-ref="grid"></div>
       </section>
     </div></div>
-    <div class="tab-pane" data-pane="atlas"><section class="panel atlas-panel">${atlasMarkup}</section></div>`;
+    <div class="tab-pane" data-pane="atlas"><section class="panel atlas-panel">${atlasMarkup}</section></div>
+    <div class="tab-pane" data-pane="military"><section class="panel atlas-panel">${militaryMarkup}</section></div>`;
     const ctx: any = {
       ...pick(view, 'points', 'desc', 'requirement', 'submit', 'refresh', 'refreshHint',
-        'atlasTab', 'atlasState', 'atlasPicker', 'atlasRequirement', 'atlasDot', 'atlasRequirementText', 'atlasAction', 'atlasExpedition', 'atlasExpeditionState', 'atlasExpeditionCopy', 'atlasExpeditionBar'),
+        'atlasTab', 'atlasState', 'atlasPicker', 'atlasRequirement', 'atlasDot', 'atlasRequirementText', 'atlasAction', 'atlasExpedition', 'atlasExpeditionState', 'atlasExpeditionCopy', 'atlasExpeditionBar',
+        'militaryTab', 'militaryState'),
+      /* 军事训练的卡片：槽位数固定（9 个），骨架建一次，每帧只改文本与类名。
+         材料行与人手步进器与工坊同款：[data-mat] 按「需要 / 现有」标红或标绿，步进器改的是这一项的分配人数。 */
+      militaryCards: [...view.querySelectorAll<HTMLElement>('[data-military]')].map(card => ({
+        slot: Number(card.dataset.military), card,
+        ...pick(card, 'icon', 'name', 'level', 'bonus', 'effect', 'work', 'progress', 'workers', 'assignAll', 'assignNone'),
+        decrease: card.querySelector<HTMLElement>('[data-delta="-1"]'),
+        increase: card.querySelector<HTMLElement>('[data-delta="1"]'),
+        /* 材料行整块：未解锁的卡片要把它藏起来（只有标签、没有数字，看着像坏了）。 */
+        matsRow: card.querySelector<HTMLElement>('.shop-mats'),
+        mats: [...card.querySelectorAll<HTMLElement>('[data-mat]')].map(wrap => ({ key: wrap.dataset.mat!, wrap, value: wrap.querySelector<HTMLElement>('.mat-value') }))
+      })),
       grid: view.querySelector<HTMLElement>('[data-ref="grid"]'),
       cards: [], signature: '',
       tabs: [...view.querySelectorAll<HTMLElement>('[data-tab]')],
@@ -147,6 +178,9 @@ const page: PageDefinition<any> = {
         pageController.renderCurrent();
         return;
       }
+      /* 军事训练：派人 —— 与工坊同一套步进器语义（有人 + 材料够就自动开工，见 advanceDrills）。 */
+      const assignButton = target.closest<HTMLElement>('[data-action^="assign"]');
+      if (assignButton && handleStepperClick(assignButton, assignLogistics, () => getIdleLogistics(), index => getLogisticsAssigned(index))) return;
       const action = target.closest<HTMLElement>('[data-action]');
       if (action?.dataset.action === 'submit') { submitResearchTask(); return; }
       if (action?.dataset.action === 'refresh') { refreshResearchTask(); return; }
@@ -171,6 +205,10 @@ const page: PageDefinition<any> = {
        留在勘探图页签上时又被重新锁上（重置存档）就退回委托页。 */
     setHidden(ctx.atlasTab, !atlasOpen);
     if (ctx.tab === 'atlas' && !atlasOpen) ctx.tab = 'contracts';
+    /* 军事训练与手动模式同一个门槛（完成第二章第 4 节）。 */
+    const militaryOpen = isMilitaryUnlocked(state);
+    setHidden(ctx.militaryTab, !militaryOpen);
+    if (ctx.tab === 'military' && !militaryOpen) ctx.tab = 'contracts';
     ctx.tabs.forEach((tab: HTMLElement) => setClass(tab, 'active', tab.dataset.tab === ctx.tab));
     ctx.panes.forEach((pane: HTMLElement) => setHidden(pane, pane.dataset.pane !== ctx.tab));
 
@@ -217,6 +255,54 @@ const page: PageDefinition<any> = {
       setText(entry.cost, level >= max ? '已满级' : canUpgradeResearch(id, state) ? `升级消耗 ${cost} 点研究点数` : `升级消耗 ${cost} 点研究点数（还差 ${Math.max(0, cost - state.researchPoints)} 点）`);
     });
 
+    /* ——— 军事训练页签 ——— */
+    if (ctx.tab === 'military' && militaryOpen) {
+      const idle = getIdleLogistics(state);
+      ctx.militaryCards.forEach((refs: any) => {
+        const slot = refs.slot;
+        const skill = battleSkills[slot];
+        const unlocked = isSkillUnlocked(slot, state);
+        const level = getSkillLevel(slot, state);
+        const busy = isDrillBusy(slot, state);
+        /* 人手是分到具体某一项的（drillSlot），与工坊同款：未解锁的项不给派人。
+           ⚠️ 技能**没有等级上限**，所以没有「已练满」这一档 —— 只受成本与工时限制。 */
+        const workers = getLogisticsAssigned(drillSlot(slot), state);
+        const assignable = unlocked;
+        setText(refs.workers, workers);
+        setDisabled(refs.decrease, !assignable || workers <= 0);
+        setDisabled(refs.increase, !assignable || idle <= 0);
+        setDisabled(refs.assignNone, !assignable || workers <= 0);
+        setDisabled(refs.assignAll, !assignable || idle <= 0);
+        setText(refs.icon, skill.placeholder ? '❔' : skill.icon);
+        setText(refs.name, unlocked && !skill.placeholder ? skill.name : '???');
+        setText(refs.level, unlocked ? `Lv.${level}` : '未解锁');
+        setText(refs.bonus, unlocked ? skill.summary(level) : '');
+        setText(refs.effect, unlocked ? skill.effect(level) : '');
+        /* 材料行：需要 / 现有，够不够标红或标绿（与工坊同一套 .shop-mat）。
+           未解锁的整行**不显示** —— 那三行只剩标签没有数字，看着像坏了（R29：没解锁的内容不渲染）。 */
+        setHidden(refs.matsRow, !unlocked);
+        const cost = getDrillCost(slot, state);
+        const owned: Record<string, number> = { gold: state.gold, scrap: state.scrap, plate: state.inventory[ITEM.armorPlate] || 0 };
+        const need: Record<string, number> = { gold: cost.gold, scrap: cost.scrap, plate: cost.plate };
+        const showCost = unlocked;
+        refs.mats.forEach((mat: any) => {
+          setText(mat.value, showCost ? `${formatNumber(need[mat.key])}/${formatNumber(owned[mat.key])}` : '');
+          setClass(mat.wrap, 'ok', showCost && owned[mat.key] >= need[mat.key]);
+        });
+        /* 进度条与状态行：措辞与工坊**一字不差**（没人手就说明进度停着；材料不够就别指望它走）。 */
+        const remaining = getDrillRemaining(slot, state);
+        setText(refs.work, !unlocked ? '解锁方式尚未确定' : busy
+          ? `总工时 ${getDrillWorkTotal(slot, state)}，已投入 ${(state.drills[slot]?.work || 0).toFixed(0)}${workers ? `，预计剩余 ${formatDuration(remaining)}` : '，没有人手已暂停'}`
+          : `本级总工时 ${getDrillWorkTotal(slot, state)}；${workers ? (canStartDrill(slot, state) ? '材料充足，自动开工中' : '材料不足，等待补给') : '分配人手后自动开工'}`);
+        setWidth(refs.progress, getDrillProgress(slot, state));
+        setClass(refs.card, 'locked', !unlocked);
+        setClass(refs.card, 'busy', busy);
+      });
+      /* 多项可以同时练（每项各占一份人手），所以这里只报有几项在练。 */
+      const busyCount = state.drills.filter((_, slot) => isDrillBusy(slot, state)).length;
+      setText(ctx.militaryState, busyCount ? `训练中 ${busyCount} 项` : '空闲');
+      return;
+    }
     /* ——— 勘探图页签 ——— */
     if (ctx.tab !== 'atlas' || !atlasOpen) return;
     const slots: number[] = ctx.slots;

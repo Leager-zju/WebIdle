@@ -22,6 +22,11 @@ export function setMainlineTitles(lookup: (index: number) => string): void { mai
 let mainlineCount = 0;
 export function setMainlineCount(count: number): void { mainlineCount = Math.max(0, Math.floor(Number(count)) || 0); }
 
+/** 敌人名（Boss 名）的查询函数：同样由 game-state 注入 —— 本模块不能 import zones
+    （zones 引用本模块，会成环；同 setMainlineTitles 的理由）。 */
+let enemyName: (id: number) => string = () => '';
+export function setEnemyNames(lookup: (id: number) => string): void { enemyName = lookup; }
+
 /** 章节名与节名的查询函数：同样由 game-state 注入 —— 它那边才有 `storyChapters`，
     本模块反向 import 它就成了环（同 setMainlineTitles 的理由）。**章号与节号都从 1 起**。 */
 let chapterTitle: (chapter: number) => string = () => '';
@@ -75,6 +80,18 @@ export const unlockBy = {
     text: state => `扛过第 ${n} 波大事件（当前第 ${waveNow(state)} 波）`,
     done: state => waveNow(state) > n,
     notice: () => `扛过第 ${n} 波大事件`
+  }),
+  /** 击败过某只敌人（Boss）至少一次。判据是 game-state 记的 `enemyWins`（每只怪的击败总数）。
+      ⚠️ 「击败某个**难度**的 Boss」别用它 —— 那是 `bossClears` 位掩码（每档一位），条件直接读它。
+      ⚠️ 它的 notice 会被 `zoneNotices()` 收进表的**中段**（新增区域会挪动旧存档的 notices 下标）；
+      第一个 Boss 区域的解锁走 `chapter(2, 3)`（无 notice），提示手写在 `unlockNotices` 末尾。 */
+  boss: (enemyId: number): UnlockRule => ({
+    text: state => {
+      const wins = Math.max(0, Math.floor(Number(state.enemyWins?.[enemyId]) || 0));
+      return `击败「${enemyName(enemyId) || '那个东西'}」${wins > 0 ? `（已击败 ${wins} 次）` : '（还没有击败过）'}`;
+    },
+    done: state => Math.max(0, Math.floor(Number(state.enemyWins?.[enemyId]) || 0)) >= 1,
+    notice: () => `击败「${enemyName(enemyId) || '那个东西'}」`
   }),
   /** 第一章（主线）**全部**节点走完 —— 第二章的章节门控用的就是这一个条件（`pages/story.ts` 的 chapterDone）。
       所以「第一章走完就该能开始」的内容（第二章第一节）**必须**用它：拿波次或进度数字去凑，

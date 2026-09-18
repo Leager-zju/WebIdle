@@ -1,18 +1,22 @@
 import { zones, enemyTable, ENEMY, ZONE, zoneOfEnemy, zoneOfMap, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
 import { mapSets, MAP, MAP_STATE, fragmentMapOf } from './config/maps';
-import { setMainlineTitles, setMainlineCount, setChapterTitles, unlockBy } from './config/unlock';
+import { setMainlineTitles, setMainlineCount, setChapterTitles, setEnemyNames, unlockBy } from './config/unlock';
 import { sets, setTable, SET, setOfZone, setOfItem } from './config/sets';
 import { items, ITEM, equipTypes, EQUIP_TYPE, itemCategories, categoryOrder, rarities, RARITY, SOLVENT_IDS } from './config/items';
-import { affixes, AFFIX, affixCap, affixMarkup, affixCategoryClass, affixCategories, AFFIX_CATEGORY, skills, SKILL, AFFIX_MAX_MULTIPLIER } from './config/affixes';
+import { affixes, AFFIX, affixCap, affixMarkup, affixCategoryClass, affixCategories, AFFIX_CATEGORY, skills, SKILL, AFFIX_MAX_MULTIPLIER, AFFIX_MAX_COUNT } from './config/affixes';
 import { rarityClass } from './config/rarity';
 import { CAMP_EVENT, randomEventDefs, campEventDef } from './config/events';
+/* 战斗技能（手动模式）与装备特性：两张表只放静态定义，判定与结算都在本模块
+   （技能表里那 9 个槽位的下标就是 state.skills / adventure.skillTimers 的下标）。 */
+import { skills as battleSkills, SKILL_LEVEL, BLOCK, blockCut } from './config/skills';
+import { TRAIT_EFFECT } from './config/traits';
 /* 物品 / 怪物 / 区域名不直接写文字，交给 codex-ref.ts 生成「icon + 名称 + 类型色 + 可点开图鉴」的引用。
    按「这段文字会不会进存档」选入口：
    - 进存档（日志的 message）：写 itemTag / enemyTag / zoneTag 标记，渲染时由 renderCodexTags 解析；
    - 不进存档（主线条件文案，每次都由 text() 现算）：直接用 itemRefMarkup 拼出 HTML。
    存档里不能存 HTML，所以日志那条路必须走标记。 */
-import { itemTag, itemRefMarkup, enemyTag, zoneTag, zoneRefMarkup, pageRefMarkup } from './codex-ref';
-import type { Achievement, AdventureState, AutoEatState, CampBattleState, EquipmentInstance, GameState, LogType, MainlineQuest, MainlineRequirement, ResearchTaskState, SetBonus, SettingsState, UnlockRule, UseOutcome, WorkshopItem } from './types';
+import { itemTag, itemRefMarkup, enemyRefMarkup, enemyTag, zoneTag, zoneRefMarkup, pageRefMarkup } from './codex-ref';
+import type { Achievement, AdventureState, AutoEatState, CampBattleState, DrillState, Enemy, EquipmentInstance, GameState, LogType, MainlineQuest, MainlineRequirement, ResearchTaskState, SetBonus, SettingsState, Skill, UnlockRule, UseOutcome, WorkshopItem, ZoneDifficulty, ZoneKind } from './types';
 
 export const MAX_OFFLINE_SECONDS = 8 * 60 * 60;
 
@@ -32,6 +36,10 @@ export const MAX_OFFLINE_SECONDS = 8 * 60 * 60;
    再交给 rebuildState 做逐字段校验。导入的文本走的是同一条路。
 
    版本历史（旧格式说明，保留备查）：
+   v9：军事训练改成**工坊同构的工时模型**（每个技能一个后勤位、可以同时练几项）：
+       `military: { skillId, endsAt }` 换成 `drills: [{ target, work }]`。
+       ⚠️ **不写转换函数**：旧记录里那一项训练直接作废（技能等级记在 `skills` 里，不受影响），
+       旧字段由 rebuildState 忽略 —— 同 v7 → v8 的口径。
    v8：委托重做 —— 删掉 researchDifficulty 与 researchTask.difficulty，新增 researchRefreshCount；
        物品表新增 quest 类别（任务物品）与三个任务物品、清洗剂改按类别移除。
        这些都不需要数据转换：多余字段由 rebuildState 忽略，新字段拿 freshState() 的初始值，
@@ -46,7 +54,7 @@ const SAVE_KEY = 'ember-expedition-save';
 /** v7 之前版本号写在 key 名里，读盘时按顺序兜底；读到就顺手搬到新 key。 */
 const LEGACY_SAVE_KEYS = ['ember-expedition-save-v6'];
 /** 当前存档格式版本。改结构时 +1，并在 MIGRATIONS 里补一条。 */
-const SAVE_VERSION = 8;
+const SAVE_VERSION = 9;
 /** 信封上的 format 标记：导入时据此拒绝无关的 JSON。 */
 const SAVE_FORMAT = 'ember-expedition';
 
@@ -118,6 +126,8 @@ setChapterTitles(
   chapter => chapter <= 1 ? FIRST_CHAPTER.title : storyChapters[chapter - 2]?.title || '',
   (chapter, node) => (chapter <= 1 ? mainline : storyChapters[chapter - 2]?.nodes || [])[node - 1]?.title || ''
 );
+/* 敌人名同理（注入式）：`unlockBy.boss()` 的文案要写 Boss 的名字，而 config/unlock.ts 不能引 zones。 */
+setEnemyNames(id => enemyTable[id]?.name || '');
 
 /** 庇护所区域（不刷怪，只休整）。⚠️ 它**不是初始区域**：开局是「原地待命」（`adventure.zoneId = -1`），
     点亮第一座营火之后远征队才入驻这里（见 updateMainline 末尾的入驻逻辑与 isCampUnlocked）。 */
@@ -186,7 +196,7 @@ export const mainline: MainlineQuest[] = [
    数值刻意往大里放 —— 第一章教玩法，从第二章开始是**放置**。
    ⚠️ 收集项**只用怪物 dropTable 里的常规材料**（余烬碎片 / 装甲板 / 余烬核心…），
    **不要用任务物品**：那三种只在研究基地的委托指向该区域时才掉，等于把一条玩家控制不了的线绑进主线。
-   Boss（2-4 之后的内容）还没做，所以 2-3 的「解锁 BOSS 区域」暂时只有文案、没有机制（见那一节的注释与 §7.19）。
+   Boss 区域「熔核之扉」由 2-3 解锁，2-4 的条件是「击败**常规**难度的 Boss 一次」（§4.6 / §4.12）。
 
    新增一章 = 往这个数组**末尾**追加一条；新增一节 = 往那一章的 nodes 末尾追加。 */
 export const storyChapters: { kicker: string; title: string; nodes: MainlineQuest[] }[] = [
@@ -199,7 +209,7 @@ export const storyChapters: { kicker: string; title: string; nodes: MainlineQues
          ⚠️ 收集项要选**这一区独占**的：「余烬碎片」原来用在这里，但废弃边境的「重装拾荒者」也会掉它 ——
          那是第一章「追踪核心信号」的出口（那一节在 1-6 之前就要凑够 2 个），它不算余烬矿脉的特产，
          于是换成只有余烬水蛭掉的「生命之种」。它同时是「强化」消耗品（刻「坚韧」）：收集项只数库存、
-         用掉就退进度 —— 与 2-3 的「余烬核心」同一种取舍，刻意留着。
+         用掉就退进度 —— 这是刻意的（别改成「累计获得过」）。
          数值口径：3 秒一只 ≈ 1200 杀/小时；生命之种 = 余烬水蛭 5%、五只轮换 → 每杀约 1% ≈ 12~14 个/小时。 */
       quest('扫清矿脉', '矿道比地图上画得深得多。把还在动的结晶化单位清掉，顺手把那些缓缓搏动的种荚带回来。', '解锁工坊制造「医护帐篷」', [
         { text: (state: GameState) => `在${zoneRefMarkup(ZONE.emberVein)}击杀怪物 ${progressText(state.zoneWins[ZONE.emberVein] || 0, 1200)} 只`, done: (state: GameState) => (state.zoneWins[ZONE.emberVein] || 0) >= 1200 },
@@ -210,14 +220,21 @@ export const storyChapters: { kicker: string; title: string; nodes: MainlineQues
         { text: (state: GameState) => `在${zoneRefMarkup(ZONE.coreDeep)}击杀怪物 ${progressText(state.zoneWins[ZONE.coreDeep] || 0, 1800)} 只`, done: (state: GameState) => (state.zoneWins[ZONE.coreDeep] || 0) >= 1800 },
         { text: (state: GameState) => `收集${itemRefMarkup(ITEM.armorPlate)} ${progressText(state.inventory[ITEM.armorPlate], 4000)} 片`, done: (state: GameState) => state.inventory[ITEM.armorPlate] >= 4000 }
       ]),
-      /* 2-3：熔火裂谷（每小时约产余烬核心 50 —— 这一节刻意最长，是给「放一晚上」的那一段）。
-         ⚠️ 奖励只有文案 —— 「BOSS 区域」还没做（见 storyChapters 的注释）。
-         等 Boss 落地时：给这一节补一个 boss 区域的解锁规则，并把文案里的「尚未开放」去掉。 */
-      quest('穿过裂谷', '裂谷尽头不是尽头，是一扇门。门后的东西从很早就开始听着这片荒野。', '裂谷尽头的路已经打开，但那边的东西还没有露面（BOSS 区域尚未开放）', [
-        { text: (state: GameState) => `在${zoneRefMarkup(ZONE.magmaRift)}击杀怪物 ${progressText(state.zoneWins[ZONE.magmaRift] || 0, 2400)} 只`, done: (state: GameState) => (state.zoneWins[ZONE.magmaRift] || 0) >= 2400 },
-        { text: (state: GameState) => `收集${itemRefMarkup(ITEM.emberCore)} ${progressText(state.inventory[ITEM.emberCore], 250)} 个`, done: (state: GameState) => state.inventory[ITEM.emberCore] >= 250 }
+      /* 2-3：熔火裂谷（这一节刻意最长，是给「放一晚上」的那一段 —— 长度按**击杀数**给：
+             3 秒一只 ≈ 1200 杀/小时 ⇒ 6000 杀 ≈ 5 小时）。
+             ⚠️ 这里原来还有一条「收集余烬核心 ×250」：2026-09-18 掉率下调到千分之几之后
+             （熔火裂谷 ≈2.5 个/小时），那条会变成上百小时 —— 整条撤掉，余烬核心只留给「给武器刻词条」。
+         奖励已经从占位文案换成**真解锁**：区域「熔核之扉」的 unlock 就是 `unlockBy.chapter(2, 3)`。 */
+      quest('穿过裂谷', '裂谷尽头不是尽头，是一扇门。门后的东西从很早就开始听着这片荒野。', '解锁区域「熔核之扉」：那扇门后面，有个东西一直在等', [
+        { text: (state: GameState) => `在${zoneRefMarkup(ZONE.magmaRift)}击杀怪物 ${progressText(state.zoneWins[ZONE.magmaRift] || 0, 6000)} 只`, done: (state: GameState) => (state.zoneWins[ZONE.magmaRift] || 0) >= 6000 }
+      ]),
+      /* 2-4：条件 = 击败**常规**难度一次的熔核守卫（`bossClears` 的第 0 位）——
+         按档记，所以「只打过强化档」不算。奖励 = 手动模式 + 研究基地「军事训练」（见庇护所扩展方案 §4.12）。
+         节名与前三节同形（动词 + 名词：扫清矿脉 / 下探深井 / 穿过裂谷 → 击碎熔核），
+         而且「熔核」既是那扇门后面的东西、也是它身上那颗还在转的核心 —— 击碎它，核心信号才安静下来。 */
+      quest('击碎熔核', '门后面的东西比谁都厚、比谁都烫。这一路上攒下的东西，都是为它准备的。', '解锁【手动模式】与研究基地「军事训练」：战斗可以自己指挥，技能可以在基地里练', [
+        { text: (state: GameState) => `击败「常规」难度的${enemyRefMarkup(ENEMY.moltenWarden)} ${progressText((Math.max(0, Math.floor(Number(state.bossClears?.[ENEMY.moltenWarden]) || 0)) & 1) ? 1 : 0, 1)} 次`, done: (state: GameState) => (Math.max(0, Math.floor(Number(state.bossClears?.[ENEMY.moltenWarden]) || 0)) & 1) === 1 }
       ])
-      /* 2-4「打 Boss」：等 Boss 区域做好之后再追加（Boss 要先有 `Zone.kind = 'boss'`，见庇护所扩展方案 §4.6）。 */
     ]
   }
 ];
@@ -327,14 +344,19 @@ export const WORKSHOP_ITEM = { fort: 0, ballista: 1, healer: 2 };
     那两节给的战力线（哨戒弩台 / 研究项「信号放大」）就没意义了。现在庇护所**只能靠工坊制造**变强。
     这一格留在数组里只为**占住下标**：`assigned` 是按下标存进存档的，删掉会让旧存档的
     城防 / 弩台人手整体错位（同 R24 的规矩）。页面按 `retired` 跳过它，读档时人手会被释放（见 syncLogistics）。 */
-export const LOGISTICS = { camp: 0, fort: 1 };
+export const LOGISTICS = { camp: 0, fort: 1, /** 军事训练：每个技能各占一档，排在制造项之后（见 drillSlot）。 */ drill: 1 + workshopItems.length };
 /** 制造项 id → 后勤下标。制造项自己不用关心下标是怎么排的。 */
 export const fortSlot = (id: number): number => LOGISTICS.fort + id;
+/** 技能槽 → 后勤下标（军事训练）。用法同 fortSlot：调用方不用关心下标是怎么排的。 */
+export const drillSlot = (slot: number): number => LOGISTICS.drill + slot;
 export const logisticsTargets: { id: string; name: string; icon: string; desc: string; retired?: boolean }[] = [
   { id: 'camp', name: '营垒修筑', icon: '🧱', desc: '（已停用）', retired: true },
   /* 每个制造项一行：分配的人数就是这一项的建造速度。
      每人每秒的工时基础为 1，可被装备词条「勤务」提升（见 getWorkshopRate）。 */
-  ...workshopItems.map(item => ({ id: 'fort', name: item.name, icon: item.icon, desc: `把人数派到${item.name}上：每人每秒贡献 1 工时，攒够本级总工时就会提升 1 级。制造耗时 = 本级总工时 ÷（人数 × 每人每秒工时）。` }))
+  ...workshopItems.map(item => ({ id: 'fort', name: item.name, icon: item.icon, desc: `把人数派到${item.name}上：每人每秒贡献 1 工时，攒够本级总工时就会提升 1 级。制造耗时 = 本级总工时 ÷（人数 × 每人每秒工时）。` })),
+  /* 军事训练：每个技能各占一档（drillSlot）—— 与制造项同一套「派人 → 攒工时 → 升级」，互不抢人，也就能同时练几项。
+     未解锁的槽位照样占着位置（下标不能动），只是名字写成占位、界面不会往它上面派人。 */
+  ...battleSkills.map(skill => ({ id: 'drill', name: skill.placeholder ? '未解锁技能' : skill.name, icon: skill.placeholder ? '❔' : skill.icon, desc: `把人数派到「${skill.placeholder ? '未解锁技能' : skill.name}」上：每人每秒贡献 1 工时（训练不吃「勤务」加成），攒够本级总工时这项技能 +1 级。` }))
 ];
 /** 工坊页面本身的解锁进度：完成「清理废弃边境」（mainline 下标 1）后 mainlineIndex 才是 2。 */
 const WORKSHOP_UNLOCK_INDEX = 2;
@@ -771,6 +793,155 @@ function grantMapFragment(target: GameState): number {
   return tile.itemId;
 }
 
+/* ——— 手动模式与战斗技能（第二章第 4 节解锁）———
+   解锁后冒险页工具栏下方出现战斗控制区（3 行 4 列）：第 1 列是自动 / 手动切换，
+   右侧 3×3 是技能槽（第一排攻击 / 第二排防御 / 第三排辅助，表在 config/skills.ts）。
+   手动模式下**玩家侧不再自动出手**（见 advanceAdventure），改由点技能触发；敌人照常出手。
+   技能冷却记在存档里（adventure.skillTimers），随 tick 递减 —— 刷新 / 离线都照常走。 */
+const MANUAL_UNLOCK = unlockBy.chapter(2, 4);
+/** 手动模式是否已解锁（完成第二章第 4 节「击碎熔核」）。 */
+export function isManualUnlocked(target: GameState = state): boolean { return MANUAL_UNLOCK.done(target); }
+/** 「军事训练」页签是否已解锁（与手动模式同一个门槛；页面可见性读它）。 */
+export function isMilitaryUnlocked(target: GameState = state): boolean { return MANUAL_UNLOCK.done(target); }
+/** 手动模式此刻是否生效（解锁了 + 打开了开关）。 */
+export function isManualMode(target: GameState = state): boolean { return !!target.adventure.manual && isManualUnlocked(target); }
+/** 切换自动 / 手动；未解锁时什么都不做。 */
+export function setManual(enabled: boolean): void {
+  if (!isManualUnlocked()) return;
+  const next = !!enabled;
+  if (next === !!state.adventure.manual) return;
+  state.adventure.manual = next;
+  addLog(state, next ? '远征队改为手动指挥：不会自行出手，由你点技能。' : '远征队恢复自动作战。', 'system');
+  saveState(); notify();
+}
+/** 某个技能槽的等级（占位槽恒 0）。 */
+export function getSkillLevel(slot: number, target: GameState = state): number {
+  if (!battleSkills[slot] || battleSkills[slot].placeholder) return 0;
+  return Math.max(0, Math.floor(Number(target.skills?.[slot]) || 0));
+}
+/** 这个技能解锁了没有（判定的唯一出处是 config/skills.ts 里那条规则）。 */
+export function isSkillUnlocked(slot: number, target: GameState = state): boolean { return !!battleSkills[slot] && battleSkills[slot].unlock.done(target); }
+/** 技能冷却是多少秒：【普通攻击】跟随出手间隔（手动不会比自动更快），其余用表里的值。 */
+export function getSkillCooldown(slot: number, target: GameState = state): number {
+  const skill = battleSkills[slot];
+  if (!skill) return 0;
+  return skill.fromAttackInterval ? getPlayerAttackInterval(target) : Math.max(0, Number(skill.cooldown) || 0);
+}
+/** 技能剩余冷却（秒）。 */
+export function getSkillTimer(slot: number, target: GameState = state): number { return Math.max(0, Number(target.adventure.skillTimers?.[slot]) || 0); }
+/** 释放一个技能。前置：手动模式生效、技能已解锁、冷却已好，而且场上得有敌人。 */
+export function useSkill(slot: number): boolean {
+  const skill = battleSkills[slot];
+  if (!skill || skill.placeholder || !isManualMode() || !isSkillUnlocked(slot)) return false;
+  if (getSkillTimer(slot) > 0) return false;
+  const zoneId = currentZoneId(state);
+  if (isCampZone(zoneId) || isIdleZone(zoneId)) return false;
+  if (!state.adventure.running || state.adventure.spawnTimer > 0) return false;
+  const level = getSkillLevel(slot);
+  /* 按 id 分支：目前两种 ——【普通攻击】打一下、【格挡】架起一个减伤窗口。
+     以后加技能时在这里补分支，或把效果做成参数化的数据。 */
+  if (slot === BLOCK_SLOT) {
+    state.adventure.blockTimer = BLOCK.window;
+    addLog(state, `你架起${skill.name}：${BLOCK.window} 秒内受到的下一记伤害减少 ${(blockCut(level) * 100).toFixed(1)}%。`, 'battle');
+  } else {
+    /* 普通攻击（含词条技能的判定），伤害按等级小幅放大。 */
+    playerAttack(state, slot === BASIC_ATTACK_SLOT ? 1 + Math.max(0, level - 1) * SKILL_LEVEL.damagePerLevel : 1);
+  }
+  state.adventure.skillTimers[slot] = getSkillCooldown(slot);
+  saveState(); notify();
+  return true;
+}
+
+/* ——— 军事训练（研究基地的第三个页签，与手动模式同一个门槛）———
+   与工坊制造**完全同构**：每个技能一个后勤位（drillSlot），分配的人每秒贡献 1 工时，
+   攒够本级总工时这项技能 +1 级；人手为 0 进度停住，材料不够时开工失败（下一轮再试）。
+   **可以同时练几项** —— 人手是唯一的闸（每个人只能待在一个位子上）。
+   ⚠️ 训练**不吃**「勤务」词条加成（那条写的是工坊工时）：基础产出就是 1 工时/人/秒。
+   「高成本极低增长」：成本 ×1.35/级、总工时 ×1.15/级，而每级效果只 +1.5%（见 config/skills.ts）。 */
+export const MILITARY = {
+  /** 第一次训练的**总工时**（人·秒）：1 个人就是 30 分钟；每级再乘 workStep。 */
+  baseWork: 30 * 60,
+  workStep: 1.15,
+  /** 成本：金币 / 废料 / 装甲板，每级乘 costStep。 */
+  costBase: { gold: 4000, scrap: 1200, plate: 60 },
+  costStep: 1.35
+};
+/** 技能 id → 槽位下标（找不到返回 -1）。下标顺序在 config/skills.ts，这里不重复数字（R24 的同一套思路）。 */
+const skillSlotOf = (id: string): number => battleSkills.findIndex(skill => skill.id === id);
+/** 基础攻击技能的槽位（技能等级加成只加在它上面，见 useSkill）。 */
+const BASIC_ATTACK_SLOT = skillSlotOf('basicAttack');
+/** 【格挡】的槽位（enemyAttack 里读它的等级算减伤）。 */
+const BLOCK_SLOT = skillSlotOf('block');
+/** 练这一级要花的资源（按当前等级递增）。 */
+export function getDrillCost(slot: number, target: GameState = state): { gold: number; scrap: number; plate: number } {
+  const mul = Math.pow(MILITARY.costStep, getSkillLevel(slot, target));
+  return { gold: Math.round(MILITARY.costBase.gold * mul), scrap: Math.round(MILITARY.costBase.scrap * mul), plate: Math.ceil(MILITARY.costBase.plate * mul) };
+}
+/** 这一级需要的总工时；实际耗时 = 总工时 ÷ 分配人数（见 getDrillRemaining）。 */
+export function getDrillWorkTotal(slot: number, target: GameState = state): number { return MILITARY.baseWork * Math.pow(MILITARY.workStep, getSkillLevel(slot, target)); }
+/** 这一项是不是正在练（判据是挂了目标等级）。 */
+export function isDrillBusy(slot: number, target: GameState = state): boolean { return (Number(target.drills?.[slot]?.target) || -1) >= 0; }
+/** 能不能开练：已解锁手动模式、技能存在且已解锁、没到顶、这一项没在练、材料够。
+    人手**不是**门槛 —— 和工坊一样：分到人才会走工时（见 advanceDrills）。 */
+export function canStartDrill(slot: number, target: GameState = state): boolean {
+  const skill = battleSkills[slot];
+  if (!skill || skill.placeholder || !isManualUnlocked(target) || !isSkillUnlocked(slot, target)) return false;
+  if (isDrillBusy(slot, target)) return false;
+  const cost = getDrillCost(slot, target);
+  return target.gold >= cost.gold && target.scrap >= cost.scrap && target.inventory[ITEM.armorPlate] >= cost.plate;
+}
+/** 剩余秒数：没有人手时返回 Infinity（进度会停住，界面照工坊的写法提示「没有人手已暂停」）。 */
+export function getDrillRemaining(slot: number, target: GameState = state): number {
+  const workers = getLogisticsAssigned(drillSlot(slot), target);
+  const drill = target.drills?.[slot];
+  if (!workers || !drill || drill.target < 0) return Infinity;
+  return Math.max(0, (getDrillWorkTotal(slot, target) - drill.work) / workers);
+}
+/** 训练进度百分比（0~100）。 */
+export function getDrillProgress(slot: number, target: GameState = state): number {
+  const drill = target.drills?.[slot];
+  if (!drill || drill.target < 0) return 0;
+  return Math.max(0, Math.min(100, drill.work / getDrillWorkTotal(slot, target) * 100));
+}
+/** 真正开练：扣资源、挂上目标等级。auto = 由后勤小队自动接续（不额外记「开工」日志，只记完工）。 */
+function beginDrill(slot: number, target: GameState, auto = false): boolean {
+  if (!canStartDrill(slot, target)) return false;
+  const cost = getDrillCost(slot, target);
+  target.gold -= cost.gold; target.scrap -= cost.scrap; target.inventory[ITEM.armorPlate] -= cost.plate;
+  /* 原地改这个对象：advanceDrills 的循环持有同一个引用，换成新对象会让后续写入丢失。 */
+  const drill = target.drills[slot];
+  drill.target = getSkillLevel(slot, target) + 1; drill.work = 0;
+  if (!auto) addLog(target, `军事训练开工：${battleSkills[slot].name} → Lv.${drill.target}（总工时 ${getDrillWorkTotal(slot, target)}）。`, 'progress');
+  return true;
+}
+/** 手动开工（界面上现在由「分配人数 > 0」自动触发，保留给脚本与调试用）。 */
+export function startDrill(slot: number): boolean { if (!beginDrill(slot, state)) return false; saveState(); notify(); return true; }
+/** 军事训练的工时推进：与 advanceLogistics 同构（人 × 秒 → 工时，攒够就 +1 级并自动接续下一级）。 */
+function advanceDrills(target: GameState, seconds: number): void {
+  if (!(seconds > 0)) return;
+  for (let slot = 0; slot < target.drills.length; slot++) {
+    /* 未解锁的技能不参与：人手不会投到还没解锁的槽位上，它也不该被自动练出来。 */
+    if (!isSkillUnlocked(slot, target) || battleSkills[slot]?.placeholder) continue;
+    const workers = getLogisticsAssigned(drillSlot(slot), target);
+    if (workers <= 0) continue;
+    /* 训练的基础产出固定为 1 工时/人/秒（不吃「勤务」）。budget 是这一轮能投入的秒数，
+       循环让离线追赶（一大段 seconds）也能连练好几级。 */
+    let budget = seconds;
+    const drill = target.drills[slot];
+    for (let guard = 0; guard < 100 && budget > 0; guard++) {
+      if (drill.target < 0 && !beginDrill(slot, target, true)) break;
+      const need = (getDrillWorkTotal(slot, target) - drill.work) / workers;
+      if (need > budget) { drill.work += workers * budget; budget = 0; break; }
+      budget -= need;
+      /* 技能**没有等级上限**：一直练下去，坡度由成本与总工时撑（见 config/skills.ts 的 SKILL_LEVEL）。 */
+      target.skills[slot] = getSkillLevel(slot, target) + 1;
+      drill.target = -1; drill.work = 0;
+      addLog(target, `军事训练完成：${battleSkills[slot].name} 提升至 Lv.${target.skills[slot]}。`, 'progress');
+      updateMainline(target);
+    }
+  }
+}
+
 /* ——— 更新日志（见 changelog.ts） ———
    已读版本存进 settings 而不是 localStorage：它随存档走，换设备导入备份后不会重复弹公告；
    重置存档会连它一起清掉，于是新档会再弹一次（重置本身就会重放新手指引，语义一致）。 */
@@ -791,8 +962,22 @@ export const achievements: Achievement[] = [
      一件极致 → 图鉴的物品页多一个「不再拾取」开关；一套全极致 → 掉落时精炼 +1 的概率 +2%。
      ⚠️ 第二条的奖励在 zoneDropRefine 里生效，别把判据写在那里 —— 成就是成、掉落是掉落。 */
   { id: 'refineFirst', name: '精炼初学者', icon: '🔩', hint: '把任意一件装备培养到【极致】（精炼 +100）', reward: '图鉴的物品页多一个「不再拾取」开关：关掉之后那件东西掉在地上也不进物品栏', condition: (target: GameState) => (target.perfectItems?.length || 0) > 0 },
-  { id: 'refineMaster', name: '精炼专家', icon: '⚙️', hint: '把任意一套套装的全部部件都培养到【极致】', reward: '所有装备在掉落时额外 +2% 概率精炼等级 +1', condition: (target: GameState) => setTable.some(entry => entry.pieces.length > 0 && entry.pieces.every(itemId => isPerfectItem(itemId, target))) }
+  { id: 'refineMaster', name: '精炼专家', icon: '⚙️', hint: '把任意一套套装的全部部件都培养到【极致】', reward: '所有装备在掉落时额外 +2% 概率精炼等级 +1', condition: (target: GameState) => setTable.some(entry => entry.pieces.length > 0 && entry.pieces.every(itemId => isPerfectItem(itemId, target))) },
+  /* Boss 征服者：把**任意一只 Boss 最难的那一档**打过去（例如熔核之扉的「绝境」）。
+     奖励 = **饰品槽 +1** —— 判定与生效都在 getEquipSlotCounts()（它现算这个成就），
+     槽位数一变，equipped 由 syncEquipSlots 自动补一格、装备页的槽位列表也会重建（见 pages/inventory.ts 的 slotSignature）。 */
+  { id: 'bossConqueror', name: 'Boss 征服者', icon: '👑', hint: '击败一只 Boss 最难的那一档', reward: '饰品槽 +1', condition: (target: GameState) => hasTopTierBossClear(target) }
 ];
+/** 有没有哪只 Boss 把**最难的那一档**打过了（成就「Boss 征服者」的判据）。
+    「最难的那一档」= 区域表 difficulties 的最后一项 —— 档数由区域说了算，不写死 3。 */
+function hasTopTierBossClear(target: GameState): boolean {
+  return zones.some(zone => {
+    const tiers = zone.difficulties?.length || 0;
+    if (!tiers) return false;
+    const topBit = 1 << (tiers - 1);
+    return zone.enemyIds.some(enemyId => (Math.max(0, Math.floor(Number(target.bossClears?.[enemyId]) || 0)) & topBit) !== 0);
+  });
+}
 /* ——— 解锁提示 ———
    机制（工坊、研究基地…）与条目（制造项、研究项、区域…）解锁时都弹一条顶部 tips，
    界面也据此决定「显示 / 不显示」：未解锁的内容不渲染，解锁后追加进列表（见 UI开发规范 §6.11）。
@@ -840,7 +1025,15 @@ export const unlockNotices: UnlockNotice[] = [
   /* 由**后续章节**解锁的两个条目，同样追加在末尾（理由同上）。它们的 `unlockBy.chapter()` 故意不给 notice，
      所以不会被 entryNotices 收进上面那两组里、插到表格中段去 —— 提示条件在这里手写。 */
   { id: `workshop:${WORKSHOP_ITEM.healer}`, icon: workshopItems[WORKSHOP_ITEM.healer].icon, category: '工坊', name: workshopItems[WORKSHOP_ITEM.healer].name, hint: '完成第二章第 1 节「扫清矿脉」', unlocked: target => isWorkshopItemUnlocked(WORKSHOP_ITEM.healer, target) },
-  { id: `research:${RESEARCH_ITEM.recycle}`, icon: researchItems[RESEARCH_ITEM.recycle].icon, category: '研究基地', name: researchItems[RESEARCH_ITEM.recycle].name, hint: '完成第二章第 2 节「下探深井」', unlocked: target => isResearchItemUnlocked(RESEARCH_ITEM.recycle, target) }
+  { id: `research:${RESEARCH_ITEM.recycle}`, icon: researchItems[RESEARCH_ITEM.recycle].icon, category: '研究基地', name: researchItems[RESEARCH_ITEM.recycle].name, hint: '完成第二章第 2 节「下探深井」', unlocked: target => isResearchItemUnlocked(RESEARCH_ITEM.recycle, target) },
+  /* 军事训练（研究基地的第三个页签）：与手动模式同一个门槛（第二章第 4 节）。
+     它的解锁规则是 `unlockBy.chapter()`（**故意不给 notice**，理由同上），所以提示在这里手写。 */
+  { id: 'military', icon: '🎯', category: '研究基地', name: '军事训练', hint: '完成第二章第 4 节「击碎熔核」', unlocked: isMilitaryUnlocked },
+  /* Boss 区域「熔核之扉」同样走 `unlockBy.chapter()`（无 notice），提示只能手写。 */
+  { id: `zone:${ZONE.moltenGate}`, icon: zones[ZONE.moltenGate].icon, category: '冒险', name: zones[ZONE.moltenGate].name, hint: '完成第二章第 3 节「穿过裂谷」', unlocked: target => isZoneUnlocked(ZONE.moltenGate, target) },
+  /* 手动模式：与军事训练同一个门槛。它没有「条目」可挂，所以在末尾单列一条 ——
+     **解锁提示与新手引导都靠这个 id**（`manual`，见 guide.ts 的 GUIDES）。 */
+  { id: 'manual', icon: '🎮', category: '冒险', name: '手动模式', hint: '完成第二章第 4 节「击碎熔核」', unlocked: isManualUnlocked }
 ];
 /** 解锁事件：界面（unlock-toast.ts）订阅它来弹 tips，新手指引（guide.ts）也订阅它来放该系统的引导。
     id 与 guide.ts 的 GUIDES 键对应（没有对应引导的会被忽略）；
@@ -925,8 +1118,10 @@ export const fontScales = [
 const freshAdventure = (): AdventureState => ({
   /* 开局在荒野上**原地待命**（`-1` = 没有驻扎任何区域）：不刷怪、也不享受庇护所的休整加成，
      直到点亮第一座营火、挣下庇护所那片安全区域。 */
-  zoneId: -1, running: false, enemyId: FIRST_ENEMY_ID, enemyHp: enemyTable[FIRST_ENEMY_ID].maxHp, spawnTimer: 0,
-  playerHp: 100, playerAttackTimer: 0, enemyAttackTimer: 0, autoPush: true, battleCount: 0, attackCount: 0
+  zoneId: -1, running: false, enemyId: FIRST_ENEMY_ID, enemyHp: enemyTable[FIRST_ENEMY_ID].maxHp, spawnTimer: 0, spawnTotal: 0,
+  playerHp: 100, playerAttackTimer: 0, enemyAttackTimer: 0, autoPush: true, battleCount: 0, attackCount: 0,
+  /* Boss 难度档 / 手动模式 / 技能冷却 / 格挡窗口：技能槽位数由 config/skills.ts 说了算。 */
+  difficulty: 0, manual: false, blockTimer: 0, skillTimers: battleSkills.map(() => 0)
 });
 const freshState = (): GameState => ({
   gold: 45, scrap: 24, essence: 0, totalWins: 0, mainlineIndex: 0,
@@ -942,7 +1137,15 @@ const freshState = (): GameState => ({
      这里直接写实例字面量而不是调 addEquipment：后者读 REFINE_MAX，而那个常量声明在
      本函数之后，模块初始化时调用会踩暂时性死区。id 从 1 起，nextInstanceId 跟着写 2。 */
   equipment: [{ id: 1, itemId: ITEM.scavengedBlade, refine: 0 }], nextInstanceId: 2,
-  encountered: new Array(enemyTable.length).fill(0), discoveredDrops: enemyTable.map(() => []), perfectItems: [], adventure: freshAdventure(),
+  encountered: new Array(enemyTable.length).fill(0), discoveredDrops: enemyTable.map(() => []), perfectItems: [],
+  /* 击败记录（enemyWins 总数 / bossClears 难度位掩码）、技能等级与军事训练：都按下标对齐配置表。
+     ⚠️ 这里只能写字面量：BASIC_ATTACK_SLOT 之类的常量声明在本函数之后，模块初始化时读它会踩暂时性死区
+     （同上面那把短刃不调 addEquipment 的理由）。 */
+  enemyWins: new Array(enemyTable.length).fill(0), bossClears: new Array(enemyTable.length).fill(0),
+  skills: battleSkills.map((_, slot) => (slot === 0 ? 1 : 0)),
+  /* 军事训练：每个技能槽一项（target = -1 表示空闲）—— 与 campWorkshop 同一套形状。 */
+  drills: battleSkills.map(() => ({ target: -1, work: 0 })),
+  adventure: freshAdventure(),
   /* 后勤小队开局 1 人（全部待命）；工坊只有一个制造项，0 级且空闲；庇护所满血、随机事件从满间隔开始倒数。 */
   logistics: { assigned: logisticsTargets.map(() => 0) },
   campWorkshop: workshopItems.map(() => ({ level: 0, target: -1, work: 0 })),
@@ -995,10 +1198,16 @@ function syncCamp(target: GameState): void {
 import { formatNumber, formatNumberExact, formatSigned, numberHint, formatDuration, formatSeconds, formatPerSecond, numberFormats, NUMBER_FORMAT } from './format';
 export { formatNumber, formatNumberExact, formatSigned, numberHint, formatDuration, formatSeconds, formatPerSecond, numberFormats, NUMBER_FORMAT };
 
-/** 各装备类型的槽位数。目前就是各类型的基础槽位，固定不变。 */
-export function getEquipSlotCounts(): number[] { return equipTypes.map(type => type.baseSlots); }
+/** 成就给某一类装备槽的加成。目前只有「Boss 征服者」给饰品 +1。 */
+function achievementSlotBonus(equipType: number, target: GameState): number {
+  if (equipType !== EQUIP_TYPE.accessory) return 0;
+  return isAchievementUnlockedById('bossConqueror', target) ? 1 : 0;
+}
+/** 各装备类型的槽位数 = 基础槽位 + 成就加成（现算，不另存状态）。
+    ⚠️ 页面要**每次 update 都重新读**：成就解锁后槽位数会变，装备页靠这个判断要不要重建槽位列表。 */
+export function getEquipSlotCounts(target: GameState = state): number[] { return equipTypes.map((type, equipType) => type.baseSlots + achievementSlotBonus(equipType, target)); }
 /** 把 equipped 的每个类型对齐到当前应有的槽位数。多出来的槽位直接截掉——装备实例本来就在 equipment 列表里，只会被卸下，不会丢失。 */
-function syncEquipSlots(target: GameState): void { const counts = getEquipSlotCounts(); for (let equipType = 0; equipType < counts.length; equipType++) { const slots = target.equipped[equipType] || (target.equipped[equipType] = []); while (slots.length < counts[equipType]) slots.push(-1); slots.length = counts[equipType]; } }
+function syncEquipSlots(target: GameState): void { const counts = getEquipSlotCounts(target); for (let equipType = 0; equipType < counts.length; equipType++) { const slots = target.equipped[equipType] || (target.equipped[equipType] = []); while (slots.length < counts[equipType]) slots.push(-1); slots.length = counts[equipType]; } }
 /** 实例 id → 实例。 */
 function findEquipment(instanceId: number, target: GameState = state): EquipmentInstance | undefined { return target.equipment.find(instance => instance.id === instanceId); }
 /** 实例 id → 实例；实例不存在时返回 undefined。 */
@@ -1030,10 +1239,42 @@ function unequipEverywhere(target: GameState, instanceId: number): void { target
 export const REFINE_MAX = 100;
 /** 这件装备的精炼等级，越界与缺省都按 0 处理。 */
 export function getRefine(instance: EquipmentInstance | undefined): number { return instance ? Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(instance.refine) || 0))) : 0; }
-/** 单个装备实例自身提供的属性（不含词条）。精炼每级把这几项放大 1%。 */
+/* ——— 可成长饰品（阶 + 升华）———
+   只有带 `growth` 的物品有阶：初始 1 阶、上限 maxStage 阶，每阶把自身属性再放大一档（与精炼相乘）。
+   精炼到【极致】之后可以「升华」升阶、清空精炼 —— 这条规则**不写给玩家看**：
+   描述 / 图鉴 / 帮助 / 公告一个字都不提，只有右键菜单在那个时刻多出一个按钮（见 庇护所扩展方案 §4.13）。 */
+const STAGE_STEP = .25;
+/** 把阶夹进 `[1, 该物品的 maxStage]`；不是可成长饰品就恒为 1。读档校验与 getStage 共用它。 */
+function clampStage(itemId: number, value: unknown): number {
+  const max = Math.max(1, Math.floor(Number(items[itemId]?.growth?.maxStage) || 1));
+  return Math.max(1, Math.min(max, Math.floor(Number(value) || 1)));
+}
+/** 这件装备的阶；不是可成长饰品时恒为 1。越界夹进 `[1, maxStage]`。 */
+export function getStage(instance: EquipmentInstance | undefined): number { return instance ? clampStage(instance.itemId, instance.stage) : 1; }
+/** 阶对自身属性的放大系数（1 阶 = 1，每阶 +25%）。 */
+function stageScale(instance: EquipmentInstance): number { return 1 + (getStage(instance) - 1) * STAGE_STEP; }
+/** 这件装备是不是可成长饰品。 */
+export function isGrowable(instance: EquipmentInstance | undefined): boolean { return !!instance && !!items[instance.itemId]?.growth; }
+/** 能不能升华：可成长饰品 + 精炼已到【极致】+ 还没到顶阶。**极致之前那个按钮不存在**。 */
+export function canAscend(instance: EquipmentInstance | undefined): boolean {
+  if (!instance || !isGrowable(instance) || getRefine(instance) < REFINE_MAX) return false;
+  return getStage(instance) < Math.floor(Number(items[instance.itemId].growth!.maxStage) || 1);
+}
+/** 升华：阶 +1、**精炼清零**（不可撤销）。条件不满足时什么都不做。 */
+export function ascendEquipment(instanceId: number): boolean {
+  const instance = findEquipment(instanceId, state);
+  if (!instance || !canAscend(instance)) return false;
+  const from = getStage(instance);
+  instance.stage = from + 1;
+  instance.refine = 0;
+  addLog(state, `升华：${itemTag(instance.itemId)} 第 ${from} 阶 → 第 ${instance.stage} 阶，精炼清零。`, 'progress');
+  saveState(); notify();
+  return true;
+}
+/** 单个装备实例自身提供的属性（不含词条）。精炼每级把这几项放大 1%，阶再乘一个系数。 */
 export function getInstanceBonus(instance: EquipmentInstance): { attack: number; hp: number; defense: number } {
   const base = items[instance.itemId].equip || {};
-  const scale = 1 + getRefine(instance) / 100;
+  const scale = (1 + getRefine(instance) / 100) * stageScale(instance);
   return { attack: Math.round((base.attack || 0) * scale), hp: Math.round((base.hp || 0) * scale), defense: Math.round((base.defense || 0) * scale) };
 }
 /** 能不能把 feederId 喂给 instanceId：同名、素材没装在槽位上、目标还没满级。
@@ -1244,7 +1485,19 @@ export function getPlayerAttack(target: GameState = state): number { const overr
 export const PLAYER_ATTACK_INTERVAL = 2.2;
 export function getPlayerAttackInterval(target: GameState = state): number { const override = devOverride(DEV_STAT.attackInterval, target); if (override !== null) return Math.max(.1, override); return Math.max(.9, PLAYER_ATTACK_INTERVAL - getSetBonus(target).attackInterval); }
 /** 刷怪间隔：击杀 / 进入区域后到下一个敌人出现的秒数（可被开发者面板覆盖，同样有 0.1 秒下限）。 */
-export function getSpawnCooldown(target: GameState = state): number { const override = devOverride(DEV_STAT.spawnCooldown, target); return override !== null ? Math.max(.1, override) : SPAWN_COOLDOWN; }
+export function getSpawnCooldown(target: GameState = state): number {
+  const override = devOverride(DEV_STAT.spawnCooldown, target);
+  return override !== null ? Math.max(.1, override) : SPAWN_COOLDOWN;
+}
+/** **复活计时**：击杀之后到下一只出现的秒数（`Zone.spawnCooldown`，缺省 = 全局值）。
+    ⚠️ 它只用在「击杀之后」—— 进入区域 / 换难度用 `getSpawnCooldown()`（全局值）。
+    两者混用会变成「每次进 Boss 区域都要干等一场复活」（踩过）。 */
+export function getRespawnCooldown(target: GameState = state): number {
+  const override = devOverride(DEV_STAT.spawnCooldown, target);
+  if (override !== null) return Math.max(.1, override);
+  const custom = Math.max(0, Number(zones[currentZoneId(target)]?.spawnCooldown) || 0);
+  return custom > 0 ? custom : SPAWN_COOLDOWN;
+}
 /* 物品栏上限按「种类」算：同一种物品可以无限叠加，只有新种类才会占用空位。
    初始 20 格：开局不加工坊与伙伴也放得下三个区域的掉落种类，不会刚出门就被上限卡住。
    `target.workshop` 是**遗留字段**（原「营火强化」，升级入口早就删了）：新存档恒为 0，
@@ -1287,7 +1540,72 @@ export function isItemDiscovered(itemId: number, target: GameState = state): boo
   if ((target.inventory?.[itemId] || 0) > 0) return true;
   return !!target.equipment?.some(instance => instance.itemId === itemId);
 }
-export function currentEnemy(target: GameState = state) { const zone = zones[currentZoneId(target)]; return enemyTable[target.adventure.enemyId] || (zone ? enemyTable[zone.enemyIds[0]] : undefined) || enemyTable[FIRST_ENEMY_ID]; }
+/* ——— 敌人视图 / 区域种类 / 难度档 ———
+   敌人表是静态定义，真正打的那一组数值要看「当前区域 + 当前难度档」——
+   所以**读敌人数值一律走 currentEnemy()（= getBattleEnemy()）**，不要直接查 enemyTable：
+   漏一处就会出现「界面显示一档、实际打另一档」。 */
+function rawEnemyOf(target: GameState) { const zone = zones[currentZoneId(target)]; return enemyTable[target.adventure.enemyId] || (zone ? enemyTable[zone.enemyIds[0]] : undefined) || enemyTable[FIRST_ENEMY_ID]; }
+/** 区域种类：显式写了就用写的，没写按 enemyIds 推导（空 = 庇护所）。
+    新代码一律走它，不要再写 `enemyIds.length === 0` 这类判断。 */
+export function zoneKind(zoneId: number): ZoneKind { const zone = zones[zoneId]; if (!zone) return 'combat'; return zone.kind || (zone.enemyIds.length ? 'combat' : 'camp'); }
+/** 某个区域的难度档列表（不是 Boss 区域就是空数组）。 */
+export function getDifficulties(zoneId: number): ZoneDifficulty[] { return zones[zoneId]?.difficulties || []; }
+/** 当前难度档（夹进合法区间；非 Boss 区域恒 0）。 */
+export function difficultyOf(target: GameState = state): number {
+  const list = zones[currentZoneId(target)]?.difficulties || [];
+  if (!list.length) return 0;
+  return Math.max(0, Math.min(list.length - 1, Math.floor(Number(target.adventure.difficulty) || 0)));
+}
+/** 某只敌人按「当前区域 + 当前难度档」算出来的战斗视图（敌人表原值 + 档位覆盖）。
+    ⚠️ 准备敌人（prepareEnemy）也要走它 —— 否则刷出来的血量还是敌人表那一档，
+    出现「界面写着高难、实打还是常规」。 */
+export function battleEnemyOf(enemyId: number, target: GameState = state): Enemy {
+  const base = enemyTable[enemyId] || rawEnemyOf(target);
+  const zone = zones[currentZoneId(target)];
+  const tier = zone?.difficulties?.[difficultyOf(target)];
+  /* 难度档只作用在**这个区域自己的怪**上：换区域后、还没刷出新的那只之前，adventure.enemyId 可能
+     还指着上一个区域的怪，那不该套上这里的体态。 */
+  if (!tier || !zone!.enemyIds.includes(enemyId)) return base;
+  return { ...base, maxHp: tier.hp, attack: tier.attack, defense: tier.defense, attackInterval: tier.interval, gold: tier.gold ?? base.gold };
+}
+/** 当前敌人的战斗视图（Boss 区域会带上当前难度档的体态与金币）。 */
+export function getBattleEnemy(target: GameState = state): Enemy { return battleEnemyOf(target.adventure.enemyId, target); }
+export function currentEnemy(target: GameState = state) { return getBattleEnemy(target); }
+/** 切换难度档（只对 Boss 区域有效）：换档**不会把半血那只带进新档** ——
+    场上那只还站着（未被击败）的，换档就把它作废，按**全局**刷怪冷却等下一只
+    （换档不是免费的即时刷新）。
+    ⚠️ 场上没有敌人（已经打死、正在走复活计时）的情形**只改档位**：不重刷、也不动那个计时
+    —— 复活计时跑完，出来的是新档那只（2026-09-18 拍板）。 */
+export function selectDifficulty(index: number): void {
+  const zone = zones[currentZoneId(state)];
+  if (!zone?.difficulties?.length) return;
+  const next = Math.max(0, Math.min(zone.difficulties.length - 1, Math.floor(Number(index) || 0)));
+  if (next === difficultyOf(state)) return;
+  /* 「场上还站着一只」的判据与 useSkill 一致：出征中，而且没有在等刷新。 */
+  const alive = state.adventure.running && state.adventure.spawnTimer <= 0;
+  state.adventure.difficulty = next;
+  const name = zone.difficulties[next].name;
+  if (alive) {
+    addLog(state, `难度切换：${zone.name} · ${name}（场上的${enemyTag(state.adventure.enemyId)}还没解决，作废重刷）。`, 'system');
+    startSpawnCooldown(state);
+  } else {
+    addLog(state, `难度切换：${zone.name} · ${name}。`, 'system');
+  }
+  saveState(); notify();
+}
+/* ——— 特性（trait）———
+   判定只有这一处：扫**身上装备**的实例 → 物品定义上的 traits（特性不跟着实例各自培养）。
+   唯一的用处是 playerAttack 里的【破甲】（无视敌人的固定防御）——
+   别再往属性 getter 里塞：那会连带污染卡片显示与工坊的计算（同 R34 的口径）。 */
+export function hasTrait(trait: string, target: GameState = state): boolean {
+  if (!trait) return false;
+  for (const slots of target.equipped) for (const instanceId of slots) {
+    if (instanceId < 0) continue;
+    const instance = findEquipment(instanceId, target);
+    if (instance && items[instance.itemId]?.traits?.includes(trait)) return true;
+  }
+  return false;
+}
 export function getEnemyAttackInterval(target: GameState = state): number { return currentEnemy(target).attackInterval; }
 /** 区域是否解锁：走它自己的解锁规则（可组合，见 config/unlock.ts）——
     这里仍然是**全游戏唯一的判定点**，界面不要另写一套比较。 */
@@ -1313,15 +1631,54 @@ function updateMainline(target: GameState): void { while (target.mainlineIndex <
     }
   } }
 function chooseEnemyId(target: GameState): number { const ids = zones[currentZoneId(target)]?.enemyIds ?? []; return ids.length ? ids[Math.floor(Math.random() * ids.length)] : FIRST_ENEMY_ID; }
-function prepareEnemy(target: GameState, enemyId = chooseEnemyId(target)): void { const enemy = enemyTable[enemyId]; const shouldRestore = !Number.isFinite(target.adventure.playerHp) || target.adventure.playerHp <= 0; target.adventure.enemyId = enemyId; target.adventure.enemyHp = enemy.maxHp; target.adventure.spawnTimer = 0; if (shouldRestore) target.adventure.playerHp = getPlayerMaxHp(target); target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; }
+function prepareEnemy(target: GameState, enemyId = chooseEnemyId(target)): void {
+  /* 数值走战斗视图（Boss 区域要套当前难度档的体态），不要直接读敌人表。 */
+  const enemy = battleEnemyOf(enemyId, target);
+  const shouldRestore = !Number.isFinite(target.adventure.playerHp) || target.adventure.playerHp <= 0;
+  target.adventure.enemyId = enemyId;
+  target.adventure.enemyHp = enemy.maxHp;
+  target.adventure.spawnTimer = 0;
+  if (shouldRestore) target.adventure.playerHp = getPlayerMaxHp(target);
+  target.adventure.playerAttackTimer = 0;
+  target.adventure.enemyAttackTimer = 0;
+}
 /** 敌人离场（被击杀或进入区域）后进入刷新冷却，冷却结束才会 prepareEnemy 出新敌人。 */
-function startSpawnCooldown(target: GameState): void { target.adventure.spawnTimer = getSpawnCooldown(target); }
+/** 开始刷怪冷却。killed = 这一轮是**击杀**起的（用区域自己的复活计时）；进场 / 换难度用全局值。
+    `spawnTotal` 记下这一轮的总时长 —— 界面据此画环形进度（两种来源的值可能不一样）。 */
+function startSpawnCooldown(target: GameState, killed = false): void {
+  const total = killed ? getRespawnCooldown(target) : getSpawnCooldown(target);
+  target.adventure.spawnTotal = total;
+  target.adventure.spawnTimer = total;
+}
 function randomAmount(min: number, max: number): number { return min + Math.floor(Math.random() * (max - min + 1)); }
 /** 记录「这只怪物的这条掉落已经拿到过」，图鉴据此揭示对应条目。 */
 function revealDrop(target: GameState, enemyId: number, itemId: number): void { const list = target.discoveredDrops[enemyId] || (target.discoveredDrops[enemyId] = []); if (!list.includes(itemId)) list.push(itemId); }
+/** 当前难度档的**掉落档位**（非 Boss 区域恒 0）：`DropEntry.tier` 与它严格相等才判定。 */
+function difficultyTierOf(target: GameState): number {
+  const tier = zones[currentZoneId(target)]?.difficulties?.[difficultyOf(target)];
+  return Math.max(0, Math.floor(Number(tier?.dropTier) || 0));
+}
 /* 只有真正进了包才算「获得」：被物品栏上限拒收的不揭示。 */
-function grantDrops(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; enemy.dropTable.forEach(drop => { /* 图鉴里关掉「拾取」的东西：掉在地上也不捡（见 setItemNoPickup）。 */ if (isItemNoPickup(drop.itemId, target)) return; if (Math.random() > drop.chance) return; const item = items[drop.itemId]; /* 可堆叠的进数量，装备每件都建成独立实例；拿完如果超出上限，就丢掉刚拿到的这一件。 */
-const amount = randomAmount(drop.min, drop.max); /* 装备每件都建成独立实例，其余一律按数量进包（`stackable` 只管显示）。 */ if (item.category !== 'equipment') { target.inventory[drop.itemId] += amount; if (drop.itemId === ITEM.scrap) target.scrap += amount; if (drop.itemId === ITEM.emberShard) target.essence += amount; } else addEquipment(target, drop.itemId, amount, zoneDropRefine(target, enemyId)); revealDrop(target, enemyId, drop.itemId); addLog(target, `掉落：${itemTag(drop.itemId)} ×${amount}`, 'drop'); /* 超上限就把刚拿到的这件丢掉，不动玩家原有的东西。 */ trimInventoryOverflow(target, drop.itemId); }); }
+function grantDrops(target: GameState, enemyId: number): void {
+  const enemy = enemyTable[enemyId];
+  const tier = difficultyTierOf(target);
+  enemy.dropTable.forEach(drop => {
+    /* 掉落档位：缺省 = 所有难度都掉；写了就只在对应难度档判定（Boss 的三件独占各占一档）。 */
+    if ((drop.tier ?? 0) !== tier) return;
+    /* 图鉴里关掉「拾取」的东西：掉在地上也不捡（见 setItemNoPickup）。 */
+    if (isItemNoPickup(drop.itemId, target)) return;
+    if (Math.random() > drop.chance) return;
+    const item = items[drop.itemId];
+    const amount = randomAmount(drop.min, drop.max);
+    /* 装备每件都建成独立实例，其余一律按数量进包（`stackable` 只管显示）。 */
+    if (item.category !== 'equipment') { target.inventory[drop.itemId] += amount; if (drop.itemId === ITEM.scrap) target.scrap += amount; if (drop.itemId === ITEM.emberShard) target.essence += amount; }
+    else addEquipment(target, drop.itemId, amount, zoneDropRefine(target, enemyId));
+    revealDrop(target, enemyId, drop.itemId);
+    addLog(target, `掉落：${itemTag(drop.itemId)} ×${amount}`, 'drop');
+    /* 超上限就把刚拿到的这件丢掉，不动玩家原有的东西。 */
+    trimInventoryOverflow(target, drop.itemId);
+  });
+}
 /** 任务物品掉落：**当且仅当这个区域正是当前委托的目标时**才判定，掉率区域内所有怪物统一
     （QUEST_DROP_CHANCE），与各自的 dropTable 无关。和套装掉落一样独立成一步 ——
     不占「同一只怪物最多 3 条掉落」的名额。
@@ -1367,19 +1724,118 @@ function grantSetDrop(target: GameState, enemyId: number): void {
   trimInventoryOverflow(target, itemId);
 }
 /* 击杀才记入图鉴：仅仅遇到（prepareEnemy）不算。 */
-function defeatEnemy(target: GameState, enemyId: number): void { const enemy = enemyTable[enemyId]; target.gold += enemy.gold; target.totalWins += 1; target.adventure.battleCount += 1; target.encountered[enemyId] = 1; /* 区域击杀数：第二章的任务要求看它（只统计战斗区域）。 */ const killZone = currentZoneId(target); if (killZone >= 0) target.zoneWins[killZone] = (target.zoneWins[killZone] || 0) + 1; addLog(target, `击败${enemyTag(enemyId)}，获得 ${enemy.gold} 金币。`, 'battle'); grantDrops(target, enemyId); grantSetDrop(target, enemyId); grantQuestDrop(target, enemyId); grantSolventDrop(target, enemyId); updateMainline(target); startSpawnCooldown(target); }
+function defeatEnemy(target: GameState, enemyId: number): void {
+  /* 金币按当前难度档算（Boss 三档给的不一样），走的是同一个战斗视图。 */
+  const enemy = getBattleEnemy(target);
+  target.gold += enemy.gold;
+  target.totalWins += 1;
+  target.adventure.battleCount += 1;
+  target.encountered[enemyId] = 1;
+  /* 击败记录：`enemyWins` 是总数（unlockBy.boss() 读它），`bossClears` 是**难度位掩码**
+     （第 n 位 = 第 n 档通关过）—— 2-4 的条件是「击败常规难度一次」，只看总数会判错。 */
+  target.enemyWins[enemyId] = Math.max(0, Math.floor(Number(target.enemyWins[enemyId]) || 0)) + 1;
+  if (zones[currentZoneId(target)]?.difficulties?.length) target.bossClears[enemyId] = Math.max(0, Math.floor(Number(target.bossClears[enemyId]) || 0)) | (1 << difficultyOf(target));
+  /* 区域击杀数：第二章的任务要求看它（只统计战斗区域）。 */
+  const killZone = currentZoneId(target);
+  if (killZone >= 0) target.zoneWins[killZone] = (target.zoneWins[killZone] || 0) + 1;
+  addLog(target, `击败${enemyTag(enemyId)}，获得 ${enemy.gold} 金币。`, 'battle');
+  grantDrops(target, enemyId); grantSetDrop(target, enemyId); grantQuestDrop(target, enemyId); grantSolventDrop(target, enemyId);
+  updateMainline(target); startSpawnCooldown(target, true);
+}
 /* 伤害 = 攻击力 − 对方防御，至少 1 点：防御只能减免，不能完全免伤。
    词条赋予的技能按出手次数触发，额外叠一记倍率伤害（强度取词条数值的百分比）。 */
-function playerAttack(target: GameState): void { const enemy = currentEnemy(target); target.adventure.attackCount += 1; const attack = getPlayerAttack(target); let damage = Math.max(1, attack - (enemy.defense || 0)); const triggered = []; for (const entry of getAffixTotals(target).skills) { const skill = skills[entry.skill]; if (!skill || target.adventure.attackCount % skill.interval !== 0) continue; damage += Math.round(attack * skill.multiplier * entry.value / 100); triggered.push(skill.name); } target.adventure.enemyHp = Math.max(0, target.adventure.enemyHp - damage); addLog(target, `${triggered.length ? `${triggered.join('、')}触发！` : ''}你攻击${enemyTag(target.adventure.enemyId)}，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.enemyHp <= 0) defeatEnemy(target, target.adventure.enemyId); }
-function enemyAttack(target: GameState): void { const enemy = currentEnemy(target); const damage = Math.max(1, enemy.attack - getPlayerDefense(target)); target.adventure.playerHp = Math.max(0, target.adventure.playerHp - damage); addLog(target, `${enemyTag(target.adventure.enemyId)}反击，造成 ${damage} 点伤害。`, 'battle'); if (target.adventure.playerHp <= 0) { target.adventure.running = false; target.adventure.playerHp = getPlayerMaxHp(target); target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; target.adventure.spawnTimer = 0; target.adventure.zoneId = CAMP_ZONE_ID; addLog(target, '远征队生命值归零，已撤回庇护所并恢复状态。', 'defeat'); return; } /* 挨完这一下才判断要不要自动进食：放在这里最准 —— 一次 tick 可能推进多秒，挂在外层会出现「先死再吃」。 */ tryAutoEat(target); }
+function playerAttack(target: GameState, damageScale = 1): void {
+  const enemy = currentEnemy(target);
+  target.adventure.attackCount += 1;
+  const attack = getPlayerAttack(target);
+  /* 【破甲】（特性）：身上带着这条特性的装备时，敌人的**固定防御**整条不算 —— 对所有怪物生效。 */
+  const armor = hasTrait('piercing', target) ? 0 : enemy.defense || 0;
+  let damage = Math.max(1, attack - armor);
+  const triggered: string[] = [];
+  for (const entry of getAffixTotals(target).skills) {
+    const skill = skills[entry.skill];
+    if (!skill || target.adventure.attackCount % skill.interval !== 0) continue;
+    /* 配了 chance 的技能还要过一次概率（余烬核心：每 3 次普通攻击里大约响一半）。 */
+    if (skill.chance !== undefined && Math.random() >= skill.chance) continue;
+    damage += Math.round(attack * skill.multiplier * entry.value / 100);
+    triggered.push(skill.name);
+  }
+  /* 技能等级（手动模式）：只放大这一次出手，不改变自动攻击。 */
+  if (damageScale !== 1) damage = Math.max(1, Math.round(damage * damageScale));
+  target.adventure.enemyHp = Math.max(0, target.adventure.enemyHp - damage);
+  addLog(target, `${triggered.length ? `${triggered.join('、')}触发！` : ''}你攻击${enemyTag(target.adventure.enemyId)}，造成 ${damage} 点伤害。`, 'battle');
+  if (target.adventure.enemyHp <= 0) defeatEnemy(target, target.adventure.enemyId);
+}
+function enemyAttack(target: GameState): void {
+  const enemy = currentEnemy(target);
+  let damage = Math.max(1, enemy.attack - getPlayerDefense(target));
+  /* 【隔热】（特性）：受到的伤害按比例减少 —— 对所有敌人生效，判定仍只有 hasTrait() 一处。 */
+  if (hasTrait('insulated', target)) damage = Math.max(1, Math.round(damage * (1 - TRAIT_EFFECT.insulatedDamageCut)));
+  /* 【格挡】：3 秒窗口内挨的这一记按格挡值减少，**挨完立刻消耗**（窗口外的伤害不受影响）。 */
+  let blocked = 0;
+  if (target.adventure.blockTimer > 0) {
+    blocked = blockCut(getSkillLevel(BLOCK_SLOT, target));
+    damage = Math.max(1, Math.round(damage * (1 - blocked)));
+    target.adventure.blockTimer = 0;
+  }
+  target.adventure.playerHp = Math.max(0, target.adventure.playerHp - damage);
+  addLog(target, `${enemyTag(target.adventure.enemyId)}反击，造成 ${damage} 点伤害${blocked > 0 ? `（格挡 −${(blocked * 100).toFixed(1)}%）` : ''}。`, 'battle');
+  if (target.adventure.playerHp <= 0) { target.adventure.running = false; target.adventure.playerHp = getPlayerMaxHp(target); target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; target.adventure.spawnTimer = 0; target.adventure.zoneId = CAMP_ZONE_ID; addLog(target, '远征队生命值归零，已撤回庇护所并恢复状态。', 'defeat'); return; }
+  /* 挨完这一下才判断要不要自动进食：放在这里最准 —— 一次 tick 可能推进多秒，挂在外层会出现「先死再吃」。 */
+  tryAutoEat(target);
+}
 /** 按当前区域的回复倍率回血：庇护所是野外的 CAMP_REGEN_MULTIPLIER 倍。 */
 function applyRegen(target: GameState, seconds: number): void { if (!(seconds > 0)) return; target.adventure.playerHp = Math.min(getPlayerMaxHp(target), target.adventure.playerHp + getPlayerRegen(target) * getRegenMultiplier(target) * seconds); }
-function advanceAdventure(target: GameState, seconds: number): void { const zoneId = currentZoneId(target); /* 庇护所与「原地待命」都不刷怪：只回血（待命没有休整加成，见 getRegenMultiplier）。 */ if (isCampZone(zoneId) || isIdleZone(zoneId)) { applyRegen(target, seconds); return; } if (!target.adventure.running) return; let remaining = Math.max(0, seconds); while (remaining > 0 && target.adventure.running) { /* 刷怪冷却：场上没有敌人，只回复生命值。 */ if (target.adventure.spawnTimer > 0) { const wait = Math.min(remaining, target.adventure.spawnTimer); target.adventure.spawnTimer -= wait; applyRegen(target, wait); remaining -= wait; if (target.adventure.spawnTimer > 0) break; prepareEnemy(target); continue; } const enemy = currentEnemy(target); const playerInterval = getPlayerAttackInterval(target); const playerWait = Math.max(0, playerInterval - target.adventure.playerAttackTimer); const enemyWait = Math.max(0, enemy.attackInterval - target.adventure.enemyAttackTimer); const step = Math.min(remaining, playerWait, enemyWait); target.adventure.playerAttackTimer += step; target.adventure.enemyAttackTimer += step; applyRegen(target, step); remaining -= step; if (target.adventure.playerAttackTimer >= playerInterval - .0001) { target.adventure.playerAttackTimer = 0; playerAttack(target); } if (target.adventure.running && target.adventure.enemyAttackTimer >= enemy.attackInterval - .0001) { target.adventure.enemyAttackTimer = 0; enemyAttack(target); } if (step === 0 && target.adventure.running) { target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; } } }
+/** 技能冷却与【格挡】窗口每 tick 递减；脱战（庇护所 / 待命）也照常走 —— 它们都不是战斗状态。 */
+function advanceSkillTimers(target: GameState, seconds: number): void {
+  if (!(seconds > 0)) return;
+  /* 格挡窗口：3 秒过了还没挨打就自动失效 —— 别让它跨着离线一直留着。 */
+  if (target.adventure.blockTimer > 0) target.adventure.blockTimer = Math.max(0, target.adventure.blockTimer - seconds);
+  if (!target.adventure.skillTimers) return;
+  for (let index = 0; index < target.adventure.skillTimers.length; index++) {
+    target.adventure.skillTimers[index] = Math.max(0, (Number(target.adventure.skillTimers[index]) || 0) - seconds);
+  }
+}
+function advanceAdventure(target: GameState, seconds: number): void {
+  advanceSkillTimers(target, seconds);
+  const zoneId = currentZoneId(target);
+  /* 庇护所与「原地待命」都不刷怪：只回血（待命没有休整加成，见 getRegenMultiplier）。 */
+  if (isCampZone(zoneId) || isIdleZone(zoneId)) { applyRegen(target, seconds); return; }
+  if (!target.adventure.running) return;
+  /* 手动模式：**玩家侧不再自动出手**（敌人照常按自己的间隔出手）—— 出手只由 useSkill() 触发。 */
+  const manual = isManualMode(target);
+  let remaining = Math.max(0, seconds);
+  while (remaining > 0 && target.adventure.running) {
+    /* 刷怪冷却：场上没有敌人，只回复生命值。 */
+    if (target.adventure.spawnTimer > 0) {
+      const wait = Math.min(remaining, target.adventure.spawnTimer);
+      target.adventure.spawnTimer -= wait;
+      applyRegen(target, wait);
+      remaining -= wait;
+      if (target.adventure.spawnTimer > 0) break;
+      prepareEnemy(target);
+      continue;
+    }
+    const enemy = currentEnemy(target);
+    const playerInterval = getPlayerAttackInterval(target);
+    const playerWait = manual ? Infinity : Math.max(0, playerInterval - target.adventure.playerAttackTimer);
+    const enemyWait = Math.max(0, enemy.attackInterval - target.adventure.enemyAttackTimer);
+    const step = Math.min(remaining, playerWait, enemyWait);
+    if (!manual) target.adventure.playerAttackTimer += step;
+    target.adventure.enemyAttackTimer += step;
+    applyRegen(target, step);
+    remaining -= step;
+    if (!manual && target.adventure.playerAttackTimer >= playerInterval - .0001) { target.adventure.playerAttackTimer = 0; playerAttack(target); }
+    if (target.adventure.running && target.adventure.enemyAttackTimer >= enemy.attackInterval - .0001) { target.adventure.enemyAttackTimer = 0; enemyAttack(target); }
+    if (step === 0 && target.adventure.running) { target.adventure.playerAttackTimer = 0; target.adventure.enemyAttackTimer = 0; }
+  }
+}
 /* ——— 庇护所 / 后勤小队的推进 ———
    分配出去的每个人每秒贡献 1 工时，换成对应制造项的建造进度。
    这份工时会被功能类词条「勤务」放大（getWorkshopRate）。
-   （「营垒修筑」那条线已移除：人手现在只能投向工坊制造项，见 logisticsTargets。）
-   每个制造项各用**自己那一份**人手（fortSlot），互不抢人，也就能同时开工。 */
+   （「营垒修筑」那条线已移除：人手现在只能投向工坊制造项与军事训练，见 logisticsTargets。）
+   每个制造项各用**自己那一份**人手（fortSlot），互不抢人，也就能同时开工；
+   军事训练（drillSlot）走同一套模型，只是**不吃**「勤务」加成（见 advanceDrills）。 */
 function advanceLogistics(target: GameState, seconds: number): void {
   if (!(seconds > 0)) return;
   for (let id = 0; id < target.campWorkshop.length; id++) {
@@ -1402,6 +1858,8 @@ function advanceLogistics(target: GameState, seconds: number): void {
       updateMainline(target);
     }
   }
+  /* 军事训练的工时也在这里推进：两者都是「人手 → 工时」，一起调用免得漏（见 advanceDrills）。 */
+  advanceDrills(target, seconds);
 }
 /** 庇护所战斗：双方按各自间隔出手，谁先归零谁输。 */
 function advanceCampBattle(target: GameState, seconds: number): void {
@@ -1585,15 +2043,32 @@ function readSettings(saved: any): SettingsState {
 /** 把一份（已经跑过迁移的）存档数据校验重建。每个字段都单独取默认值与上下限：
     存档可能来自旧版本、手改过的文件、或者被截断的文本，不能直接信。
     以 freshState() 为底再覆盖，所以新增字段会自动拿到初始值 —— 这就是「加字段不用改版本号」的原因。 */
+/** 军事训练的存档校验：与 campWorkshop 同一套逐项校验（target 不是数就当空闲、work ≥ 0）。
+    长度按技能表对齐 —— 技能表以后加槽位时，老存档会补上「空闲」的项。 */
+function readDrills(saved: any): DrillState[] {
+  return battleSkills.map((_, slot) => {
+    const entry = Array.isArray(saved) ? saved[slot] : null;
+    return { target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) };
+  });
+}
 function rebuildState(saved: any): GameState {
   const initial = freshState();
-  /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id));
+  /* 装备实例先重建出来：equipped 里存的是实例 id，要据此校验槽位引用是否还有效。 */ const equipment: EquipmentInstance[] = (Array.isArray(saved.equipment) ? saved.equipment : []).filter((entry: any) => entry && items[entry.itemId] && items[entry.itemId].category === 'equipment').map((entry: any) => ({ id: Math.max(1, Math.floor(Number(entry.id) || 0)), itemId: entry.itemId, refine: Math.max(0, Math.min(REFINE_MAX, Math.floor(Number(entry.refine) || 0))), stage: clampStage(entry.itemId, entry.stage), affixes: (Array.isArray(entry.affixes) ? entry.affixes : []).filter((affix: any) => affix && affixes[affix.id]).map((affix: any) => ({ id: affix.id, value: Math.min(affixCap(affix.id), Math.max(0, Math.floor(Number(affix.value) || 0))) })) })); const equipmentIds = new Set(equipment.map(instance => instance.id));
   /* 勘探队的记录要**成对**才算数：mapId 指向存在的图 + 有到达时间，缺一个就当没出发过
      （老存档没有 ends 字段、或者被手改过）—— 只有 mapId 的记录会被到点结算读成"早就到点了"。 */
   const savedExpeditionMap = Math.floor(Number(saved.camp?.expeditionMap));
   const savedExpeditionEnds = Math.max(0, Number(saved.camp?.expeditionEnds) || 0);
   const expeditionMap = mapSets[savedExpeditionMap] && savedExpeditionEnds > 0 ? savedExpeditionMap : -1;
-  const rebuilt: GameState = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: readSettings(saved.settings), inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: {
+  const rebuilt: GameState = { ...initial, ...saved, equipped: equipTypes.map((type, equipType) => { const savedSlots = saved.equipped?.[equipType]; return Array.isArray(savedSlots) ? savedSlots.map(instanceId => (equipmentIds.has(instanceId) ? instanceId : -1)) : new Array(type.baseSlots).fill(-1); }), equipment, nextInstanceId: equipment.reduce((next, instance) => Math.max(next, instance.id + 1), 1), settings: readSettings(saved.settings), inventory: initial.inventory.map((_, itemId) => (items[itemId].stackable ? Math.max(0, Math.floor(Number(saved.inventory?.[itemId]) || 0)) : 0)), encountered: enemyTable.map((_, enemyId) => (saved.encountered?.[enemyId] ? 1 : 0)), discoveredDrops: enemyTable.map((_, enemyId) => (Array.isArray(saved.discoveredDrops?.[enemyId]) ? saved.discoveredDrops[enemyId].filter((itemId: number) => items[itemId]) : [])), adventure: { ...initial.adventure, ...saved.adventure,
+      /* 难度档 / 手动模式 / 技能冷却逐字段校验：旧存档没有它们，从初始值来；
+         难度档的合法范围还要看当前区域，所以只夹到「非负」—— 真正的夹值在 difficultyOf()。 */
+      difficulty: Math.max(0, Math.floor(Number(saved.adventure?.difficulty) || 0)),
+      manual: !!saved.adventure?.manual,
+      /* 格挡窗口：旧存档没有这个字段；它不是数就当 0（窗口本来就只有 3 秒）。 */
+      blockTimer: Math.max(0, Number(saved.adventure?.blockTimer) || 0),
+      /* 刷怪冷却的总时长：旧存档没有这个字段，给 0 —— 界面会在读取时退回全局值。 */
+      spawnTotal: Math.max(0, Number(saved.adventure?.spawnTotal) || 0),
+      skillTimers: battleSkills.map((_, slot) => Math.max(0, Number(saved.adventure?.skillTimers?.[slot]) || 0)) }, logistics: { assigned: logisticsTargets.map((_, index) => Math.max(0, Math.floor(Number(saved.logistics?.assigned?.[index]) || 0))) }, campWorkshop: workshopItems.map((_, id) => { const entry = saved.campWorkshop?.[id]; return { level: Math.max(0, Math.floor(Number(entry?.level) || 0)), target: Number.isFinite(entry?.target) ? Math.floor(entry.target) : -1, work: Math.max(0, Number(entry?.work) || 0) }; }), camp: {
       ...initial.camp, ...saved.camp,
       hp: Math.max(0, Number(saved.camp?.hp) || initial.camp.hp),
       wave: Math.max(1, Math.floor(Number(saved.camp?.wave) || 1)),
@@ -1616,7 +2091,13 @@ noPickup: items.map((_, itemId) => (saved.noPickup?.[itemId] ? 1 : 0)),
 /* 后续章节的进度与各区域击杀数：按下标对齐表和区域表，越界值夹回合法区间（旧存档没有这两个字段，从 0 起）。 */
 chapters: storyChapters.map((chapter, index) => Math.max(0, Math.min(chapter.nodes.length, Math.floor(Number(saved.chapters?.[index]) || 0)))),
 zoneWins: zones.map((_, index) => Math.max(0, Math.floor(Number(saved.zoneWins?.[index]) || 0))),
-devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)), ...readResearchState(saved), autoEat: readAutoEat(saved), log: [] };
+devOverrides: initial.devOverrides.map((_, index) => (Number.isFinite(saved.devOverrides?.[index]) ? Math.floor(saved.devOverrides[index]) : -1)),
+/* 击败记录 / 技能 / 军事训练：逐字段校验（旧存档没有它们，从初始值来）。 */
+enemyWins: enemyTable.map((_, enemyId) => Math.max(0, Math.floor(Number(saved.enemyWins?.[enemyId]) || 0))),
+bossClears: enemyTable.map((_, enemyId) => Math.max(0, Math.floor(Number(saved.bossClears?.[enemyId]) || 0))),
+skills: battleSkills.map((_, slot) => Math.max(0, Math.floor(Number(saved.skills?.[slot]) || (slot === 0 ? 1 : 0)))),
+drills: readDrills(saved.drills),
+...readResearchState(saved), autoEat: readAutoEat(saved), log: [] };
   /* 兼容一次：上一版把「拼合地图」做成独立一步 —— 那时 camp.maps 记 1、三片残片已经扣掉。
      现在三格槽位就是拼合，所以把 1 退回「未勘探」并**把那三片还给玩家**：
      不还的话那份存档会卡在「残片没了、图又不是已勘探」的空档里，只能重新去刷。
@@ -1950,8 +2431,43 @@ export function discardEquipment(instanceId: number): void { const instance = fi
    item.use 是函数，执行器只负责准备上下文、跑完保存并刷新界面。
    需要点选目标的道具会先返回 pick-equipment，界面进入点选模式后再带着 instanceId 调一次。 */
 /** 给某个实例加词条：已有同名则加数值，顶到上限就什么都不做。返回是否真的改了。
-    sourceItemId 是消耗掉的强化物（记日志用），日志里的物品名统一写成物品标记。 */
-function grantAffixTo(instanceId: number, affixId: number, sourceItemId: number): boolean { const instance = findEquipment(instanceId); const definition = affixes[affixId]; if (!instance || !definition) return false; const list = instance.affixes || (instance.affixes = []); const existing = list.find(affix => affix.id === affixId); const source = `「${itemTag(sourceItemId)}」`; if (!existing) { list.push({ id: affixId, value: definition.base }); addLog(state, `${source}为「${itemTag(instance.itemId)}」刻上词条「${definition.name}」。`, 'progress'); return true; } const cap = affixCap(affixId); if (existing.value >= cap) { addLog(state, `「${definition.name}」已经到上限 ${cap} 了，${source}没有消耗。`, 'system'); return false; } existing.value = Math.min(cap, existing.value + definition.step); addLog(state, `${source}把「${definition.name}」提升到 ${existing.value}（上限 ${cap}）。`, 'progress'); return true; }
+    sourceItemId 是消耗掉的强化物（记日志用），日志里的物品名统一写成物品标记。
+
+    强化物可以在物品定义上带两条限制，**判定只有这一处**（被拒时返回 false ⇒ 调用方不消耗道具）：
+    - `affixEquipType`：只能刻在这类装备上（余烬核心只吃武器）；
+    - `affixUnique`：不能重复 —— 已经有这条词条就直接拒绝，不走「再刻一条提升数值」那条路。
+    ⚠️ 拒绝时都要把原因写进日志：玩家点错目标时界面不会有别的反馈。 */
+function grantAffixTo(instanceId: number, affixId: number, sourceItemId: number): boolean {
+  const instance = findEquipment(instanceId);
+  const definition = affixes[affixId];
+  if (!instance || !definition) return false;
+  const sourceItem = items[sourceItemId];
+  const source = `「${itemTag(sourceItemId)}」`;
+  /* 限制一：作用范围（只对某一类装备有效）。 */
+  const allowedType = sourceItem?.affixEquipType;
+  if (allowedType !== undefined && allowedType >= 0 && items[instance.itemId]?.equipType !== allowedType) {
+    addLog(state, `${source}只能用在${equipTypes[allowedType]?.name || '指定类型的装备'}上，「${itemTag(instance.itemId)}」不行。`, 'system');
+    return false;
+  }
+  const list = instance.affixes || (instance.affixes = []);
+  const existing = list.find(affix => affix.id === affixId);
+  /* 限制二：不能重复（每件装备只能刻一条）。 */
+  if (existing && sourceItem?.affixUnique) {
+    addLog(state, `${source}每件装备只能刻一条，「${itemTag(instance.itemId)}」上已经有「${definition.name}」了。`, 'system');
+    return false;
+  }
+  /* 限制三：一件装备最多 AFFIX_MAX_COUNT 条词条（不同名的也算在一起）。 */
+  if (!existing && list.length >= AFFIX_MAX_COUNT) {
+    addLog(state, `「${itemTag(instance.itemId)}」上的词条已经写满了（最多 ${AFFIX_MAX_COUNT} 条），${source}没有消耗。`, 'system');
+    return false;
+  }
+  if (!existing) { list.push({ id: affixId, value: definition.base }); addLog(state, `${source}为「${itemTag(instance.itemId)}」刻上词条「${definition.name}」。`, 'progress'); return true; }
+  const cap = affixCap(affixId);
+  if (existing.value >= cap) { addLog(state, `「${definition.name}」已经到上限 ${cap} 了，${source}没有消耗。`, 'system'); return false; }
+  existing.value = Math.min(cap, existing.value + definition.step);
+  addLog(state, `${source}把「${definition.name}」提升到 ${existing.value}（上限 ${cap}）。`, 'progress');
+  return true;
+}
 /** 移除某个实例的第 index 条词条。 */
 function removeAffixFrom(instanceId: number, index: number, sourceItemId: number): boolean { const instance = findEquipment(instanceId); const affix = instance?.affixes?.[index]; if (!instance || !affix) return false; const definition = affixes[affix.id]; instance.affixes!.splice(index, 1); addLog(state, `「${itemTag(sourceItemId)}」洗掉了「${itemTag(instance.itemId)}」上的「${definition.name}」。`, 'system'); return true; }
 /** 使用一件道具。instanceId 是玩家点选的目标装备实例，-1 表示还没有目标。
@@ -2009,6 +2525,14 @@ export const devStats = [
   /* 勘探远征要 10 分钟才到点，调试时不可能干等：把这一格改成 0 就等于「立刻抵达」，
      下一 tick 的 resolveExpedition 会照常掷成功率。 */
   { name: '勘探队剩余（秒）', float: false, display: (target: GameState) => target.camp.expeditionMap >= 0 ? `${Math.max(0, Math.round((target.camp.expeditionEnds - Date.now()) / 1000))} 秒（${mapSets[target.camp.expeditionMap].name}）` : '未出发', get: (target: GameState) => Math.max(0, Math.round((target.camp.expeditionEnds - Date.now()) / 1000)), set: (target: GameState, value: number) => { if (target.camp.expeditionMap >= 0) target.camp.expeditionEnds = Date.now() + value * 1000; } },
+  /* 军事训练要半小时起步，调试时同样不可能干等：把这一格改成 0 就等于「立刻练完」。
+     数值按**第一个在练的技能**算（多个同时练时，把那个的工时推到只差这么多秒）。 */
+  { name: '军事训练剩余（秒）', float: false,
+    display: (target: GameState) => { const slot = target.drills.findIndex((_, index) => isDrillBusy(index, target)); return slot < 0 ? '未开始' : `${Math.max(0, Math.round(getDrillRemaining(slot, target)))} 秒（${battleSkills[slot].name}）`; },
+    get: (target: GameState) => { const slot = target.drills.findIndex((_, index) => isDrillBusy(index, target)); return slot < 0 ? 0 : Math.round(getDrillRemaining(slot, target)); },
+    set: (target: GameState, value: number) => { const slot = target.drills.findIndex((_, index) => isDrillBusy(index, target)); if (slot >= 0) target.drills[slot].work = Math.max(0, getDrillWorkTotal(slot, target) - value); } },
+  /* Boss 难度档：切换会重刷当前敌人（与界面上的分段控件同一条路）。 */
+  { name: 'Boss 难度档（0常规 1强化 2绝境）', get: (target: GameState) => difficultyOf(target), set: (target: GameState, value: number) => selectDifficulty(value) },
   /* 每个制造项一行后勤：人手是分到具体某一项的，不再有「工坊后勤」这个总池子。 */
   ...workshopItems.map((item, id) => ({ name: `${item.name}后勤`, get: (target: GameState) => getLogisticsAssigned(fortSlot(id), target), set: (target: GameState, value: number) => { target.logistics.assigned[fortSlot(id)] = value; } })),
   /* 冒险：只关心玩家自身的派生战斗属性，写的是覆盖值（见 devOverride）。
@@ -2018,22 +2542,38 @@ export const devStats = [
   { name: '最大生命', get: (target: GameState) => getPlayerMaxHp(target), set: (target: GameState, value: number) => { target.devOverrides[DEV_STAT.maxHp] = value; } },
   { name: '生命回复', float: true, get: (target: GameState) => getPlayerRegen(target), display: (target: GameState) => formatPerSecond(getPlayerRegen(target)), set: (target: GameState, value: number) => { target.devOverrides[DEV_STAT.regen] = value; } },
   { name: '出手间隔', float: true, get: (target: GameState) => getPlayerAttackInterval(target), display: (target: GameState) => formatSeconds(getPlayerAttackInterval(target)), set: (target: GameState, value: number) => { target.devOverrides[DEV_STAT.attackInterval] = value; } },
-  { name: '刷怪间隔', float: true, get: (target: GameState) => getSpawnCooldown(target), display: (target: GameState) => formatSeconds(getSpawnCooldown(target)), set: (target: GameState, value: number) => { target.devOverrides[DEV_STAT.spawnCooldown] = value; } }
+  { name: '刷怪 / 复活间隔', float: true, get: (target: GameState) => getSpawnCooldown(target), display: (target: GameState) => `${formatSeconds(getSpawnCooldown(target))}（当前区域复活 ${formatSeconds(getRespawnCooldown(target))}）`, set: (target: GameState, value: number) => { target.devOverrides[DEV_STAT.spawnCooldown] = value; } }
 ];
 /** 直接发物品：废料与余烬碎片要同步累加到对应的资源字段上，否则会和物品栏脱节；
     装备则生成等量的独立实例，所以发 5 件就是 5 张卡片。 */
 export function devGrantItem(itemId: number, amount: number): void { const item = items[itemId]; if (!item) return; const count = Math.max(1, Math.floor(amount)); if (item.category !== 'equipment') { state.inventory[itemId] += count; if (itemId === ITEM.scrap) state.scrap += count; if (itemId === ITEM.emberShard) state.essence += count; } else addEquipment(state, itemId, count); addLog(state, `[DEV] 获得 ${itemTag(itemId)} ×${count}。`, 'system'); trimInventoryOverflow(state, itemId); saveState(); notify(); }
 /** entry.float 的项（回复、两个间隔）保留两位小数，其余按整数取整。 */
 export function devSetStat(index: number, value: number): void { const entry = devStats[index]; if (!entry || !Number.isFinite(value)) return; const safe = Math.max(0, entry.float ? Math.round(value * 100) / 100 : Math.floor(value)); entry.set(state, safe); trimInventoryOverflow(state); addLog(state, `[DEV] ${entry.name} 设为 ${entry.display ? entry.display(state) : formatNumber(entry.get(state))}。`, 'system'); saveState(); notify(); }
-/** 一键解锁全部系统（等价于把主线推到底）。 */
-export function devUnlockSystems(): void { state.mainlineIndex = mainline.length; addLog(state, '[DEV] 已解锁全部系统。', 'progress'); saveState(); notify(); }
-/** 完成**当前这一节**主线：条件不满足也照推 —— 这就是它和 devUnlockSystems 的分工。
-    推完走一遍正常的推进流程（`updateMainline`）：下一节的条件本来就成立时它会继续往前，跟正常游玩一致；
-    第 1 节还带着「待命队伍入驻庇护所」那一步，也由它一起走。 */
+/** 一键解锁全部系统（等价于把主线与后续章节都推到底）—— 调试 Boss / 手动模式这类后期内容时用。 */
+export function devUnlockSystems(): void {
+  state.mainlineIndex = mainline.length;
+  /* 后续章节一并推完：否则「打完第二章第 4 节才开」的东西（Boss 区域、手动模式、军事训练）调不到。 */
+  state.chapters = storyChapters.map(chapter => chapter.nodes.length);
+  addLog(state, '[DEV] 已解锁全部系统。', 'progress');
+  saveState(); notify();
+}
+/** 完成**当前这一节** —— **跨章**：第一章走完就接着推后续章节的节点，条件不满足也照推。
+    这就是它和 devUnlockSystems 的分工（那个是「全部推完」）。
+    ⚠️ 判据用 `currentStoryNode()`，不要只看 `mainlineIndex`：那样第一章走完之后它会什么都不做，
+    停在 2-1 的存档点「完成」就像没反应（踩过）。 */
 export function devCompleteMainline(): void {
-  if (state.mainlineIndex >= mainline.length) { addLog(state, '[DEV] 第一章已经走完了。', 'progress'); saveState(); notify(); return; }
-  addLog(state, `[DEV] 已完成主线「${mainline[state.mainlineIndex].title}」。`, 'progress');
-  state.mainlineIndex += 1;
+  const current = currentStoryNode(state);
+  if (!current) { addLog(state, '[DEV] 已经没有未完成的节点了。', 'progress'); saveState(); notify(); return; }
+  const { chapter, index, node } = current;
+  const title = chapter <= 1 ? FIRST_CHAPTER.title : storyChapters[chapter - 2]?.title || '';
+  addLog(state, `[DEV] 已完成第 ${chapter} 章「${title}」·「${node.title}」。`, 'progress');
+  if (chapter <= 1) state.mainlineIndex = Math.max(state.mainlineIndex, index + 1);
+  else {
+    /* 章内是严格顺序推进的，所以「完成第 n 节」就等于把这一章的进度推到 n（见 getChapterProgress）。 */
+    const chapterIndex = chapter - 2;
+    state.chapters[chapterIndex] = Math.min(storyChapters[chapterIndex].nodes.length, getChapterProgress(chapter, state) + 1);
+  }
+  /* 走一遍正常的推进流程：下一节的条件本来就成立时它会继续往前（与正常游玩一致）。 */
   updateMainline(state);
   saveState(); notify();
 }

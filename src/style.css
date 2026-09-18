@@ -484,6 +484,9 @@ select:focus { border-color: var(--accent); }
 .shop-mat.ok { color: var(--accent); }
 /* 标签给固定宽度，右侧的「需要/现有」才能逐行对齐。 */
 .shop-mat i { min-width: 3.4em; color: var(--muted); font-style: normal; text-align: right; }
+/* 整行藏起来时要说一声：`.shop-mats` 是 display: grid，会把 [hidden] 的默认 display: none 盖掉。
+   军事训练里未解锁的卡片就靠这一条（材料行整块不显示）。 */
+.shop-mats[hidden] { display: none; }
 /* 人数分配：« − N + » 一行，批量按钮贴在步进器两侧（用「»/«」这类单向书签式的符号，灰色弱化）。 */
 .shop-assign { display: flex; align-items: center; gap: 8px; }
 .step-button.batch { color: var(--muted); }
@@ -1038,6 +1041,46 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 .camp-expedition[hidden] { display: none; }
 /* 冒险页只留「研究基地的委托」一行提示（`.task-hint`，见 .task-hint.on-target）：
    区域解锁条件**不在这里摊开** —— 它在图鉴的「进入条件」与解锁公告里说。 */
+/* ——— 难度档（冒险页工具栏；只有 Boss 区域有）——— */
+.difficulty-row { align-items: center; gap: 12px; }
+.difficulty-row[hidden] { display: none; }
+.difficulty-row .field-label { flex: 0 0 auto; }
+.difficulty-row .segmented { flex: 1 1 auto; }
+.difficulty-row .segment { flex: 1 1 0; padding: 9px 12px; text-align: center; }
+
+/* ——— 手动模式的战斗控制区 ———
+   3 行 4 列：第 1 列是模式切换（跨 3 行），右侧 3×3 是技能槽（行 = 攻击 / 防御 / 辅助）。
+   .skill-grid 用 display: contents —— 九个槽位直接参与外层网格的排布，不再套一层格子。 */
+.manual-panel { display: grid; grid-template-columns: 1.15fr repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(38px, auto)); gap: 6px; margin-top: 16px; }
+.manual-panel[hidden] { display: none; }
+.mode-toggle { grid-row: 1 / -1; display: grid; align-content: center; justify-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); }
+.mode-toggle:hover { border-color: var(--accent); color: var(--text); }
+.mode-toggle.manual { border-color: var(--accent); background: rgba(139, 245, 201, .08); color: var(--accent); }
+.mode-toggle-label { font-size: .9rem; font-weight: 700; }
+.mode-toggle-hint { color: var(--muted); font-size: .68rem; font-style: normal; }
+.skill-grid { display: contents; }
+/* 槽位是一行：「图标 + 名称」并排（紧凑，别把控制区撑高）。
+   冷却中整块换成倒计时数字 —— 图标与名称让位，所以那一行是二选一显示的。 */
+.skill-slot { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 6px 10px; border: 1px solid var(--line-soft); background: rgba(11, 18, 20, .45); color: var(--text); }
+.skill-slot:hover:not(:disabled) { border-color: var(--accent); }
+.skill-slot:disabled { opacity: .5; }
+.skill-slot.locked { border-style: dashed; }
+.skill-face { display: inline-flex; align-items: center; gap: 6px; }
+.skill-icon { font-size: .95rem; line-height: 1; }
+.skill-name { color: var(--muted); font-size: .72rem; }
+.skill-cd { display: none; color: var(--warm); font: .76rem DM Mono, monospace; font-variant-numeric: tabular-nums; }
+.skill-slot.cooling .skill-face { display: none; }
+.skill-slot.cooling .skill-cd { display: inline; }
+
+/* ——— 装备详情里的「特性」——— */
+.item-traits { color: var(--accent); }
+
+/* ——— 军事训练（研究基地的第三个页签）———
+   卡片**复用工坊的 `.shop-item`**（同一套：图标 / 名称 / 等级 + 当前值 + 材料行 + 悬停浮层），
+   这里只补一档它没有的状态：未解锁的（虚框）。在练的用现成的 `.busy`。
+   ⚠️ 没有「已练满」这一档 —— 技能没有等级上限。 */
+.shop-item.locked { border-style: dashed; }
+
 /* 1300px 以下：概览栏从右列改为**整行的横条**（三块并排），排到内容上方。
    它不能直接藏掉 —— 撤掉主界面之后，金币 / 废料 / 精华与「远征队在干什么」只剩这一处显示。
    阈值算法：400（概览）+ 210（导航）+ 间隔 36 + 两侧边距 64 = 710，内容区要留 600 以上 ⇒ 1300。
@@ -1053,3 +1096,13 @@ body.enhancing .equip-slot.filled { border-color: var(--accent); background: rgb
 @media (max-width: 900px) { .app-body, .nav-collapsed .app-body { grid-template-columns: 1fr; }.inventory-layout { grid-template-columns: 1fr; }.archive-layout { grid-template-columns: 1fr; }.camp-layout { grid-template-columns: 1fr; }.storage-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }.sidebar, .nav-collapsed .sidebar { order: -2; width: 100%; }.sidebar-heading { padding-bottom: 10px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(7, 1fr); padding: 8px; }.nav-item, .nav-collapsed .nav-item { justify-content: center; border-left: 0; border-bottom: 2px solid transparent; padding: 10px 5px; }.nav-item.active { border-bottom-color: var(--accent); }.sidebar-foot, .nav-collapsed .sidebar-foot { display: none; }.nav-collapsed .sidebar-label { display: inline; }.nav-load { display: none; }.battle-arena { grid-template-columns: 1fr 44px 1fr; gap: 8px; } }
 @media (max-width: 600px) { .app-shell { padding: 30px 12px 24px; }.game-header { align-items: start; flex-direction: column; gap: 17px; }.brand-group { gap: 10px; }.nav-toggle, .hud-toggle { width: 28px; height: 28px; }.main-nav, .nav-collapsed .main-nav { grid-template-columns: repeat(4, 1fr); }.hud { grid-template-columns: 1fr; }.shop-grid { grid-template-columns: 1fr; }.page-heading, .inventory-heading { flex-direction: column; gap: 10px; }.adventure-toolbar, .toolbar-row { align-items: stretch; flex-direction: column; }.battle-arena { grid-template-columns: 1fr; }.versus { padding: 2px 0; }.combatant { padding: 14px; }.log-entry { grid-template-columns: 58px 40px 1fr; gap: 7px; }.storage-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.atlas-slots { grid-template-columns: 1fr; }
  }
+
+/* 战斗控制区与军事训练的窄屏排布：控制区改成「切换按钮 + 3×2 技能格」，训练卡片把按钮压到下一行。 */
+@media (max-width: 900px) {
+  .manual-panel { grid-template-columns: 1fr; grid-template-rows: none; }
+  .mode-toggle { grid-row: auto; padding: 12px; }
+  .skill-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+}
+@media (max-width: 600px) {
+  .difficulty-row { align-items: stretch; flex-direction: column; }
+}

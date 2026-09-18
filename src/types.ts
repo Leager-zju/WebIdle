@@ -40,18 +40,33 @@ export interface Item {
   useText?: string;
   /** 纯展示：这道具会给装备附加哪条词条（下标），用来在详情里列出首次 / 重复强化的效果。 */
   grantsAffix?: number;
+  /** 强化物的作用范围：只能刻在**这类装备**上（equipType 下标）；缺省不限。
+      ⚠️ 判定在 game-state 的 grantAffixTo（唯一入口），被拒时**不消耗道具**；页面只读它来提示范围。 */
+  affixEquipType?: number;
+  /** true = **不能重复强化**：目标已经有这条词条时直接拒绝（不给「再刻一条提升数值」这条路）。
+      缺省 false —— 普通强化物是「重复使用提升数值」的。 */
+  affixUnique?: boolean;
   /** 系统物品（钥匙一类，不是行李）的两条特殊待遇：**不占物品栏负载、不能丢弃**。
       ⚠️ 目前没有物品用到它 —— 原来用它的是第二章那两件图纸（已整章移除）。
       重新引入系统物品时，把「发放 / 使用」那条链路（原 config/campaign.ts + src/install.ts）一起补上。 */
   system?: boolean;
+  /** 装备特性标签（见 config/traits.ts）：现在是**装备自己的效果**（如【破甲】攻击时无视敌人固定防御），
+     不再是「打某个 Boss 的门槛」（requires / immune 已整条移除，2026-09-18）。
+     ⚠️ 特性是**物品定义**上的字段、不进存档 —— 同一件装备的所有实例带同样的标签。 */
+  traits?: string[];
+  /** 可成长饰品：初始 1 阶、上限 maxStage 阶。
+      阶把自身属性按系数放大；精炼到【极致】之后还可以「升华」升阶（清空精炼），
+      但**不给玩家任何提示**（见 庇护所扩展方案.md §4.13）。 */
+  growth?: { maxStage: number };
 }
 
 /** 套装加成：凑齐全部部件后额外生效的属性。attackInterval 是「出手间隔减少的秒数」。 */
 export interface SetBonus { attack?: number; hp?: number; defense?: number; regen?: number; attackInterval?: number; }
 
-/** itemId 是物品表下标。 */
-export interface DropEntry { itemId: number; chance: number; min: number; max: number; }
-/** art 是战斗卡片与图鉴里用的单字图标。defense 减免玩家造成的伤害，缺省按 0 处理。 */
+/** itemId 是物品表下标。tier 是**掉落档位**：缺省 = 所有难度都掉，
+    `n` = 只在「第 n 档难度」的区域掉（Boss 的三档各自给一件独占，见 Zone.difficulties）。 */
+export interface DropEntry { itemId: number; chance: number; min: number; max: number; tier?: number; }
+/** art 是战斗卡片与图鉴里用的单字图标。defense 减免玩家造成的伤害（【破甲】可以让它整条不算），缺省按 0 处理。 */
 export interface Enemy { art: string; name: string; description: string; maxHp: number; attack: number; defense?: number; attackInterval: number; gold: number; dropTable: DropEntry[]; }
 /** 区域解锁规则。**刻意和主线条件（MainlineRequirement）用同一套形状** ——
     这样冒险页的解锁提示、图鉴的「进入条件」、解锁公告三处都能直接复用主线那套条件渲染，
@@ -66,8 +81,21 @@ export interface UnlockRule {
       否则一进游戏会刷一屏「解锁：冒险「废弃边境」」。 */
   notice?: string | (() => string);
 }
+/** 区域种类：战斗区 / Boss 区 / 庇护所（没有敌人）。
+    **缺省由 enemyIds 推导**（空 = 庇护所，见 game-state 的 zoneKind）—— 只有 Boss 区域需要显式写。 */
+export type ZoneKind = 'combat' | 'boss' | 'camp';
+/** Boss 区域的一档难度：**换一组体态参数**（生命 / 攻击 / 防御 / 间隔各偏一头，不是把同一只怪乘个系数），
+    再挂上这一档的特性门槛与掉落档位。数值覆盖敌人表里的同名项 —— 敌人表那一组就是第 0 档（常规）。 */
+export interface ZoneDifficulty {
+  name: string;
+  hp: number; attack: number; defense: number; interval: number;
+  /** 这一档的金币奖励；缺省用敌人表里的 gold。 */
+  gold?: number;
+  /** 这一档能掉的掉落档位：`DropEntry.tier` 与它**严格相等**才判定（想要另一件就去打另一档）。 */
+  dropTier: number;
+}
 /** enemyIds 是敌人表下标。icon 是区域在界面上的图标（区域引用、图鉴里用）。 */
-export interface Zone { name: string; icon: string; description: string; enemyIds: number[]; /** 进入条件（可组合规则，见 UnlockRule）。 */ unlock: UnlockRule; /** 这个区域掉落的装备自带的精炼等级，缺省 0。越早的区域给得越高：早期装备靠喂太慢，直接送一档起步。 */ dropRefine?: number; /** 这个区域的「任务物品」物品下标（研究基地的委托要它）。非战斗区域没有，缺省 -1。 */ questItem?: number; }
+export interface Zone { name: string; icon: string; description: string; enemyIds: number[]; /** 进入条件（可组合规则，见 UnlockRule）。 */ unlock: UnlockRule; /** 这个区域掉落的装备自带的精炼等级，缺省 0。越早的区域给得越高：早期装备靠喂太慢，直接送一档起步。 */ dropRefine?: number; /** 这个区域的「任务物品」物品下标（研究基地的委托要它）。非战斗区域没有，缺省 -1。 */ questItem?: number; /** 区域种类；缺省由 enemyIds 推导（见 ZoneKind）。 */ kind?: ZoneKind; /** **复活计时**（秒）：击杀之后到下一只出现要等多久，缺省用全局的 `SPAWN_COOLDOWN`。⚠️ 它**不**作用于「进入区域 / 换难度」—— 那两种走全局值，否则每次进门都要干等一场复活。 */ spawnCooldown?: number; /** Boss 区域的难度档，**下标即 `adventure.difficulty`**。 */ difficulties?: ZoneDifficulty[]; }
 /** 一张勘探图：集齐 tiles 里的碎片 → 拼合成地图 → 派勘探队 → 成功才解锁它指向的区域
     （哪张图解锁哪个区域，写在 config/zones.ts 的 unlockBy.map(...) 里）。 */
 export interface MapSet {
@@ -84,7 +112,16 @@ export interface MapSet {
 export interface LogEntry { time: string; message: string; type: LogType; }
 /** zoneId / enemyId 都是各自表的下标。spawnTimer 是距离下一个敌人出现的剩余秒数，0 表示场上已有敌人。
     attackCount 是累计出手次数，词条赋予的技能按它决定第几次触发。 */
-export interface AdventureState { zoneId: number; running: boolean; enemyId: number; enemyHp: number; spawnTimer: number; playerHp: number; playerAttackTimer: number; enemyAttackTimer: number; autoPush: boolean; battleCount: number; attackCount: number; }
+export interface AdventureState { zoneId: number; running: boolean; enemyId: number; enemyHp: number; spawnTimer: number; /** 这一轮刷怪冷却的**总时长**（界面画环形进度用）：进场是全局值，击杀后是区域的复活计时 —— 两者可能不一样，所以单独记。 */ spawnTotal: number; playerHp: number; playerAttackTimer: number; enemyAttackTimer: number; autoPush: boolean; battleCount: number; attackCount: number;
+  /** Boss 区域的难度档（下标，见 `Zone.difficulties`）；非 Boss 区域恒 0。
+      换档时场上那只**未被击败**的会被作废、等全局刷怪冷却才有下一只（见 selectDifficulty）。 */
+  difficulty: number;
+  /** 手动模式：玩家侧不再自动出手，改由点技能触发（解锁见 2-4）。 */
+  manual: boolean;
+  /** 【格挡】的剩余窗口（秒）：> 0 时下一记受到的伤害按格挡值减少，挨完立刻清零（见 BLOCK）。 */
+  blockTimer: number;
+  /** 手动模式下各技能的剩余冷却（秒），下标即技能槽位；随 tick 递减。 */
+  skillTimers: number[]; }
 /** 装备词条：id 是词条表下标（config/affixes.ts），value 是当前数值。
     初始值取词条表的 base，上限固定为 base 的两倍；同一件装备上同名词条只会有一条，
     再次使用同款强化物就是给那一条加数值。 */
@@ -92,7 +129,7 @@ export interface Affix { id: number; value: number; }
 /** 装备实例：同一件装备可以有多个，每一件都是独立个体。
     装备槽里存的是实例 id 而不是物品 id，所以「哪一张卡片被装备」是确定的；
     词条也挂在这里，同名装备的每一件各带各的词条。 */
-export interface EquipmentInstance { id: number; itemId: number; affixes?: Affix[]; /** 精炼等级（0~REFINE_MAX）：每级让这件装备的自身属性 +1%。缺省按 0 处理。 */ refine?: number; }
+export interface EquipmentInstance { id: number; itemId: number; affixes?: Affix[]; /** 精炼等级（0~REFINE_MAX）：每级让这件装备的自身属性 +1%。缺省按 0 处理。 */ refine?: number; /** 可成长饰品的阶（1 起，上限见物品的 `growth.maxStage`）。缺省按 1 处理。 */ stage?: number; }
 /** equipped[装备类型][槽位下标] = 装备实例 id，-1 表示该槽位为空。 */
 export type EquipmentState = number[][];
 /** notify：随机事件触发时是否弹窗提醒（超时未响应一律跳过，见 game-state 的 PENDING_EVENT_TIMEOUT）。
@@ -129,7 +166,16 @@ export interface CampBattleState { kind: number; id: number; name: string; icon:
 export interface GameState { gold: number; scrap: number; essence: number; totalWins: number; mainlineIndex: number; /** 逐物品的「不再拾取」开关（成就「精炼初学者」的奖励）：下标即物品下标，1 = 掉到地上也不捡。 */ noPickup: number[]; /** 后续章节的进度，下标即 game-state 的 storyChapters 下标（0 = 第二章）：与 mainlineIndex 同一套写法，下标在前 = 该节已完成。 */ chapters: number[]; /** 每个战斗区域的累计击杀数，下标即区域下标（主线第二章的「在该区域击杀 N 只」读它）。 */ zoneWins: number[]; workshop: number; equipped: EquipmentState; settings: SettingsState; inventory: number[]; equipment: EquipmentInstance[]; nextInstanceId: number; encountered: number[]; discoveredDrops: number[][]; adventure: AdventureState; logistics: LogisticsState; campWorkshop: WorkshopItemState[]; camp: CampState; achievements: number[]; notices: number[]; /** 已经看过的新手指引 id（见 guide.ts 的 GUIDES）。 */ guides: string[]; log: LogEntry[]; lastTick: number; /** 开发者面板对派生数值的覆盖值，-1 表示不覆盖（正式构建里读取代码会被摇掉）。 */
   devOverrides: number[];
   /** 研究基地：研究点数、当前委托（itemId 为 -1 表示尚未发布）、各研究项等级。 */
-  researchPoints: number; /** 当前委托已经刷新过几次：刷新费用按它递增，交委托后归零。 */ researchRefreshCount: number; researchTask: ResearchTaskState; researchLevels: number[]; /** 自动进食：研究项「自动进食」解锁后生效。 */ autoEat: AutoEatState; /** 曾经精炼到 100 级（【极致】）的物品下标。喂掉那件之后依然保留 —— 这是「达成过」的记录，不是持有状态。 */ perfectItems: number[]; }
+  researchPoints: number; /** 当前委托已经刷新过几次：刷新费用按它递增，交委托后归零。 */ researchRefreshCount: number; researchTask: ResearchTaskState; researchLevels: number[]; /** 自动进食：研究项「自动进食」解锁后生效。 */ autoEat: AutoEatState; /** 曾经精炼到 100 级（【极致】）的物品下标。喂掉那件之后依然保留 —— 这是「达成过」的记录，不是持有状态。 */ perfectItems: number[];
+  /** 每只怪的击败总数，下标即敌人表下标（`unlockBy.boss()` 与图鉴读它）。 */
+  enemyWins: number[];
+  /** 每只 Boss **已通关的难度**：下标即敌人表下标、值是位掩码（第 n 位 = 第 n 档已通关）。
+      条件「击败常规难度一次」要按档判，所以不能只看总击败数。 */
+  bossClears: number[];
+  /** 各技能槽位的等级，下标即 config/skills.ts 的下标（【普通攻击】初始 1 级）。 */
+  skills: number[];
+  /** 军事训练：每个技能槽一项（下标 = `config/skills.ts` 的下标，等级记在 `skills`）。 */
+  drills: DrillState[]; }
 /* ——— 道具的使用行为 ———
    use 是函数而不是数据：不同道具要做的事差别太大（回血、加词条、按品阶移除词条…），
    而且以后还要加更多「点击使用后选目标」的道具。配置表里的 use 只通过 UseContext 操作状态，
@@ -230,6 +276,32 @@ export interface HelpSection { title: string; lines: string[]; }
 /** 一个页面的帮助。**「怎么用」只写在这里**，页面标题下那句 `<p>` 只负责氛围（见 UI开发规范 §7.18）——
     帮助文案维护在 config/help.ts，键是页面的 id（同时也是标题右侧【帮助】按钮上的 data-help 值）。 */
 export interface HelpPage { name: string; sections: HelpSection[]; }
+
+/** 军事训练的一项：`target` 是正在练的目标等级（-1 表示空闲），`work` 是已投入工时（人数 × 秒）。
+    ⚠️ 与工坊制造项（`WorkshopItemState`）是**同一套形状**：两者都是「派人 → 攒工时 → 升级」，
+    所以可以同时练几项（每个技能各占一个后勤位，见 game-state 的 drillSlot）。 */
+export interface DrillState { target: number; work: number; }
+
+/** 一个技能槽位的静态定义（表在 `config/skills.ts`，**下标即槽位**）。
+    ⚠️ `state.skills` 与 `adventure.skillTimers` 都按下标存，所以槽位顺序不能动。 */
+export interface Skill {
+  id: string;
+  /** 占位槽：名称与效果都还没定（界面显示锁定 + `???`，也不能被军事训练选到）。 */
+  placeholder?: boolean;
+  name: string;
+  icon: string;
+  /** 类别下标（`SKILL_CATEGORY`）：0 攻击 / 1 防御 / 2 辅助 —— 就是战斗控制区的三排。 */
+  category: number;
+  /** 冷却秒数；`fromAttackInterval` 为 true 时跟随玩家的出手间隔（普通攻击就是它）。 */
+  cooldown: number;
+  fromAttackInterval?: boolean;
+  /** ⚠️ **没有等级上限**：技能可以一直练下去（坡度靠军事训练的成本与总工时，见 config/skills.ts）。 */
+  unlock: UnlockRule;
+  /** 当前等级的**紧凑数值**（军事训练卡片右上那一格，同工坊的「生命 +120」）。 */
+  summary: (level: number) => string;
+  /** 当前等级的效果说明（军事训练卡片的悬停浮层用它，现算、不进存档）。 */
+  effect: (level: number) => string;
+}
 
 /* ——— 剧情任务（第二类「远征档案」章节）已整章移除 ———
    原来这里放 QuestCost / QuestInstall / CampaignQuest 三个类型，配套的是

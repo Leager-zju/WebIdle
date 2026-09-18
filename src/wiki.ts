@@ -3,6 +3,7 @@ import { affixes, affixCap } from './config/affixes';
 import { enemyTable, zones, zoneOfEnemy, zoneOfMap, questItemOf, QUEST_DROP_CHANCE, SOLVENT_DROP_CHANCE } from './config/zones';
 import { campEventDef, campEventEntries } from './config/events';
 import { mapSets, fragmentMapOf } from './config/maps';
+import { traitName, traitDesc } from './config/traits';
 import { codexEntry, onWikiUnlockChange } from './codex-ref';
 import { getState, isEncountered, isDropDiscovered, isItemDiscovered, isZoneUnlocked, isCampEventTimerRunning, getCampEventInfo, formatNumber, formatSeconds, setTable, setOfItem, setOfZone, getSetWorn, isPerfectItem, setBonusEntries, perfectBonusEntries, isItemFilterUnlocked, isItemNoPickup, setItemNoPickup } from './game-state';
 import type { ItemCategory } from './types';
@@ -86,9 +87,16 @@ function sectionMarkup(title: string, body: string): string { return `<section c
 /** 一排格子。列表页与条目页的小节统一走它，不要再各自拼 `wiki-grid`。
     extraClass 目前只有 'is-stacked'（单列，每条占满一整行，见怪物页的掉落表）。 */
 function cellGridMarkup(cells: string[], extraClass = ''): string { return `<div class="wiki-grid${extraClass ? ` ${extraClass}` : ''}">${cells.join('')}</div>`; }
-/** 掉落表的一格：物品格 + 角注写概率与数量区间。没拿到过的不剧透，只给占位格。 */
-function dropCellMarkup(drop: { itemId: number; chance: number; min: number; max: number }, discovered: boolean): string {
-  return discovered ? entryCellMarkup('item', drop.itemId, `${Math.round(drop.chance * 100)}% · ${drop.min}~${drop.max} 个`) : lockedCellMarkup();
+/** 掉率的显示：≥1% 取整（12%），<1% 留一位小数（0.2%）——
+    余烬核心已经降到千分之几，取整会写成「0%」，那等于告诉玩家「这东西不会掉」。 */
+function chanceText(chance: number): string {
+  const percent = chance * 100;
+  return percent >= 1 ? `${Math.round(percent)}%` : `${percent.toFixed(1)}%`;
+}
+/** 掉落表的一格：物品格 + 角注写概率与数量区间。没拿到过的不剧透，只给占位格。
+    tierLabel 是「这一条只在某个难度档掉」的提示（Boss 的独占件），没有就留空。 */
+function dropCellMarkup(drop: { itemId: number; chance: number; min: number; max: number; tier?: number }, discovered: boolean, tierLabel = ''): string {
+  return discovered ? entryCellMarkup('item', drop.itemId, `${chanceText(drop.chance)} · ${drop.min}~${drop.max} 个${tierLabel}`) : lockedCellMarkup();
 }
 
 /** 区域掉落：不在任何怪物的 dropTable 里，而是这一区**所有**怪物统一走的通道
@@ -258,9 +266,16 @@ function itemBody(id: number): string {
   }
 
   const lines = [`<p class="wiki-desc">${item.description}</p>`, factsMarkup(facts)];
+  /* 特性（只有带标签的装备才有）：特性是装备自己的效果，说明必须写出来 —— 只给名字等于没给。 */
+  if (item.traits?.length) lines.push(sectionMarkup('特性', item.traits.map(id => `<p class="wiki-note">${traitName(id)}：${traitDesc(id)}</p>`).join('')));
   if (item.grantsAffix !== undefined) {
     const definition = affixes[item.grantsAffix];
-    lines.push(sectionMarkup('附加词条', `<p class="wiki-note">给一件装备刻上「${definition.name}」—— ${definition.desc}。首次 +${definition.base}${definition.unit}，重复使用再 +${definition.step}${definition.unit}，最高 +${affixCap(item.grantsAffix)}${definition.unit}。同名词条只会有一条。</p>`));
+    /* 限定强化物（只能刻某类装备 / 不能重复）要按限制写 —— 照抄「重复使用再 +N」那句对它不成立。 */
+    const scope = item.affixEquipType !== undefined && equipTypes[item.affixEquipType] ? equipTypes[item.affixEquipType].name : '装备';
+    const growth = item.affixUnique
+      ? '每件装备只能刻一条（不能重复叠上去）。'
+      : `首次 +${definition.base}${definition.unit}，重复使用再 +${definition.step}${definition.unit}，最高 +${affixCap(item.grantsAffix)}${definition.unit}。同名词条只会有一条。`;
+    lines.push(sectionMarkup('附加词条', `<p class="wiki-note">给一件${scope}刻上「${definition.name}」—— ${definition.desc}。${growth}</p>`));
   } else if (item.useText) {
     lines.push(sectionMarkup('使用效果', `<p class="wiki-note">${item.useText}</p>`));
   }
@@ -306,12 +321,22 @@ function enemyBody(id: number): string {
      专属 —— 这只怪物自己的 dropTable，逐条揭示（真的从它身上拿到过才显示名称与概率）；
      区域 —— 这一区所有怪物共有的（套装部件 + 任务物品），一律揭示；
      通用 —— 清洗剂，任何怪物都可能掉，与区域和种类都无关。 */
-  const drops = enemy.dropTable.map(drop => dropCellMarkup(drop, isDropDiscovered(id, drop.itemId, state)));
   const zoneId = zoneOfEnemy(id);
+  /* Boss 区域的难度档：三档各有自己的体态、门槛与掉落档位（见 config/zones.ts）。 */
+  const difficulties = zoneId >= 0 ? zones[zoneId]?.difficulties || [] : [];
+  const tierLabel = (tier?: number): string => {
+    if (!tier) return '';
+    const entry = difficulties.find(candidate => candidate.dropTier === tier);
+    return entry ? ` · ${entry.name}档` : '';
+  };
+  const drops = enemy.dropTable.map(drop => dropCellMarkup(drop, isDropDiscovered(id, drop.itemId, state), tierLabel(drop.tier)));
   const zoneDrops = zoneId >= 0 ? zoneDropCells(zoneId) : [];
+  /* 难度档：三档逐档更强，各自的体态要查得到（难度不再有特性门槛，只有数值）。 */
+  const difficultyRows = difficulties.map(entry => `<p class="wiki-note">${entry.name}：生命 ${formatNumber(entry.hp)} · 攻击 ${formatNumber(entry.attack)} · 防御 ${formatNumber(entry.defense)} · 出手 ${formatSeconds(entry.interval)}</p>`);
   return [
     `<p class="wiki-desc">${enemy.description}</p>`,
     factsMarkup(facts),
+    difficultyRows.length ? sectionMarkup('难度档', difficultyRows.join('')) : '',
     sectionMarkup('专属掉落', cellGridMarkup(drops, 'is-stacked')),
     zoneDrops.length ? sectionMarkup('区域掉落', `${cellGridMarkup(zoneDrops, 'is-stacked')}<p class="wiki-note">${zones[zoneId].name}的所有怪物共用这几项，和各自的掉落表互不影响。任务物品只在研究基地的委托指向这一区时才会掉。</p>`) : '',
     sectionMarkup('通用掉落', `<p class="wiki-note">任何怪物都有 ${(SOLVENT_DROP_CHANCE * 100).toFixed(1)}% 的概率掉一瓶清洗剂，三种随机出一种 —— 与区域、怪物种类都无关。</p>`),
@@ -326,9 +351,12 @@ function zoneBody(id: number): string {
   /* 进入条件直接渲染区域自己的解锁规则（见 config/unlock.ts）—— 规则换成地图 / 任意组合时，
      这里不用改一个字：条件文案与达成状态都从规则里取，和冒险页、解锁提示共用同一份。 */
   const unlock = zone.unlock;
+  /* Boss 区域：难度档在冒险页可切，怪物页写着三档的体态 —— 这一页只点明「它是 Boss 区域」。 */
+  const difficulties = zone.difficulties || [];
   return [
     `<p class="wiki-desc">${zone.description}</p>`,
     sectionMarkup('进入条件', statusLine(unlock.text(state), unlock.done(state))),
+    difficulties.length ? sectionMarkup('难度档', `<p class="wiki-note">这里是 Boss 区域：${difficulties.map(entry => entry.name).join(' / ')} 三档可以在冒险页随时切换，三档的身板与掉落都不一样，越往上越硬。点下面那只怪物看每一档的具体数值。</p>`) : '',
     sectionMarkup(camp ? '这里有什么' : '会遇到的怪物', camp
       ? '<p class="wiki-note">非战斗区域：不会遭遇敌人，生命恢复速度远高于野外，适合修整与等待后勤推进。</p>'
       : cellGridMarkup(zone.enemyIds.map(enemyId => (isEncountered(enemyId, state) ? entryCellMarkup('enemy', enemyId) : lockedCellMarkup()))))
